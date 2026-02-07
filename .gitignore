@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+#data
+*.ctf
+gen_data/
+*.secretdata
+temp_data/
+
+#model
+*.joblib

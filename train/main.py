@@ -44,7 +44,7 @@ def get_feature(grain_size: list[int]):
 def train(C: float, X, y):
     clf = make_pipeline(
         StandardScaler(),
-        SVC(kernel='rbf', C=C, class_weight='balanced')
+        SVC(kernel='rbf', C=C, class_weight='balanced', gamma=1)
     )
     clf.fit(X, y)
     return clf

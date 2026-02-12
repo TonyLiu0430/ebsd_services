@@ -67,16 +67,16 @@ def ebsd_to_features(path: pathlib.Path):
     grains = grain_sizes(ebsd_map)
     return grains
 
-@app.middleware("http")
-async def log_request(request, call_next):
-    print(f"[IN] {request.method} {request.url.path}")
-    try:
-        response = await call_next(request)
-        print(f"[OUT] {request.method} {request.url.path} -> {response.status_code}")
-        return response
-    except Exception as e:
-        print(f"[ERR] {request.method} {request.url.path}: {e}")
-        raise
+# @app.middleware("http")
+# async def log_request(request, call_next):
+#     print(f"[IN] {request.method} {request.url.path}")
+#     try:
+#         response = await call_next(request)
+#         print(f"[OUT] {request.method} {request.url.path} -> {response.status_code}")
+#         return response
+#     except Exception as e:
+#         print(f"[ERR] {request.method} {request.url.path}: {e}")
+#         raise
 
 @app.post('/all_data')  
 def all_data(files: Annotated[List[UploadFile], File(...)], meta_data: Annotated[str, Form(...)]):
@@ -111,12 +111,38 @@ def all_data(files: Annotated[List[UploadFile], File(...)], meta_data: Annotated
 
     return res
 
+@app.post('/grains')  
+def grains(files: Annotated[List[UploadFile], File(...)]):
+    if len(files) != 2:
+        raise HTTPException(status_code=422, detail='crc cpr unpaired')
+    
+    if files[0].filename is None or files[1].filename is None:
+        raise HTTPException(status_code=422, detail='file no name')
+    
+    if not files[0].filename.endswith('crc') or not files[1].filename.endswith('cpr'):
+        raise HTTPException(status_code=422, detail='crc cpr unpaired')
+    
+    crc_file, cpr_file = files
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base_name = "input_data"
+        crc_save_path = os.path.join(temp_dir, base_name + ".crc")
+        cpr_save_path = os.path.join(temp_dir, base_name + ".cpr")
+
+        with open(crc_save_path, "wb") as f:
+            shutil.copyfileobj(crc_file.file, f)
+        with open(cpr_save_path, "wb") as f:
+            shutil.copyfileobj(cpr_file.file, f)
+
+        return ebsd_to_features(pathlib.Path(crc_save_path))
+
 FEATURES: Dict[str, Callable[[List[int], List[int]], float]] = {
-    "Overall_distribution : wasserstein_distance / mean": Overall_distribution_analysis,
+    "overall distribution : wasserstein_distance / mean": Overall_distribution_analysis,
     "mean": mean_compare,
     "max": max_compare,
     "25 percentiles": p25_compare,
     "75 percentiles": p75_compare,
+    "standard deviation": sd_compare
 }
 
 @app.get('/ebsd_features')
@@ -145,6 +171,8 @@ def analysis(req: AnalysisRequest):
             for feat in req.features:
                 handler = FEATURES[feat]
                 statRes.append(handler(req.data[req.golden][pos], grain_data))
+
+            # TODO 改用 Winsorized mean 並且前端要可調整權重
             avg = statistics.mean(statRes)
             res.setdefault(sample, {})[pos] = avg
     return res

@@ -18,6 +18,10 @@ def Overall_distribution_analysis(golden: List[int], sample: List[int]) -> float
 def mean_compare(golden: List[int], sample: List[int]) -> float:
     return numeric_compare(statistics.mean(golden), statistics.mean(sample))
 
+# Standard Deviation
+def sd_compare(golden: List[int], sample: List[int]) -> float:
+    return numeric_compare(statistics.stdev(golden), statistics.stdev(sample))
+
 def max_compare(golden: List[int], sample: List[int]) -> float:
     return numeric_compare(max(golden), max(sample))
 

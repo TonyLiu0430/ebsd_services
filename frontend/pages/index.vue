@@ -13,7 +13,7 @@
         <span>{{ sample_name }}</span>
       </div>
       <div></div>
-      <button @click="submit" :disabled="loading">{{ loading ? '處理中...' : '送出' }}</button>
+      <button @click="submit" :disabled="loading">{{ loading ? `處理中... (${doneCount}/${pairs.length})` : '送出' }}</button>
       <br>
       <el-text v-if="error" class="mx-1" type="danger">{{ error }}</el-text>
       <div v-if="result">
@@ -66,18 +66,17 @@ const selectedFolder = ref('')
 const samples = ref(new Set<string>())
 const pairs = ref<FilePair[]>([])
 const loading = ref(false)
+const doneCount = ref(0)
 const result = ref<AllDataResult | null>(null)
 const error = ref('')
 const goldenSample = ref('')
 const selectedFeatures = ref<string[]>([])
 const analysisRes = ref<AnalysisResult | null>(null)
 
-// 顏色範圍閾值設定（百分比）[low, high]
 const colorThresholds = ref([30, 70])
 
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 
-// 顏色選擇函式
 function getColorForValue(valuePercent: number): string {
   const [low, high] = colorThresholds.value
   if (valuePercent <= low) return "#10B981"
@@ -85,7 +84,6 @@ function getColorForValue(valuePercent: number): string {
   return "#F59E0B"
 }
 
-// 將分析結果轉換為 ninepos component 需要的格式
 function convertToNineposFormat(sampleData: Record<string, number>) {
   const positionMap: Record<string, { col: string; row: string }> = {
     'C-U': { col: 'center', row: 'up' },
@@ -167,19 +165,28 @@ async function submit() {
   loading.value = true
   error.value = ''
   result.value = null
-  
-  const formData = new FormData()
-  const metas: { sample: string; pos: string }[] = []
-  
-  for (const p of pairs.value) {
-    formData.append('files', p.crc)
-    formData.append('files', p.cpr)
-    metas.push({ sample: p.sample, pos: p.pos })
-  }
-  formData.append('meta_data', JSON.stringify(metas))
+  doneCount.value = 0
   
   try {
-    result.value = await $fetch<AllDataResult>('/api/all_data', { method: 'POST', body: formData })
+    const promises = pairs.value.map(async (p) => {
+      const formData = new FormData()
+      formData.append('files', p.crc)
+      formData.append('files', p.cpr)
+      
+      const grains = await $fetch<number[]>('/api/grains', { method: 'POST', body: formData })
+      doneCount.value++
+      return { sample: p.sample, pos: p.pos, grains }
+    })
+
+    const results = await Promise.all(promises)
+
+    const allResult: AllDataResult = {}
+    for (const res of results) {
+      if (!allResult[res.sample]) allResult[res.sample] = {}
+      allResult[res.sample][res.pos] = res.grains
+    }
+    
+    result.value = allResult
   } catch (e: unknown) {
     const err = e as { data?: { message?: string }; message?: string }
     error.value = err.data?.message || err.message || 'Unknown error'

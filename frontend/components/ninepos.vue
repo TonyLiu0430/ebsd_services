@@ -5,23 +5,23 @@ import { computed } from "vue";
 const props = defineProps({
   blocks: {
     type: Object,
-    default: () => ({
-      center: {
-        up: { value: 30, color: "#F59E0B" },
-        mid: { value: 20, color: "#F59E0B" },
-        bottom: { value: 10, color: "#F59E0B" },
-      },
-      middle: {
-        up: { value: 15, color: "#F59E0B" },
-        mid: { value: 10, color: "#F59E0B" },
-        bottom: { value: 5, color: "#F59E0B" },
-      },
-      edge: {
-        up: { value: 5, color: "#F59E0B" },
-        mid: { value: 3, color: "#F59E0B" },
-        bottom: { value: 2, color: "#F59E0B" },
-      },
-    }),
+  //   default: () => ({
+  //     center: {
+  //       up: { value: 30, color: "#F59E0B" },
+  //       mid: { value: 20, color: "#F59E0B" },
+  //       bottom: { value: 10, color: "#F59E0B" },
+  //     },
+  //     middle: {
+  //       up: { value: 15, color: "#F59E0B" },
+  //       mid: { value: 10, color: "#F59E0B" },
+  //       bottom: { value: 5, color: "#F59E0B" },
+  //     },
+  //     edge: {
+  //       up: { value: 5, color: "#F59E0B" },
+  //       mid: { value: 3, color: "#F59E0B" },
+  //       bottom: { value: 2, color: "#F59E0B" },
+  //     },
+  //   }),
   },
 });
 
@@ -159,7 +159,7 @@ const arrowDots = computed(() => {
                 :x="cube.w / 2"
                 :y="cube.h / 2 + 5"
                 text-anchor="middle"
-                font-size="15"
+                font-size="13"
                 font-weight="900"
                 fill="#111"
               >

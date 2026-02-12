@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h1>EBSD 資料夾選取</h1>
+    <h1>EBSD 分析</h1>
     
     <div class="upload-area" @click="triggerInput" @dragover.prevent @drop.prevent="handleDrop">
       <input ref="folderInput" type="file" webkitdirectory directory multiple @change="handleSelect" />
@@ -9,30 +9,57 @@
 
     <div v-if="pairs.length" class="result">
       <h3>已選取: {{ selectedFolder }} 共 {{ samples.size }} 個靶材 ({{ pairs.length }} 個 ebsd 掃描資料)</h3>
-      <div class="golden-sample-selector">
-        <label for="goldenSampleSelect">選擇 Golden Sample:</label>
-        <select id="goldenSampleSelect" v-model="goldenSample">
-          <option value="">-- 未選擇 --</option>
-          <option v-for="sample_name in samples" :key="sample_name" :value="sample_name">
-            {{ sample_name }}
-          </option>
-        </select>
-      </div>
       <div v-for="(sample_name) in samples" :key="sample_name" class="pair-row">
         <span>{{ sample_name }}</span>
       </div>
       <div></div>
       <button @click="submit" :disabled="loading">{{ loading ? '處理中...' : '送出' }}</button>
-      <!-- <pre v-if="result">{{ result }}</pre> -->
-      <Ninepos v-if="result"></Ninepos>
-      <p v-if="error" class="error">{{ error }}</p>
+      <br>
+      <el-text v-if="error" class="mx-1" type="danger">{{ error }}</el-text>
+      <div v-if="result">
+        <div>選擇分析項目</div>
+        <el-checkbox-group v-model="selectedFeatures">
+          <el-checkbox v-for="feat in featuresOptions || []" :key="feat" :label="feat" :value="feat" />
+        </el-checkbox-group>
+        <div class="golden-sample-selector">
+          <label for="goldenSampleSelect">選擇 Golden Sample:</label>
+          <select id="goldenSampleSelect" v-model="goldenSample">
+            <option value="">-- 未選擇 --</option>
+            <option v-for="sample_name in samples" :key="sample_name" :value="sample_name">
+              {{ sample_name }}
+            </option>
+          </select>
+        </div>
+        <el-button @click="analysis">apply</el-button>
+        <div v-if="analysisRes">
+          <h3>分析結果</h3>
+          <div class="color-range-settings">
+            <h4>顏色範圍設定（%）</h4>
+            <div class="color-slider-wrap">
+              <div class="color-bar">
+                <div class="seg green" :style="{ width: colorThresholds[0] + '%' }"></div>
+                <div class="seg yellow" :style="{ width: (colorThresholds[1] - colorThresholds[0]) + '%' }"></div>
+                <div class="seg red" :style="{ width: (100 - colorThresholds[1]) + '%' }"></div>
+              </div>
+              <el-slider v-model="colorThresholds" range :min="0" :max="100" :step="1" :show-tooltip="true" />
+            </div>
+          </div>
+          <div v-for="(sampleData, sampleName) in analysisRes" :key="sampleName" style="margin-bottom: 2rem;">
+            <h4>{{ sampleName }}</h4>
+            <ninepos :blocks="convertToNineposFormat(sampleData)" />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 interface FilePair { name: string; crc: File; cpr: File; sample: string; pos: string }
+// type Ebsd_Features = number[]
 type AllDataResult = Record<string, Record<string, number[]>>
+type TODO = any
+type AnalysisResult = Record<string, Record<string, number>>
 
 const folderInput = ref<HTMLInputElement>()
 const selectedFolder = ref('')
@@ -42,6 +69,55 @@ const loading = ref(false)
 const result = ref<AllDataResult | null>(null)
 const error = ref('')
 const goldenSample = ref('')
+const selectedFeatures = ref<string[]>([])
+const analysisRes = ref<AnalysisResult | null>(null)
+
+// 顏色範圍閾值設定（百分比）[low, high]
+const colorThresholds = ref([30, 70])
+
+const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
+
+// 顏色選擇函式
+function getColorForValue(valuePercent: number): string {
+  const [low, high] = colorThresholds.value
+  if (valuePercent <= low) return "#10B981"
+  if (valuePercent >= high) return "#EF4444"
+  return "#F59E0B"
+}
+
+// 將分析結果轉換為 ninepos component 需要的格式
+function convertToNineposFormat(sampleData: Record<string, number>) {
+  const positionMap: Record<string, { col: string; row: string }> = {
+    'C-U': { col: 'center', row: 'up' },
+    'C-M': { col: 'center', row: 'mid' },
+    'C-B': { col: 'center', row: 'bottom' },
+    'M-U': { col: 'middle', row: 'up' },
+    'M-M': { col: 'middle', row: 'mid' },
+    'M-B': { col: 'middle', row: 'bottom' },
+    'E-U': { col: 'edge', row: 'up' },
+    'E-M': { col: 'edge', row: 'mid' },
+    'E-B': { col: 'edge', row: 'bottom' },
+  }
+  
+  const result: Record<string, Record<string, { value: number; color: string }>> = {
+    center: {},
+    middle: {},
+    edge: {},
+  }
+  
+  for (const [posKey, value] of Object.entries(sampleData)) {
+    const mapping = positionMap[posKey]
+    if (mapping) {
+      const valuePercent = Number((value * 100).toFixed(1))
+      result[mapping.col][mapping.row] = {
+        value: valuePercent,
+        color: getColorForValue(valuePercent),
+      }
+    }
+  }
+  
+  return result
+}
 
 function triggerInput() { folderInput.value?.click() }
 
@@ -107,6 +183,33 @@ async function submit() {
     loading.value = false
   }
 }
+
+const analysis = async () => {
+  if(selectedFeatures.value.length == 0 || goldenSample.value == '') {
+    ElMessageBox.alert('請至少選擇一個 分析項目 及 golden sample', '警告', {
+      confirmButtonText: 'OK',
+    })
+    return
+  }
+  if(result.value == null) {
+    ElMessageBox.alert('沒有數據', '警告', {
+      confirmButtonText: 'OK',
+    })
+    return
+  }
+  analysisRes.value = null
+  const res = await $fetch<AnalysisResult>('/api/analysis', {
+    method: 'POST',
+    body: {
+      golden: goldenSample.value,
+      features: selectedFeatures.value,
+      data: result.value
+    }
+  })
+  analysisRes.value = res
+}
+
+
 </script>
 
 <style scoped>
@@ -124,4 +227,52 @@ button { margin-top: 1rem; padding: 0.5rem 1.5rem; background: #333; color: #fff
 button:disabled { background: #999; }
 pre { margin-top: 1rem; background: #fff; padding: 1rem; border-radius: 4px; overflow: auto; max-height: 300px; font-size: 0.8rem; }
 .error { color: #c00; margin-top: 1rem; }
+
+.color-range-settings {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 8px;
+  border: 2px solid #ddd;
+}
+.color-range-settings h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.color-slider-wrap {
+  position: relative;
+}
+
+.color-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+  z-index: 1;
+}
+
+.seg { height: 100%; transition: width 0.15s ease; }
+.seg.green  { background: #10B981; }
+.seg.yellow { background: #F59E0B; }
+.seg.red    { background: #EF4444; }
+
+.color-slider-wrap :deep(.el-slider) {
+  position: relative;
+  z-index: 2;
+}
+
+.color-slider-wrap :deep(.el-slider__runway) {
+  background: transparent;
+}
+
+.color-slider-wrap :deep(.el-slider__bar) {
+  background: transparent;
+}
 </style>

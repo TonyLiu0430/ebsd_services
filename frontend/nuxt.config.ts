@@ -1,6 +1,7 @@
 export default defineNuxtConfig({
   devtools: { enabled: false },
   ssr: false,
+  modules: ['@element-plus/nuxt'],
   app: {
     head: {
       title: 'EBSD Frontend'

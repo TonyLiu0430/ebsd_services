@@ -17,3 +17,6 @@ temp_data/
 
 #model
 *.joblib
+
+# env
+*.env

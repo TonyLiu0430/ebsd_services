@@ -67,8 +67,20 @@ def ebsd_to_features(path: pathlib.Path):
     grains = grain_sizes(ebsd_map)
     return grains
 
+@app.middleware("http")
+async def log_request(request, call_next):
+    print(f"[IN] {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+        print(f"[OUT] {request.method} {request.url.path} -> {response.status_code}")
+        return response
+    except Exception as e:
+        print(f"[ERR] {request.method} {request.url.path}: {e}")
+        raise
+
 @app.post('/all_data')  
 def all_data(files: Annotated[List[UploadFile], File(...)], meta_data: Annotated[str, Form(...)]):
+    print("start handle /all_data api")
     try:
         metas = ebsd_meta_adapter.validate_json(meta_data)
     except ValidationError as e:

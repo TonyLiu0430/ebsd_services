@@ -1,0 +1,13 @@
+:80 {
+
+    request_body {
+        max_size 1000MB 
+    }
+
+	handle_path /api/* {
+		reverse_proxy ml_backend:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

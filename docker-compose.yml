@@ -1,0 +1,40 @@
+version: '3.8'
+services:
+  ml_backend:
+    build: ./ML_backend
+    container_name: ebsd-ml-backend
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    container_name: ebsd-frontend
+    ports:
+      - "3000:3000"
+
+  caddy:
+    image: caddy:2
+    container_name: ebsd-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ebsd-cloudflared
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL}
+    depends_on:
+      - caddy
+    profiles: ["tunnel"]
+
+volumes:
+  caddy_data:
+  caddy_config:

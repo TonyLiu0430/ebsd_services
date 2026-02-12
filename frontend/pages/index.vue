@@ -127,13 +127,17 @@ function handleDrop(e: DragEvent) { processFiles(e.dataTransfer?.files) }
 
 function processFiles(fileList: FileList | null | undefined) {
   if (!fileList?.length) return
+  result.value = null
+
   const allFiles = Array.from(fileList)
   selectedFolder.value = allFiles[0]?.webkitRelativePath.split('/')[0] || ''
   
   const crcFiles = new Map<string, { file: File; sample: string; pos: string; num: string }>()
   const cprFiles = new Map<string, File>()
   
-  
+  samples.value = new Set()
+  pairs.value = []
+
   for (const f of allFiles) {
     if (!f.name.endsWith('.crc') && !f.name.endsWith('.cpr')) continue
     const parts = f.webkitRelativePath.split('/')
@@ -152,7 +156,7 @@ function processFiles(fileList: FileList | null | undefined) {
       if (!existing || num === '02') cprFiles.set(key, f)
     }
   }
-  pairs.value = []
+  
   for (const [key, { file: crc, sample, pos }] of crcFiles) {
     const cpr = cprFiles.get(key)
     if (cpr) pairs.value.push({ name: key, crc, cpr, sample, pos })
@@ -258,7 +262,7 @@ pre { margin-top: 1rem; background: #fff; padding: 1rem; border-radius: 4px; ove
   z-index: 1;
 }
 
-.seg { height: 100%; transition: width 0.15s ease; }
+.seg { height: 100%; }
 .seg.green  { background: #10B981; }
 .seg.yellow { background: #F59E0B; }
 .seg.red    { background: #EF4444; }

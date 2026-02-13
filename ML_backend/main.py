@@ -65,6 +65,7 @@ ebsd_meta_adapter = TypeAdapter(List[Ebsd_file_meta])
 def ebsd_to_features(path: pathlib.Path):
     ebsd_map = ebsd.Map(str(path))
     grains = grain_sizes(ebsd_map)
+    grains = [eq_radius(ebsd_map.step_size, grain) for grain in grains] # type: ignore
     return grains
 
 # @app.middleware("http")
@@ -136,7 +137,7 @@ def grains(files: Annotated[List[UploadFile], File(...)]):
 
         return ebsd_to_features(pathlib.Path(crc_save_path))
 
-FEATURES: Dict[str, Callable[[List[int], List[int]], float]] = {
+FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
     "overall distribution : wasserstein_distance / mean": Overall_distribution_analysis,
     "mean": mean_compare,
     "max": max_compare,
@@ -152,7 +153,7 @@ def ebsd_features():
 class AnalysisRequest(BaseModel):
     features: List[str]
     golden: str
-    data: Dict[str, Dict[str, List[int]]]
+    data: Dict[str, Dict[str, List[float]]]   
 
 
 @app.post('/analysis')

@@ -13,6 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(EbsdLib_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/share/EbsdLib")
 find_package(EbsdLib REQUIRED)
+find_package(unofficial-libsvm CONFIG REQUIRED)
 
 
 file(GLOB_RECURSE HEADERS "include/*.h" "include/*.hpp")
@@ -28,4 +29,4 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
 include_directories(include)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE EbsdLib::EbsdLib)
+target_link_libraries(${PROJECT_NAME} PRIVATE EbsdLib::EbsdLib unofficial::libsvm::libsvm)

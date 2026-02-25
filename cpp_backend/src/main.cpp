@@ -101,7 +101,7 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
     return data;
 }
 
-
+#include "svm_nestedCV.h"
 int main() {
     auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
     vector<vector<double>> X;
@@ -110,7 +110,16 @@ int main() {
         auto &[path, good] = value;
         auto [grains, orient] = features(path.string());
         X.push_back({(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)});
-        Y.push_back(good);
+        Y.push_back(good? 1 : -1);
         // cout << key << ": " << grains.size() << " grains, orientation ratio: " << std::get<0>(orient) << ", " << std::get<1>(orient) << ", " << std::get<2>(orient) << endl;
     }
+    NestedCVConfig cfg;
+    cfg.outer_k = 5;
+    cfg.inner_k = 3;
+    cfg.outer_repeats = 10;         // 小資料建議重複幾次，結果穩一點
+    cfg.use_balanced_class_weight = true;
+    cfg.verbose = true;
+
+    auto result = nested_cv_report_small_imbalanced(X, Y, cfg);
+    print_final_report(result);
 }

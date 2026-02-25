@@ -117,6 +117,7 @@ std::vector<int> find_grains(const vector<vector<QuatF>> &orientations, int min_
             }
         }
     }
+    std::sort(grains.begin(), grains.end());
     return grains;
 }
 

@@ -11,6 +11,7 @@ std::tuple<double, double, double> orientation_ratio(const float* euler1,
                                     uint8_t targetPhase = 1,
                                     std::array<double, 3> sampleDir = {0.0, 0.0, 1.0});
 
+inline 
 std::tuple<std::vector<int>, std::tuple<double, double, double>> features(const std::string &cpr_file_path) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_file_path);
@@ -28,7 +29,7 @@ std::tuple<std::vector<int>, std::tuple<double, double, double>> features(const 
         std::cout << "failed to read euler angles" << std::endl;
     }
     
-    vector<vector<QuatF>> orientations(yDim, vector<QuatF>(xDim));
+    std::vector<std::vector<QuatF>> orientations(yDim, std::vector<QuatF>(xDim));
     for (int y = 0; y < yDim; ++y) {
         for (int x = 0; x < xDim; ++x) {
             int p = y * xDim + x;
@@ -38,7 +39,6 @@ std::tuple<std::vector<int>, std::tuple<double, double, double>> features(const 
         }
     }
     auto grains = find_grains(orientations);
-    std::sort(grains.begin(), grains.end(), std::greater<int>());
     auto orient = orientation_ratio(euler1, euler2, euler3, xDim * yDim, phase);
     return {grains, orient};
 }

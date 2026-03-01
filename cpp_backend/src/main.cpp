@@ -8,7 +8,7 @@
 #include <ranges>
 #include <map>
 #include "ebsd.h"
-#include <ranges>
+#include <nlohmann/json.hpp>
 
 using std::vector;
 using std::pair;
@@ -79,21 +79,30 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
             }
 
             const std::string pos = trim(p.stem().string());
+            const std::string base_key = data_patch + "-" + pos;
 
             if (!has_num || num == "01") {
-                data[data_patch + "-" + pos] = std::make_pair(p, true);
-            } else {
-                const std::string key02 = data_patch + "-" + pos + "-02";
-                const std::string base_key = data_patch + "-" + pos;
+                data[base_key] = std::make_pair(p, true);
+            } 
+            else {
+                int current_ver = std::stoi(num);
+                std::string current_key = base_key + "-" + std::to_string(current_ver);
 
-                data[key02] = std::make_pair(p, true);
+                data[current_key] = std::make_pair(p, true);
 
-                auto it = data.find(base_key);
-                if (it == data.end()) {
-                    throw std::runtime_error("Base key not found before -02: " + base_key);
+                std::string prev_key;
+                if (current_ver == 2) {
+                    prev_key = base_key;
+                } else {
+                    prev_key = base_key + "-" + std::to_string(current_ver - 1);
                 }
 
-                it->second = std::make_pair(it->second.first, false);
+                auto it = data.find(prev_key);
+                if (it == data.end()) {
+                    throw std::runtime_error("Previous version key not found for current version " + num + ": " + prev_key);
+                }
+
+                it->second.second = false;
             }
         }
     }
@@ -104,22 +113,52 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
 #include "svm_nestedCV.h"
 int main() {
     auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
-    vector<vector<double>> X;
-    vector<int> Y;
+    std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
+    int good_count = 0;
     for(auto &[key, value] : ebsds) {
         auto &[path, good] = value;
-        auto [grains, orient] = features(path.string());
-        X.push_back({(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)});
-        Y.push_back(good? 1 : -1);
-        // cout << key << ": " << grains.size() << " grains, orientation ratio: " << std::get<0>(orient) << ", " << std::get<1>(orient) << ", " << std::get<2>(orient) << endl;
+        // cout << key << ": " << path << ", good: " << good << endl;
+        if(good) {
+            good_count++;
+        }
     }
-    NestedCVConfig cfg;
-    cfg.outer_k = 5;
-    cfg.inner_k = 3;
-    cfg.outer_repeats = 10;         // 小資料建議重複幾次，結果穩一點
-    cfg.use_balanced_class_weight = true;
-    cfg.verbose = true;
+    cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
+    vector<pair<bool, vector<double>>> features_and_labels;
+    vector<std::future<std::pair<bool, vector<double>>>> futures;
+    for(auto &[key, value] : ebsds) {
+        auto &[path, good] = value;
+        futures.push_back(std::async(std::launch::async, [path, good]() {
+            auto [grains, orient] = features(path.string());
+            vector<double> feat = {(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)};
+            return std::make_pair(good, feat);
+        }));
+    }
+    for(auto& f : futures) {
+        features_and_labels.push_back(f.get());
+    }
+    std::filesystem::create_directories("_out");
+    nlohmann::json j = features_and_labels;
+    std::ofstream out("_out/features_and_labels.json");
+    out << j.dump(4);
+    
+    
+    
+    // vector<vector<double>> X;
+    // vector<int> Y;
+    // for(auto &[key, value] : ebsds) {
+    //     auto &[path, good] = value;
+    //     auto [grains, orient] = features(path.string());
+    //     X.push_back({(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)});
+    //     Y.push_back(good? 1 : -1);
+    //     // cout << key << ": " << grains.size() << " grains, orientation ratio: " << std::get<0>(orient) << ", " << std::get<1>(orient) << ", " << std::get<2>(orient) << endl;
+    // }
+    // NestedCVConfig cfg;
+    // cfg.outer_k = 5;
+    // cfg.inner_k = 3;
+    // cfg.outer_repeats = 10;         // 小資料建議重複幾次，結果穩一點
+    // cfg.use_balanced_class_weight = true;
+    // cfg.verbose = true;
 
-    auto result = nested_cv_report_small_imbalanced(X, Y, cfg);
-    print_final_report(result);
+    // auto result = nested_cv_report_small_imbalanced(X, Y, cfg);
+    // print_final_report(result);
 }

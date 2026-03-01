@@ -1,6 +1,8 @@
 {
   "dependencies": [
     "ebsdlib",
-    "libsvm"
+    "libsvm",
+    "nlohmann-json",
+    "mlpack"
   ]
 }

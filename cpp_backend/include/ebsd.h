@@ -7,9 +7,8 @@ std::tuple<double, double, double> orientation_ratio(const float* euler1,
                                     const float* euler2,
                                     const float* euler3,
                                     size_t nPoints,
-                                    const uint8_t* phase = nullptr,
-                                    uint8_t targetPhase = 1,
-                                    std::array<double, 3> sampleDir = {0.0, 0.0, 1.0});
+                                    std::array<double, 3> sampleDir = {0.0, 0.0, 1.0},
+                                    double misorientation_threshold = 15 /* degree */);
 
 inline 
 std::tuple<std::vector<int>, std::tuple<double, double, double>> features(const std::string &cpr_file_path) {
@@ -39,6 +38,6 @@ std::tuple<std::vector<int>, std::tuple<double, double, double>> features(const 
         }
     }
     auto grains = find_grains(orientations);
-    auto orient = orientation_ratio(euler1, euler2, euler3, xDim * yDim, phase);
+    auto orient = orientation_ratio(euler1, euler2, euler3, xDim * yDim);
     return {grains, orient};
 }

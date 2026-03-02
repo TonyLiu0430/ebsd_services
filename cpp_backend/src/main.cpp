@@ -2,13 +2,16 @@
 #include <EbsdLib/IO/HKL/CprReader.h>
 #include <vector>
 #include <memory>
+#include <string>
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include <algorithm>
 #include <ranges>
 #include <map>
-#include "ebsd.h"
 #include <nlohmann/json.hpp>
+#include <string_view>
+#include "utils.h"
+#include <future>
 
 using std::vector;
 using std::pair;
@@ -110,8 +113,50 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
     return data;
 }
 
-#include "svm_nestedCV.h"
+
+#include "grains.h"
+#include "orientations.h"
+
+void test(const std::string &cpr_file_path, double misorientation_threshold) {
+    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
+    reader->setFileName(cpr_file_path);
+    if(reader->readFile() < 0) {
+        std::cout << "failed" << std::endl;
+    }
+    int xDim = reader->getXDimension();
+    int yDim = reader->getYDimension();
+    int totalPoints = xDim * yDim;
+    auto phase = reader->getPhasePointer();
+    auto euler1 = reader->getEuler1Pointer();
+    auto euler2 = reader->getEuler2Pointer();
+    auto euler3 = reader->getEuler3Pointer();
+    GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
+    std::vector<Grain> grains = grainSegmenter.find_grains(10);
+    if(reader->getXStep() != reader->getYStep()) {
+        throw std::invalid_argument("X and Y step sizes are not equal");
+    }
+    double step_size = reader->getXStep();
+    Orientations_finder orientations_finder(grains, step_size);
+    std::vector<double> grain_sizes;
+    double pixel_area = step_size * step_size;
+    for(auto &g : grains) {
+        double area = g.size * pixel_area;
+        double equivalent_radius = std::sqrt(area / M_PI);
+        grain_sizes.push_back(equivalent_radius * 2); // equivalent diameter
+    }
+
+    auto ratio = orientations_finder.ratio(misorientation_threshold);
+    nlohmann::json j = {
+        {"grain_max", grain_sizes.front()},
+        {"grain_count", grain_sizes.size()},
+        {"orientation_ratio", {std::get<0>(ratio), std::get<1>(ratio), std::get<2>(ratio)}}
+    };
+    std::cout << j.dump(4) << std::endl;
+}
 int main() {
+    // test("./_data/C-U.cpr", 20);
+    // return 0;
+    // -----------------------------------------
     auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
     std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
     int good_count = 0;
@@ -123,13 +168,12 @@ int main() {
         }
     }
     cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
-    vector<pair<bool, vector<double>>> features_and_labels;
-    vector<std::future<std::pair<bool, vector<double>>>> futures;
+    vector<pair<bool, nlohmann::json>> features_and_labels;
+    vector<std::future<std::pair<bool, nlohmann::json>>> futures;
     for(auto &[key, value] : ebsds) {
         auto &[path, good] = value;
         futures.push_back(std::async(std::launch::async, [path, good]() {
-            auto [grains, orient] = features(path.string());
-            vector<double> feat = {(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)};
+            auto feat = features(path.string());
             return std::make_pair(good, feat);
         }));
     }

@@ -3,3 +3,6 @@ build
 
 _data
 _out
+
+.vscode
+.idea

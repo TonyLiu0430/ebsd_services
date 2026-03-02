@@ -9,7 +9,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 #include <map>
-#include "ebsd.h"
 
 using std::vector;
 using std::pair;

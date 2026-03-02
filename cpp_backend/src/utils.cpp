@@ -26,7 +26,7 @@ nlohmann::json features(const std::string &cpr_file_path) {
         throw std::invalid_argument("X and Y step sizes are not equal");
     }
     double step_size = reader->getXStep();
-    Orientations_finder orientations_finder(grains, step_size);
+    Orientations_finder orientations_finder(grains);
     std::vector<double> grain_sizes;
     double pixel_area = step_size * step_size;
     for(auto &g : grains) {

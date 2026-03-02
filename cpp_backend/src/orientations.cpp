@@ -90,11 +90,9 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
     double totalArea = 0.0;
     double acceptedArea = 0.0;
 
-    const double pixelArea = step_size * step_size;
-
     for(const auto& g : grains) {
 
-        const double w = static_cast<double>(g.size) * pixelArea;
+        const double w = g.size;
         totalArea += w;
 
         // quaternion -> euler -> orientation matrix (keep consistent with orientation_ratio)
@@ -110,30 +108,24 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
 
         double bestAngle = ang001;
         int bestFamily = 0;
-        if(ang110 < bestAngle)
-        {
+        if(ang110 < bestAngle) {
             bestAngle = ang110;
             bestFamily = 1;
         }
-        if(ang111 < bestAngle)
-        {
+        if(ang111 < bestAngle) {
             bestAngle = ang111;
             bestFamily = 2;
         }
 
-        if(bestAngle <= misorientation_threshold)
-        {
+        if(bestAngle <= misorientation_threshold) {
             acceptedArea += w;
-            if(bestFamily == 0)
-            {
+            if(bestFamily == 0){
                 area001 += w;
             }
-            else if(bestFamily == 1)
-            {
+            else if(bestFamily == 1) {
                 area110 += w;
             }
-            else
-            {
+            else {
                 area111 += w;
             }
         }

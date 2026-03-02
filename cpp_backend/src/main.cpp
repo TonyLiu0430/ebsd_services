@@ -136,7 +136,7 @@ void test(const std::string &cpr_file_path, double misorientation_threshold) {
         throw std::invalid_argument("X and Y step sizes are not equal");
     }
     double step_size = reader->getXStep();
-    Orientations_finder orientations_finder(grains, step_size);
+    Orientations_finder orientations_finder(grains);
     std::vector<double> grain_sizes;
     double pixel_area = step_size * step_size;
     for(auto &g : grains) {
@@ -154,7 +154,8 @@ void test(const std::string &cpr_file_path, double misorientation_threshold) {
     std::cout << j.dump(4) << std::endl;
 }
 int main() {
-    // test("./_data/C-U.cpr", 20);
+    // test("./_data/E-B.cpr", 15);
+    // save_ipf_map("./_data/E-B.cpr", "./_out/E-B_ipf.png");
     // return 0;
     // -----------------------------------------
     auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
@@ -168,13 +169,17 @@ int main() {
         }
     }
     cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
-    vector<pair<bool, nlohmann::json>> features_and_labels;
-    vector<std::future<std::pair<bool, nlohmann::json>>> futures;
+    vector<nlohmann::json> features_and_labels;
+    vector<std::future<nlohmann::json>> futures;
     for(auto &[key, value] : ebsds) {
         auto &[path, good] = value;
         futures.push_back(std::async(std::launch::async, [path, good]() {
             auto feat = features(path.string());
-            return std::make_pair(good, feat);
+            nlohmann::json j = {
+                {"label", good},
+                {"features", feat}
+            };
+            return j;
         }));
     }
     for(auto& f : futures) {

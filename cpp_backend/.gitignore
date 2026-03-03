@@ -1,10 +1,10 @@
 vcpkg_installed
 build
 
-_data
-_out
+_data/
+_out/
+temp/
 
-.vscode
-.idea
+.idea/
 
 *.png

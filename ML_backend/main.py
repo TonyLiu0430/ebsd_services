@@ -56,17 +56,17 @@ def hello():
 #             "result": res
 #         }
     
-class Ebsd_file_meta(BaseModel):
-    sample: str
-    pos: str
+# class Ebsd_file_meta(BaseModel):
+#     sample: str
+#     pos: str
 
-ebsd_meta_adapter = TypeAdapter(List[Ebsd_file_meta])
+# ebsd_meta_adapter = TypeAdapter(List[Ebsd_file_meta])
 
-def ebsd_to_features(path: pathlib.Path):
-    ebsd_map = ebsd.Map(str(path))
-    grains = grain_sizes(ebsd_map)
-    grains = [eq_radius(ebsd_map.step_size, grain) for grain in grains] # type: ignore
-    return grains
+# def ebsd_to_features(path: pathlib.Path):
+#     ebsd_map = ebsd.Map(str(path))
+#     grains = grain_sizes(ebsd_map)
+#     grains = [eq_radius(ebsd_map.step_size, grain) for grain in grains] # type: ignore
+#     return grains
 
 # @app.middleware("http")
 # async def log_request(request, call_next):
@@ -79,65 +79,66 @@ def ebsd_to_features(path: pathlib.Path):
 #         print(f"[ERR] {request.method} {request.url.path}: {e}")
 #         raise
 
-@app.post('/all_data')  
-def all_data(files: Annotated[List[UploadFile], File(...)], meta_data: Annotated[str, Form(...)]):
-    print("start handle /all_data api")
-    try:
-        metas = ebsd_meta_adapter.validate_json(meta_data)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+# 已使用 c++ 取代
+# @app.post('/all_data')  
+# def all_data(files: Annotated[List[UploadFile], File(...)], meta_data: Annotated[str, Form(...)]):
+#     print("start handle /all_data api")
+#     try:
+#         metas = ebsd_meta_adapter.validate_json(meta_data)
+#     except ValidationError as e:
+#         raise HTTPException(status_code=422, detail=e.errors())
     
-    if len(files) % 2 != 0:
-        raise HTTPException(status_code=422, detail='crc cpr unpaired')
+#     if len(files) % 2 != 0:
+#         raise HTTPException(status_code=422, detail='crc cpr unpaired')
     
-    it = iter(files)
-    file_pairs = list(zip(it, it))
+#     it = iter(files)
+#     file_pairs = list(zip(it, it))
 
-    res: Any = {}
+#     res: Any = {}
     
-    for (crc_file, cpr_file), meta in zip(file_pairs, metas):
-        # res.setdefault(meta.sample, {})[meta.pos] = [1, 2, 3]
-        # continue
-        with tempfile.TemporaryDirectory() as temp_dir:
-            base_name = "input_data"
-            crc_save_path = os.path.join(temp_dir, base_name + ".crc")
-            cpr_save_path = os.path.join(temp_dir, base_name + ".cpr")
+#     for (crc_file, cpr_file), meta in zip(file_pairs, metas):
+#         # res.setdefault(meta.sample, {})[meta.pos] = [1, 2, 3]
+#         # continue
+#         with tempfile.TemporaryDirectory() as temp_dir:
+#             base_name = "input_data"
+#             crc_save_path = os.path.join(temp_dir, base_name + ".crc")
+#             cpr_save_path = os.path.join(temp_dir, base_name + ".cpr")
 
-            with open(crc_save_path, "wb") as f:
-                shutil.copyfileobj(crc_file.file, f)
-            with open(cpr_save_path, "wb") as f:
-                shutil.copyfileobj(cpr_file.file, f)
+#             with open(crc_save_path, "wb") as f:
+#                 shutil.copyfileobj(crc_file.file, f)
+#             with open(cpr_save_path, "wb") as f:
+#                 shutil.copyfileobj(cpr_file.file, f)
 
-            res.setdefault(meta.sample, {})[meta.pos] = ebsd_to_features(pathlib.Path(crc_save_path))
+#             res.setdefault(meta.sample, {})[meta.pos] = ebsd_to_features(pathlib.Path(crc_save_path))
 
-    return res
+#     return res
 
-@app.post('/grains')  
-def grains(files: Annotated[List[UploadFile], File(...)]):
-    if len(files) != 2:
-        raise HTTPException(status_code=422, detail='crc cpr unpaired')
+# @app.post('/grains')  
+# def grains(files: Annotated[List[UploadFile], File(...)]):
+#     if len(files) != 2:
+#         raise HTTPException(status_code=422, detail='crc cpr unpaired')
     
-    if files[0].filename is None or files[1].filename is None:
-        raise HTTPException(status_code=422, detail='file no name')
+#     if files[0].filename is None or files[1].filename is None:
+#         raise HTTPException(status_code=422, detail='file no name')
     
-    if not files[0].filename.endswith('crc') or not files[1].filename.endswith('cpr'):
-        raise HTTPException(status_code=422, detail='crc cpr unpaired')
+#     if not files[0].filename.endswith('crc') or not files[1].filename.endswith('cpr'):
+#         raise HTTPException(status_code=422, detail='crc cpr unpaired')
     
-    crc_file, cpr_file = files
+#     crc_file, cpr_file = files
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base_name = "input_data"
-        crc_save_path = os.path.join(temp_dir, base_name + ".crc")
-        cpr_save_path = os.path.join(temp_dir, base_name + ".cpr")
+#     with tempfile.TemporaryDirectory() as temp_dir:
+#         base_name = "input_data"
+#         crc_save_path = os.path.join(temp_dir, base_name + ".crc")
+#         cpr_save_path = os.path.join(temp_dir, base_name + ".cpr")
 
-        with open(crc_save_path, "wb") as f:
-            shutil.copyfileobj(crc_file.file, f)
-        with open(cpr_save_path, "wb") as f:
-            shutil.copyfileobj(cpr_file.file, f)
+#         with open(crc_save_path, "wb") as f:
+#             shutil.copyfileobj(crc_file.file, f)
+#         with open(cpr_save_path, "wb") as f:
+#             shutil.copyfileobj(cpr_file.file, f)
 
-        return ebsd_to_features(pathlib.Path(crc_save_path))
+#         return ebsd_to_features(pathlib.Path(crc_save_path))
 
-FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
+GRAIN_FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
     "overall distribution : wasserstein_distance / mean": Overall_distribution_analysis,
     "mean": mean_compare,
     "max": max_compare,
@@ -146,20 +147,31 @@ FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
     "standard deviation": sd_compare
 }
 
+ORIENTATION_FEATURES: Dict[str, Callable[[float, float], float]] = {
+    "[001] (deviation 20%)": numeric_compare,
+    "[110] (deviation 20%)": numeric_compare,
+    "[111] (deviation 20%)": numeric_compare,
+    "[001] (deviation 15%)": numeric_compare,
+    "[110] (deviation 15%)": numeric_compare,
+    "[111] (deviation 15%)": numeric_compare
+}
+
 @app.get('/ebsd_features')
 def ebsd_features():
-    return [key for key in FEATURES.keys()]
+    return [*GRAIN_FEATURES.keys(), *ORIENTATION_FEATURES.keys()]
 
 class AnalysisRequest(BaseModel):
     features: List[str]
     golden: str
-    data: Dict[str, Dict[str, List[float]]]   
+    # payload (from cpp_backend features + frontend result):
+    # sample -> pos -> {"grains": [...], "orientation_ratio(20%)": [..3..], "orientation_ratio(15%)": [..3..]}
+    data: Dict[str, Dict[str, Dict[str, List[float]]]]
 
 
 @app.post('/analysis')
 def analysis(req: AnalysisRequest):
     for feat in req.features:
-        if feat not in FEATURES:
+        if feat not in GRAIN_FEATURES and feat not in ORIENTATION_FEATURES:
             raise HTTPException(status_code=400, detail="Invalid feature options")
     if req.golden not in req.data:
         raise HTTPException(status_code=400, detail="Invalid golden sample")
@@ -167,16 +179,50 @@ def analysis(req: AnalysisRequest):
     for (sample, posdata) in req.data.items():
         if sample == req.golden:
             continue
-        for (pos, grain_data) in posdata.items():
+        for (pos, cur_data) in posdata.items():
             statRes: List[float] = []
             for feat in req.features:
-                handler = FEATURES[feat]
-                statRes.append(handler(req.data[req.golden][pos], grain_data))
+                if feat in GRAIN_FEATURES:
+                    handler = GRAIN_FEATURES[feat]
+                    statRes.append(handler(req.data[req.golden][pos]["grains"], cur_data["grains"]))
+                elif feat in ORIENTATION_FEATURES:
+                    handler = ORIENTATION_FEATURES[feat]
+                    # feat example: "[001] (deviation 20%)"
+                    try:
+                        axis = feat.split(']')[0].lstrip('[')  # 001 / 110 / 111
+                        deviation = "20" if "20%" in feat else "15"
+                        ratio_key = f"orientation_ratio({deviation}%)"
+                        idx_map = {"001": 0, "110": 1, "111": 2}
+                        idx = idx_map[axis]
+                        golden_ratio = req.data[req.golden][pos][ratio_key]
+                        sample_ratio = cur_data[ratio_key]
+                        statRes.append(handler(float(golden_ratio[idx]), float(sample_ratio[idx])))
+                    except Exception:
+                        raise HTTPException(status_code=400, detail=f"Invalid orientation feature/data: {feat}")
 
             # TODO 改用 Winsorized mean 並且前端要可調整權重
             avg = statistics.mean(statRes)
             res.setdefault(sample, {})[pos] = avg
     return res
+    # for feat in req.features:
+    #     if feat not in GRAIN_FEATURES:
+    #         raise HTTPException(status_code=400, detail="Invalid feature options")
+    # if req.golden not in req.data:
+    #     raise HTTPException(status_code=400, detail="Invalid golden sample")
+    # res: Any = {}
+    # for (sample, posdata) in req.data.items():
+    #     if sample == req.golden:
+    #         continue
+    #     for (pos, grain_data) in posdata.items():
+    #         statRes: List[float] = []
+    #         for feat in req.features:
+    #             handler = GRAIN_FEATURES[feat]
+    #             statRes.append(handler(req.data[req.golden][pos], grain_data))
+
+    #         # TODO 改用 Winsorized mean 並且前端要可調整權重
+    #         avg = statistics.mean(statRes)
+    #         res.setdefault(sample, {})[pos] = avg
+    # return res
 
             
 

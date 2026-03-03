@@ -13,8 +13,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(EbsdLib_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/share/EbsdLib")
 find_package(EbsdLib REQUIRED)
-find_package(unofficial-libsvm CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
 
 
 
@@ -31,5 +31,6 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
 include_directories(include)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE EbsdLib::EbsdLib unofficial::libsvm::libsvm)
+target_link_libraries(${PROJECT_NAME} PRIVATE EbsdLib::EbsdLib)
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(${PROJECT_NAME} PRIVATE httplib::httplib)

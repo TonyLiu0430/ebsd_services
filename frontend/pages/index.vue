@@ -56,8 +56,13 @@
 
 <script setup lang="ts">
 interface FilePair { name: string; crc: File; cpr: File; sample: string; pos: string }
-// type Ebsd_Features = number[]
-type AllDataResult = Record<string, Record<string, number[]>>
+type CppFeatures = {
+  grains: number[]
+  "orientation_ratio(20%)": number[]
+  "orientation_ratio(15%)": number[]
+}
+
+type AllDataResult = Record<string, Record<string, CppFeatures>>
 type TODO = any
 type AnalysisResult = Record<string, Record<string, number>>
 
@@ -143,7 +148,7 @@ function processFiles(fileList: FileList | null | undefined) {
     const lastDash = subdir.lastIndexOf('-')
     const dataPatch = subdir.slice(0, lastDash)
     const num = subdir.slice(lastDash + 1)
-    const pos = f.name.replace(/\.(crc|cpr)$/i, '')
+    const pos = standard_pos(f.name.replace(/\.(crc|cpr)$/i, '').trim())
     const key = `${dataPatch}-${pos}`
     samples.value.add(dataPatch) // sample
     if (f.name.endsWith('.crc')) {
@@ -161,6 +166,36 @@ function processFiles(fileList: FileList | null | undefined) {
   }
 }
 
+const standard_pos = (pos: string): string => {
+  pos = pos.trim()
+
+  // Format 1: 已有破折號的標準格式，例如 "C-B", "M-U", "E-M"
+  const dashMatch = pos.match(/^([CME])-([UMB])$/i)
+  if (dashMatch) {
+    return `${dashMatch[1].toUpperCase()}-${dashMatch[2].toUpperCase()}`
+  }
+
+  // Format 2 (DATA13): 無破折號，E/I/M 開頭
+  //   E=E(edge), I=C(center), M=M(middle)
+  // Format 3 (DATA14+): 無破折號，A/B/C 開頭
+  //   A=C(center), B=M(middle), C=E(edge)
+  const colMap: Record<string, string> = {
+    'E': 'E', 'I': 'C', 'M': 'M', // Format 2
+    'A': 'C', 'B': 'M', 'C': 'E', // Format 3
+  }
+  const rowMap: Record<string, string> = {
+    'U': 'U', 'M': 'M', 'B': 'B', 'D': 'B',
+  }
+
+  if (pos.length >= 2) {
+    const col = colMap[pos[0].toUpperCase()]
+    const row = rowMap[pos[1].toUpperCase()]
+    if (col && row) return `${col}-${row}`
+  }
+
+  return pos
+}
+
 async function submit() {
   loading.value = true
   error.value = ''
@@ -170,12 +205,17 @@ async function submit() {
   try {
     const promises = pairs.value.map(async (p) => {
       const formData = new FormData()
-      formData.append('files', p.crc)
-      formData.append('files', p.cpr)
+      // py backend 
+      // formData.append('files', p.crc)
+      // formData.append('files', p.cpr)
       
-      const grains = await $fetch<number[]>('/api/grains', { method: 'POST', body: formData })
+      // const grains = await $fetch<number[]>('/api/grains', { method: 'POST', body: formData })
+      // updated cpp backend
+      formData.append('crc', p.crc)
+      formData.append('cpr', p.cpr)
+      const features = await $fetch<CppFeatures>('/cppapi/features', { method: 'POST', body: formData })
       doneCount.value++
-      return { sample: p.sample, pos: p.pos, grains }
+      return { sample: p.sample, pos: p.pos, features }
     })
 
     const results = await Promise.all(promises)
@@ -183,7 +223,7 @@ async function submit() {
     const allResult: AllDataResult = {}
     for (const res of results) {
       if (!allResult[res.sample]) allResult[res.sample] = {}
-      allResult[res.sample][res.pos] = res.grains
+      allResult[res.sample][res.pos] = res.features
     }
     
     result.value = allResult

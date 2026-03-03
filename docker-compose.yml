@@ -1,10 +1,17 @@
-version: '3.8'
 services:
   ml_backend:
     build: ./ML_backend
     container_name: ebsd-ml-backend
     ports:
       - "8000:8000"
+
+  cpp_backend:
+    build:
+      context: ./cpp_backend
+      network: host
+    container_name: ebsd-cpp-backend
+    ports:
+      - "8080:8080"
 
   frontend:
     build: ./frontend
@@ -30,7 +37,7 @@ services:
     container_name: ebsd-cloudflared
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL:-}
     depends_on:
       - caddy
     profiles: ["tunnel"]

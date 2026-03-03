@@ -10,8 +10,9 @@
 nlohmann::json features(const std::string &cpr_file_path) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_file_path);
-    if(reader->readFile() < 0) {
-        std::cout << "failed" << std::endl;
+    int err_code = reader->readFile();
+    if(err_code < 0) {
+        throw std::runtime_error("Failed to read CPR file: " + reader->getErrorMessage());
     }
     int xDim = reader->getXDimension();
     int yDim = reader->getYDimension();

@@ -153,42 +153,83 @@ void test(const std::string &cpr_file_path, double misorientation_threshold) {
     };
     std::cout << j.dump(4) << std::endl;
 }
+
+#include "httplib.h"
 int main() {
+    httplib::Server svr;
+    svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
+        if (!req.is_multipart_form_data()) {
+            res.status = 400;
+            res.set_content("Content-Type must be multipart/form-data", "text/plain");
+            return;
+        }
+
+        const auto& cpr_file = req.get_file_value("cpr");
+        const auto& crc_file = req.get_file_value("crc");
+
+        if(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc")) {
+            // ok
+        } else {
+            res.status = 400;
+            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
+            return;
+        }
+
+        // save file temp
+        std::filesystem::path temp_dir = "./temp";
+        std::filesystem::create_directories(temp_dir);
+        std::string rand_name = std::to_string(std::rand());
+        std::string cpr_filename = "upload_" + rand_name + ".cpr";
+        std::string crc_filename = "upload_" + rand_name + ".crc";
+        std::filesystem::path cpr_path = temp_dir / cpr_filename;
+        std::filesystem::path crc_path = temp_dir / crc_filename;
+        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
+        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
+
+        nlohmann::json j = features(cpr_path.string());
+
+        res.set_content(j.dump(4), "application/json");
+    });
+
+    svr.listen("0.0.0.0", 8080);
+
+
     // test("./_data/E-B.cpr", 15);
     // save_ipf_map("./_data/E-B.cpr", "./_out/E-B_ipf.png");
     // return 0;
     // -----------------------------------------
-    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
-    std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
-    int good_count = 0;
-    for(auto &[key, value] : ebsds) {
-        auto &[path, good] = value;
-        // cout << key << ": " << path << ", good: " << good << endl;
-        if(good) {
-            good_count++;
-        }
-    }
-    cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
-    vector<nlohmann::json> features_and_labels;
-    vector<std::future<nlohmann::json>> futures;
-    for(auto &[key, value] : ebsds) {
-        auto &[path, good] = value;
-        futures.push_back(std::async(std::launch::async, [path, good]() {
-            auto feat = features(path.string());
-            nlohmann::json j = {
-                {"label", good},
-                {"features", feat}
-            };
-            return j;
-        }));
-    }
-    for(auto& f : futures) {
-        features_and_labels.push_back(f.get());
-    }
-    std::filesystem::create_directories("_out");
-    nlohmann::json j = features_and_labels;
-    std::ofstream out("_out/features_and_labels.json");
-    out << j.dump(4);
+    // auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
+    // std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
+    // int good_count = 0;
+    // for(auto &[key, value] : ebsds) {
+    //     auto &[path, good] = value;
+    //     // cout << key << ": " << path << ", good: " << good << endl;
+    //     if(good) {
+    //         good_count++;
+    //     }
+    // }
+    // cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
+    // vector<nlohmann::json> features_and_labels;
+    // vector<std::future<nlohmann::json>> futures;
+    // for(auto &[key, value] : ebsds) {
+    //     auto &[path, good] = value;
+    //     futures.push_back(std::async(std::launch::async, [path, good]() {
+    //         auto feat = features(path.string());
+    //         nlohmann::json j = {
+    //             {"label", good},
+    //             {"features", feat}
+    //         };
+    //         return j;
+    //     }));
+    // }
+    // for(auto& f : futures) {
+    //     features_and_labels.push_back(f.get());
+    // }
+    // std::filesystem::create_directories("_out");
+    // nlohmann::json j = features_and_labels;
+    // std::ofstream out("_out/features_and_labels.json");
+    // out << j.dump(4);
+
     
     
     

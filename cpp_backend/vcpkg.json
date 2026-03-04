@@ -1,7 +1,8 @@
 {
   "dependencies": [
+    "cpp-httplib",
     "ebsdlib",
     "nlohmann-json",
-    "cpp-httplib"
+    "stduuid"
   ]
 }

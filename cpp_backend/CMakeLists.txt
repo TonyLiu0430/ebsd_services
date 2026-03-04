@@ -15,6 +15,7 @@ set(EbsdLib_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/share/EbsdLib")
 find_package(EbsdLib REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(httplib CONFIG REQUIRED)
+find_package(stduuid CONFIG REQUIRED)
 
 
 
@@ -34,3 +35,4 @@ include_directories(include)
 target_link_libraries(${PROJECT_NAME} PRIVATE EbsdLib::EbsdLib)
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(${PROJECT_NAME} PRIVATE httplib::httplib)
+target_link_libraries(${PROJECT_NAME} PRIVATE stduuid)

@@ -117,6 +117,7 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
 #include "grains.h"
 #include "orientations.h"
 
+
 void test(const std::string &cpr_file_path, double misorientation_threshold) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_file_path);
@@ -155,6 +156,8 @@ void test(const std::string &cpr_file_path, double misorientation_threshold) {
 }
 
 #include "httplib.h"
+#include "stduuid/uuid.h"
+
 int main() {
     httplib::Server svr;
     svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
@@ -178,7 +181,10 @@ int main() {
         // save file temp
         std::filesystem::path temp_dir = "./temp";
         std::filesystem::create_directories(temp_dir);
-        std::string rand_name = std::to_string(std::rand());
+        std::random_device rd;
+        thread_local std::mt19937 rng(rd());
+        uuids::uuid_random_generator generator(rng);
+        std::string rand_name = uuids::to_string(generator());
         std::string cpr_filename = "upload_" + rand_name + ".cpr";
         std::string crc_filename = "upload_" + rand_name + ".crc";
         std::filesystem::path cpr_path = temp_dir / cpr_filename;
@@ -187,6 +193,9 @@ int main() {
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         nlohmann::json j = features(cpr_path.string());
+
+        std::filesystem::remove(cpr_path);
+        std::filesystem::remove(crc_path);
 
         res.set_content(j.dump(4), "application/json");
     });

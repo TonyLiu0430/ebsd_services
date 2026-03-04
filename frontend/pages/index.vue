@@ -136,7 +136,7 @@ function processFiles(fileList: FileList | null | undefined) {
   selectedFolder.value = allFiles[0]?.webkitRelativePath.split('/')[0] || ''
   
   const crcFiles = new Map<string, { file: File; sample: string; pos: string; num: string }>()
-  const cprFiles = new Map<string, File>()
+  const cprFiles = new Map<string, { file: File; num: string }>()
   
   samples.value = new Set()
   pairs.value = []
@@ -146,23 +146,23 @@ function processFiles(fileList: FileList | null | undefined) {
     const parts = f.webkitRelativePath.split('/')
     const subdir = parts[1] || ''
     const lastDash = subdir.lastIndexOf('-')
-    const dataPatch = subdir.slice(0, lastDash)
-    const num = subdir.slice(lastDash + 1)
+    const dataPatch = lastDash > 0 ? subdir.slice(0, lastDash) : subdir
+    const num = lastDash > 0 ? subdir.slice(lastDash + 1) : '01'
     const pos = standard_pos(f.name.replace(/\.(crc|cpr)$/i, '').trim())
     const key = `${dataPatch}-${pos}`
     samples.value.add(dataPatch) // sample
     if (f.name.endsWith('.crc')) {
       const existing = crcFiles.get(key)
-      if (!existing || num === '02') crcFiles.set(key, { file: f, sample: dataPatch, pos, num })
+      if (!existing || num > existing.num) crcFiles.set(key, { file: f, sample: dataPatch, pos, num })
     } else {
       const existing = cprFiles.get(key)
-      if (!existing || num === '02') cprFiles.set(key, f)
+      if (!existing || num > existing.num) cprFiles.set(key, { file: f, num })
     }
   }
   
   for (const [key, { file: crc, sample, pos }] of crcFiles) {
-    const cpr = cprFiles.get(key)
-    if (cpr) pairs.value.push({ name: key, crc, cpr, sample, pos })
+    const cprEntry = cprFiles.get(key)
+    if (cprEntry) pairs.value.push({ name: key, crc, cpr: cprEntry.file, sample, pos })
   }
 }
 

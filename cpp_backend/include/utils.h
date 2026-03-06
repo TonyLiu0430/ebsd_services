@@ -13,3 +13,5 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
 
 /* TODO */
 std::vector<std::vector<QuatF>> orientations_to_2d(float* euler1, float* euler2, float* euler3, int Xdim, int Ydim);
+
+int noindexed(uint8_t* phase, int xDim, int yDim);

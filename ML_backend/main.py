@@ -165,7 +165,7 @@ class AnalysisRequest(BaseModel):
     golden: str
     # payload (from cpp_backend features + frontend result):
     # sample -> pos -> {"grains": [...], "orientation_ratio(20%)": [..3..], "orientation_ratio(15%)": [..3..]}
-    data: Dict[str, Dict[str, Dict[str, List[float]]]]
+    data: Dict[str, Dict[str, Dict[str, Any]]]
 
 
 @app.post('/analysis')

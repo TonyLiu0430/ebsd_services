@@ -36,6 +36,53 @@ static std::string trim(const std::string& s)
     return s.substr(begin, end - begin);
 }
 
+std::string std_pos(const std::string& s) {
+    std::string res = trim(s);
+
+    // Format 1: 已有破折號的標準格式，如 "C-B", "M-U", "E-M"
+    if (res.size() == 3 && res[1] == '-') {
+        char col = std::toupper(static_cast<unsigned char>(res[0]));
+        char row = std::toupper(static_cast<unsigned char>(res[2]));
+        if ((col == 'C' || col == 'M' || col == 'E') &&
+            (row == 'U' || row == 'M' || row == 'B')) {
+            return std::string{col} + "-" + std::string{row};
+        }
+    }
+
+    // Format 2 (DATA13): E/I/M 開頭 → E=E, I=C, M=M
+    // Format 3 (DATA14+): A/B/C 開頭 → A=C, B=M, C=E
+    if (res.size() >= 2) {
+        char c0 = std::toupper(static_cast<unsigned char>(res[0]));
+        char c1 = std::toupper(static_cast<unsigned char>(res[1]));
+
+        std::string col;
+        switch (c0) {
+            case 'E': col = "E"; break;
+            case 'I': col = "C"; break;
+            case 'M': col = "M"; break;
+            case 'A': col = "C"; break;
+            case 'B': col = "M"; break;
+            case 'C': col = "E"; break;
+            default: break;
+        }
+
+        std::string row;
+        switch (c1) {
+            case 'U': row = "U"; break;
+            case 'M': row = "M"; break;
+            case 'B': row = "B"; break;
+            case 'D': row = "B"; break;
+            default: break;
+        }
+
+        if (!col.empty() && !row.empty()) {
+            return col + "-" + row;
+        }
+    }
+
+    return res;
+}
+
 std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsds(const std::string& dir_path) {
     std::filesystem::path dir(dir_path);
     std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> data;
@@ -51,7 +98,6 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
 
         const std::filesystem::path subdir = subdir_entry.path();
         const std::string subdir_name = subdir.filename().string();
-
         std::vector<std::string> subdir_parts;
         for (auto&& part_view : subdir_name | std::views::split('-')) {
             std::string part;
@@ -81,15 +127,15 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
                 continue;
             }
 
-            const std::string pos = trim(p.stem().string());
-            const std::string base_key = data_patch + "-" + pos;
+            const std::string pos = std_pos(p.stem().string());
+            const std::string base_key = data_patch + "_" + pos;
 
             if (!has_num || num == "01") {
                 data[base_key] = std::make_pair(p, true);
             } 
             else {
                 int current_ver = std::stoi(num);
-                std::string current_key = base_key + "-" + std::to_string(current_ver);
+                std::string current_key = base_key + "_" + std::to_string(current_ver);
 
                 data[current_key] = std::make_pair(p, true);
 
@@ -97,7 +143,7 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
                 if (current_ver == 2) {
                     prev_key = base_key;
                 } else {
-                    prev_key = base_key + "-" + std::to_string(current_ver - 1);
+                    prev_key = base_key + "_" + std::to_string(current_ver - 1);
                 }
 
                 auto it = data.find(prev_key);
@@ -158,7 +204,61 @@ void test(const std::string &cpr_file_path, double misorientation_threshold) {
 #include "httplib.h"
 #include "stduuid/uuid.h"
 
+void ml_feature() {
+    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
+    std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
+    int good_count = 0;
+    for(auto &[key, value] : ebsds) {
+        auto &[path, good] = value;
+        // cout << key << ": " << path << ", good: " << good << endl;
+        if(good) {
+            good_count++;
+        }
+    }
+    cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
+    vector<nlohmann::json> features_and_labels;
+    vector<std::future<nlohmann::json>> futures;
+    for(auto &[key, value] : ebsds) {
+        auto &[path, good] = value;
+
+
+        if(key.substr(0, 6) == "DATA43") {
+            good = false; // DATA43 is bad
+            // continue;
+        }
+
+        bool golden = false;
+        if(key.substr(0, 6) == "DATA10" || key.substr(0, 6) == "DATA13" || key.substr(0, 6) == "DATA24") {
+            if(good) {
+                golden = true;
+            }
+        }
+        
+        futures.push_back(std::async(std::launch::async, [path, good, golden, key]() {
+            auto feat = features(path.string());
+            nlohmann::json j = {
+                {"patch", key.substr(0, 6)},
+                {"pos", key.substr(7, 3)},
+                {"golden", golden},
+                {"label", good},
+                {"features", feat}
+            };
+            return j;
+        }));
+    }
+    for(auto& f : futures) {
+        features_and_labels.push_back(f.get());
+        // cout << features_and_labels.back()["patch"] << " " << features_and_labels.back()["golden"] << endl;
+    }
+    std::filesystem::create_directories("_out");
+    nlohmann::json j = features_and_labels;
+    std::ofstream out("_out/features_and_labels.json");
+    out << j.dump(4);
+}
+
 int main() {
+    // ml_feature();
+    // return 0;
     httplib::Server svr;
     svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
         if (!req.is_multipart_form_data()) {
@@ -207,57 +307,4 @@ int main() {
     // save_ipf_map("./_data/E-B.cpr", "./_out/E-B_ipf.png");
     // return 0;
     // -----------------------------------------
-    // auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
-    // std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
-    // int good_count = 0;
-    // for(auto &[key, value] : ebsds) {
-    //     auto &[path, good] = value;
-    //     // cout << key << ": " << path << ", good: " << good << endl;
-    //     if(good) {
-    //         good_count++;
-    //     }
-    // }
-    // cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
-    // vector<nlohmann::json> features_and_labels;
-    // vector<std::future<nlohmann::json>> futures;
-    // for(auto &[key, value] : ebsds) {
-    //     auto &[path, good] = value;
-    //     futures.push_back(std::async(std::launch::async, [path, good]() {
-    //         auto feat = features(path.string());
-    //         nlohmann::json j = {
-    //             {"label", good},
-    //             {"features", feat}
-    //         };
-    //         return j;
-    //     }));
-    // }
-    // for(auto& f : futures) {
-    //     features_and_labels.push_back(f.get());
-    // }
-    // std::filesystem::create_directories("_out");
-    // nlohmann::json j = features_and_labels;
-    // std::ofstream out("_out/features_and_labels.json");
-    // out << j.dump(4);
-
-    
-    
-    
-    // vector<vector<double>> X;
-    // vector<int> Y;
-    // for(auto &[key, value] : ebsds) {
-    //     auto &[path, good] = value;
-    //     auto [grains, orient] = features(path.string());
-    //     X.push_back({(double)grains.back(), static_cast<double>(grains.size()), std::get<0>(orient), std::get<1>(orient), std::get<2>(orient)});
-    //     Y.push_back(good? 1 : -1);
-    //     // cout << key << ": " << grains.size() << " grains, orientation ratio: " << std::get<0>(orient) << ", " << std::get<1>(orient) << ", " << std::get<2>(orient) << endl;
-    // }
-    // NestedCVConfig cfg;
-    // cfg.outer_k = 5;
-    // cfg.inner_k = 3;
-    // cfg.outer_repeats = 10;         // 小資料建議重複幾次，結果穩一點
-    // cfg.use_balanced_class_weight = true;
-    // cfg.verbose = true;
-
-    // auto result = nested_cv_report_small_imbalanced(X, Y, cfg);
-    // print_final_report(result);
 }

@@ -57,7 +57,7 @@
       <div class="btn-row">
         <button class="gen-btn" @click="generateReport" :disabled="!canGenerate || loading">
           <span v-if="loading">處理中… ({{ doneCount }}/{{ pairs.length }})</span>
-          <span v-else>★ 產生報表</span>
+          <span v-else>產生報表</span>
         </button>
         <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
       </div>
@@ -112,7 +112,6 @@
               v-for="(_, colKey) in COL_LABELS"
               :key="colKey"
               class="ng-cell"
-              :style="{ borderLeft: `5px solid ${grainHeatColor(colKey+'-'+rowKey)}` }"
             >
               <div class="ng-cell-inner">
                 <!-- Grain stats -->
@@ -441,43 +440,7 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   return (arr[idx] * 100).toFixed(1)
 }
 
-// ─── Nine-grid heatmap color ──────────────────────────────────────────────────
-const _grainMeans = computed<Record<string, number>>(() => {
-  const sampleData = reportData.value?.[selectedSample.value]
-  if (!sampleData) return {}
-  const vals: Record<string, number> = {}
-  for (const [pos, feat] of Object.entries(sampleData)) {
-    const g = feat.grains
-    if (g.length) vals[pos] = g.reduce((s, v) => s + v, 0) / g.length
-  }
-  return vals
-})
 
-function grainHeatColor(pos: string): string {
-  const vals = _grainMeans.value
-  const allVals = Object.values(vals)
-  if (!allVals.length) return '#e5e7eb'
-  const lo = Math.min(...allVals)
-  const hi = Math.max(...allVals)
-  const v = vals[pos]
-  if (v === undefined) return '#e5e7eb'
-  const t = hi > lo ? (v - lo) / (hi - lo) : 0.5
-  if (t < 0.5) return blendHex('#10B981', '#F59E0B', t * 2)
-  return blendHex('#F59E0B', '#EF4444', (t - 0.5) * 2)
-}
-
-function blendHex(a: string, b: string, t: number): string {
-  const parse = (h: string) => [
-    parseInt(h.slice(1, 3), 16),
-    parseInt(h.slice(3, 5), 16),
-    parseInt(h.slice(5, 7), 16),
-  ]
-  const ca = parse(a), cb = parse(b)
-  const r = Math.round(ca[0] + (cb[0] - ca[0]) * t)
-  const g = Math.round(ca[1] + (cb[1] - ca[1]) * t)
-  const bl = Math.round(ca[2] + (cb[2] - ca[2]) * t)
-  return `rgb(${r},${g},${bl})`
-}
 
 // ─── Analysis helpers ────────────────────────────────────────────────────────
 function getColorForValue(valuePercent: number): string {
@@ -721,6 +684,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .ng-cell {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
+  border-left: 5px solid #1e40af;
   border-radius: 8px;
   overflow: hidden;
 }

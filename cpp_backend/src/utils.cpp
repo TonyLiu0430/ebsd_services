@@ -39,8 +39,19 @@ nlohmann::json features(const std::string &cpr_file_path) {
     auto ratio15 = orientations_finder.ratio(15);
     nlohmann::json j = {
         {"grains", grain_sizes},
+        {"noindexed", noindexed(phase, xDim, yDim)},
         {"orientation_ratio(20%)", {std::get<0>(ratio20), std::get<1>(ratio20), std::get<2>(ratio20)}},
         {"orientation_ratio(15%)", {std::get<0>(ratio15), std::get<1>(ratio15), std::get<2>(ratio15)}}
     };
     return j;
+}
+
+int noindexed(uint8_t* phase, int xDim, int yDim) {
+    int count = 0;
+    for(int i = 0; i < xDim * yDim; i++) {
+        if(phase[i] == 0) {
+            count++;
+        }
+    }
+    return count;
 }

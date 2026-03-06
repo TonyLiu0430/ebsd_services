@@ -1,6 +1,9 @@
 <template>
   <div class="container">
-    <h1>EBSD 分析</h1>
+    <header class="page-header">
+      <h1>EBSD 分析</h1>
+      <a href="/report" class="back-link">自動化報表產生</a>
+    </header>
     
     <div class="upload-area" @click="triggerInput" @dragover.prevent @drop.prevent="handleDrop">
       <input ref="folderInput" type="file" webkitdirectory directory multiple @change="handleSelect" />
@@ -326,4 +329,12 @@ pre { margin-top: 1rem; background: #fff; padding: 1rem; border-radius: 4px; ove
 .color-slider-wrap :deep(.el-slider__bar) {
   background: transparent;
 }
+.page-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.back-link { font-size: 0.85rem; color: #6b7280; text-decoration: none; }
+.back-link:hover { color: #374151; text-decoration: underline; }
 </style>

@@ -256,6 +256,24 @@ void ml_feature() {
     out << j.dump(4);
 }
 
+class TempFile {
+    std::filesystem::path path;
+public:
+    TempFile(const std::filesystem::path &_path): path(_path) {
+        if(std::filesystem::exists(path)) {
+            throw std::runtime_error("File already exists: " + path.string());
+        }
+    }
+    std::filesystem::path get_path() const {
+        return path;
+    }
+    ~TempFile() {
+        if(std::filesystem::exists(path)) {
+            std::filesystem::remove(path);
+        }
+    }
+};
+
 int main() {
     // ml_feature();
     // return 0;
@@ -289,13 +307,12 @@ int main() {
         std::string crc_filename = "upload_" + rand_name + ".crc";
         std::filesystem::path cpr_path = temp_dir / cpr_filename;
         std::filesystem::path crc_path = temp_dir / crc_filename;
+        TempFile cpr(cpr_path);
+        TempFile crc(crc_path);
         std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         nlohmann::json j = features(cpr_path.string());
-
-        std::filesystem::remove(cpr_path);
-        std::filesystem::remove(crc_path);
 
         res.set_content(j.dump(4), "application/json");
     });

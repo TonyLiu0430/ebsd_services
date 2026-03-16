@@ -22,7 +22,6 @@ std::vector<Grain> GrainSegmenter::find_grains(int min_grain_size) {
                 float ax, ay, az, angle;
                 misor.toAxisAngle(ax, ay, az, angle);
                 if(angle <= toleranceRad) {
-
                     djs.unite({i, j}, {i, j - 1});
                 }
             }
@@ -44,3 +43,4 @@ std::vector<Grain> GrainSegmenter::find_grains(int min_grain_size) {
     });
     return grains;
 }
+

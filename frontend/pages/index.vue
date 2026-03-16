@@ -5,9 +5,23 @@
       <a href="/report" class="back-link">自動化報表產生</a>
     </header>
     
-    <div class="upload-area" @click="triggerInput" @dragover.prevent @drop.prevent="handleDrop">
+    <div
+      class="upload-area"
+      :class="{ active: pairs.length > 0 }"
+      @click="triggerInput"
+      @dragover.prevent
+      @drop.prevent="handleDrop"
+    >
       <input ref="folderInput" type="file" webkitdirectory directory multiple @change="handleSelect" />
-      <p>點擊或拖曳資料夾至此</p>
+      <div v-if="pairs.length === 0" class="upload-hint">
+        <div class="upload-icon">📂</div>
+        <p>點擊或拖曳資料夾至此</p>
+      </div>
+      <div v-else class="upload-done">
+        <span class="check">✔</span>
+        已讀取 <strong>{{ pairs.length }}</strong> 個掃描檔，共
+        <strong>{{ samples.size }}</strong> 個樣本
+      </div>
     </div>
 
     <div v-if="pairs.length" class="result">
@@ -87,8 +101,8 @@ const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 
 function getColorForValue(valuePercent: number): string {
   const [low, high] = colorThresholds.value
-  if (valuePercent <= low) return "#10B981"
-  if (valuePercent >= high) return "#EF4444"
+  if (Math.abs(valuePercent) <= low) return "#10B981"
+  if (Math.abs(valuePercent) >= high) return "#EF4444"
   return "#F59E0B"
 }
 
@@ -269,9 +283,20 @@ const analysis = async () => {
 <style scoped>
 .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
 h1 { margin-bottom: 2rem; }
-.upload-area { border: 2px dashed #ccc; border-radius: 8px; padding: 3rem; text-align: center; cursor: pointer; }
-.upload-area:hover { border-color: #999; }
+.upload-area {
+  border: 2px dashed #d1d5db;
+  border-radius: 10px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.upload-area:hover, .upload-area.active { border-color: #3B82F6; background: #eff6ff; }
 .upload-area input { display: none; }
+.upload-icon { font-size: 2rem; margin-bottom: .4rem; }
+.upload-hint p { margin: 0; color: #6b7280; }
+.upload-done { color: #059669; font-weight: 500; }
+.check { font-size: 1.2rem; margin-right: .4rem; }
 .result { margin-top: 2rem; padding: 1rem; background: #f5f5f5; border-radius: 8px; }
 .result h3 { margin-bottom: 1rem; }
 .pair-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center; }

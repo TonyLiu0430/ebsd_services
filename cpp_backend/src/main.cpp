@@ -164,42 +164,7 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
 #include "orientations.h"
 
 
-void test(const std::string &cpr_file_path, double misorientation_threshold) {
-    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
-    reader->setFileName(cpr_file_path);
-    if(reader->readFile() < 0) {
-        std::cout << "failed" << std::endl;
-    }
-    int xDim = reader->getXDimension();
-    int yDim = reader->getYDimension();
-    int totalPoints = xDim * yDim;
-    auto phase = reader->getPhasePointer();
-    auto euler1 = reader->getEuler1Pointer();
-    auto euler2 = reader->getEuler2Pointer();
-    auto euler3 = reader->getEuler3Pointer();
-    GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
-    std::vector<Grain> grains = grainSegmenter.find_grains(10);
-    if(reader->getXStep() != reader->getYStep()) {
-        throw std::invalid_argument("X and Y step sizes are not equal");
-    }
-    double step_size = reader->getXStep();
-    Orientations_finder orientations_finder(grains);
-    std::vector<double> grain_sizes;
-    double pixel_area = step_size * step_size;
-    for(auto &g : grains) {
-        double area = g.size * pixel_area;
-        double equivalent_radius = std::sqrt(area / M_PI);
-        grain_sizes.push_back(equivalent_radius * 2); // equivalent diameter
-    }
 
-    auto ratio = orientations_finder.ratio(misorientation_threshold);
-    nlohmann::json j = {
-        {"grain_max", grain_sizes.front()},
-        {"grain_count", grain_sizes.size()},
-        {"orientation_ratio", {std::get<0>(ratio), std::get<1>(ratio), std::get<2>(ratio)}}
-    };
-    std::cout << j.dump(4) << std::endl;
-}
 
 #include "httplib.h"
 #include "stduuid/uuid.h"
@@ -274,7 +239,30 @@ public:
     }
 };
 
+void test() {
+    std::string cpr_file_path = "/home/tonyliu/project/ebsd_services/cpp_backend/_data/C-U.cpr";
+    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
+    reader->setFileName(cpr_file_path);
+    int err_code = reader->readFile();
+    if(err_code < 0) {
+        throw std::runtime_error("Failed to read CPR file: " + reader->getErrorMessage());
+    }
+    int xDim = reader->getXDimension();
+    int yDim = reader->getYDimension();
+    int totalPoints = xDim * yDim;
+    auto phase = reader->getPhasePointer();
+    auto euler1 = reader->getEuler1Pointer();
+    auto euler2 = reader->getEuler2Pointer();
+    auto euler3 = reader->getEuler3Pointer();
+    GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
+    grainSegmenter.find_grains(10);
+    grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
+}
+
 int main() {
+    // srand(time(NULL));
+    // test();
+    // return 0;
     // ml_feature();
     // return 0;
     httplib::Server svr;

@@ -201,6 +201,8 @@ def analysis(req: AnalysisRequest):
                         raise HTTPException(status_code=400, detail=f"Invalid orientation feature/data: {feat}")
 
             # TODO 改用 Winsorized mean 並且前端要可調整權重
+            if len(statRes) > 1:
+                statRes = [abs(x) for x in statRes]
             avg = statistics.mean(statRes)
             res.setdefault(sample, {})[pos] = avg
     return res

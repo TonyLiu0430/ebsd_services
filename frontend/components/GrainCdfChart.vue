@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * Grain size CDF (Cumulative Distribution Function) chart.
- * Renders two sorted grain arrays as CDF curves in SVG.
+ * Grain size chart.
+ * Supports CDF line mode and histogram mode.
  */
 
 const props = withDefaults(defineProps<{
@@ -9,11 +9,13 @@ const props = withDefaults(defineProps<{
   golden: number[]
   sampleLabel?: string
   goldenLabel?: string
+  mode?: 'cdf' | 'hist'
 }>(), {
   sample: () => [],
   golden: () => [],
   sampleLabel: 'Sample',
   goldenLabel: 'Golden',
+  mode: 'cdf',
 })
 
 // SVG layout constants
@@ -40,37 +42,110 @@ function makeCdf(arr: number[], xMin: number, xMax: number): string {
   return pts.join(' ')
 }
 
-const xMax = computed(() => {
-  const all = [...props.sample, ...props.golden]
-  return all.length ? Math.ceil(Math.max(...all) * 10) / 10 : 10
+const finiteValues = computed(() =>
+  [...props.sample, ...props.golden].filter((v) => Number.isFinite(v)),
+)
+
+const positiveFiniteValues = computed(() =>
+  finiteValues.value.filter((v) => v > 0),
+)
+
+const cdfXMin = computed(() => 0)
+const cdfXMax = computed(() => {
+  if (!finiteValues.value.length) return 10
+  const maxVal = Math.max(...finiteValues.value)
+  return Math.max(1, Math.ceil(maxVal * 10) / 10)
 })
 
-const xMin = computed(() => 0)
+const histXMin = computed(() => {
+  if (!positiveFiniteValues.value.length) return 0
+  const minVal = Math.min(...positiveFiniteValues.value)
+  return Math.floor(minVal * 10) / 10
+})
 
-const samplePoints = computed(() => makeCdf(props.sample, xMin.value, xMax.value))
-const goldenPoints = computed(() => makeCdf(props.golden, xMin.value, xMax.value))
+const histXMax = computed(() => {
+  if (!finiteValues.value.length) return 10
+  const maxVal = Math.max(...finiteValues.value)
+  return Math.max(histXMin.value + 0.1, Math.ceil(maxVal * 10) / 10)
+})
+
+const chartXMin = computed(() => (props.mode === 'cdf' ? cdfXMin.value : histXMin.value))
+const chartXMax = computed(() => (props.mode === 'cdf' ? cdfXMax.value : histXMax.value))
+
+const samplePoints = computed(() => makeCdf(props.sample, cdfXMin.value, cdfXMax.value))
+const goldenPoints = computed(() => makeCdf(props.golden, cdfXMin.value, cdfXMax.value))
+
+const HIST_BINS = 16
+function makeHistogram(arr: number[], bins: number, minV: number, maxV: number): number[] {
+  const safeBins = Math.max(1, bins)
+  const counts = Array.from({ length: safeBins }, () => 0)
+  if (!arr.length) return counts
+  const span = Math.max(maxV - minV, 1e-6)
+  for (const raw of arr) {
+    const v = Number.isFinite(raw) ? raw : 0
+    const pct = (v - minV) / span
+    const idx = Math.min(safeBins - 1, Math.max(0, Math.floor(pct * safeBins)))
+    counts[idx]++
+  }
+  return counts
+}
+
+const sampleHist = computed(() => makeHistogram(props.sample, HIST_BINS, histXMin.value, histXMax.value))
+const goldenHist = computed(() => makeHistogram(props.golden, HIST_BINS, histXMin.value, histXMax.value))
+const yCountMax = computed(() => Math.max(1, ...sampleHist.value, ...goldenHist.value))
+const yAxisMax = computed(() => {
+  if (props.mode === 'cdf') return 100
+  const step = Math.max(1, Math.ceil(yCountMax.value / 4))
+  return step * 4
+})
+
+const yTicks = computed(() => {
+  if (props.mode === 'cdf') return [0, 25, 50, 75, 100]
+  const step = yAxisMax.value / 4
+  return [0, step, step * 2, step * 3, step * 4]
+})
+
+const sampleBars = computed(() => {
+  const binW = W / HIST_BINS
+  const drawW = Math.max(1, binW - 1)
+  return sampleHist.value.map((count, i) => ({
+    x: i * binW + 0.5,
+    y: H - (count / yAxisMax.value) * H,
+    w: drawW,
+    h: (count / yAxisMax.value) * H,
+  }))
+})
+
+const goldenBars = computed(() => {
+  const binW = W / HIST_BINS
+  const drawW = Math.max(1, binW - 1)
+  return goldenHist.value.map((count, i) => ({
+    x: i * binW + 0.5,
+    y: H - (count / yAxisMax.value) * H,
+    w: drawW,
+    h: (count / yAxisMax.value) * H,
+  }))
+})
 
 const xTicks = computed(() => {
   const count = 4
-  const step = xMax.value / count
+  const step = (chartXMax.value - chartXMin.value) / count
   return Array.from({ length: count + 1 }, (_, i) => {
-    const v = step * i
+    const v = chartXMin.value + step * i
     return {
-      x: (v / xMax.value) * W,
+      x: ((v - chartXMin.value) / Math.max(chartXMax.value - chartXMin.value, 1e-6)) * W,
       label: v.toFixed(1),
     }
   })
 })
-
-const yTicks = [0, 25, 50, 75, 100]
 </script>
 
 <template>
   <svg :viewBox="`0 0 ${W + PAD_L + PAD_R} ${H + PAD_T + PAD_B}`" class="cdf-svg">
     <g :transform="`translate(${PAD_L},${PAD_T})`">
       <!-- Grid lines -->
-      <g v-for="pct in yTicks" :key="pct">
-        <line :x1="0" :y1="H - pct / 100 * H" :x2="W" :y2="H - pct / 100 * H"
+      <g v-for="v in yTicks" :key="'grid-'+v">
+        <line :x1="0" :y1="H - v / yAxisMax * H" :x2="W" :y2="H - v / yAxisMax * H"
           stroke="#f0f0f0" stroke-width="1" />
       </g>
 
@@ -79,15 +154,15 @@ const yTicks = [0, 25, 50, 75, 100]
       <line :x1="0" :y1="H" :x2="W" :y2="H" stroke="#9ca3af" stroke-width="1" />
 
       <!-- Y axis ticks + labels -->
-      <g v-for="pct in yTicks" :key="'y'+pct">
-        <line :x1="-3" :y1="H - pct / 100 * H" x2="0" :y2="H - pct / 100 * H"
+      <g v-for="v in yTicks" :key="'y'+v">
+        <line :x1="-3" :y1="H - v / yAxisMax * H" x2="0" :y2="H - v / yAxisMax * H"
           stroke="#9ca3af" stroke-width="1" />
-        <text :x="-5" :y="H - pct / 100 * H + 3.5"
-          text-anchor="end" font-size="8" fill="#6b7280">{{ pct }}</text>
+        <text :x="-5" :y="H - v / yAxisMax * H + 3.5"
+          text-anchor="end" font-size="8" fill="#6b7280">{{ Math.round(v) }}</text>
       </g>
       <!-- Y axis label -->
       <text :x="-PAD_L + 6" :y="H / 2" text-anchor="middle" font-size="8" fill="#6b7280"
-        :transform="`rotate(-90,${-PAD_L + 6},${H / 2})`">累積 %</text>
+        :transform="`rotate(-90,${-PAD_L + 6},${H / 2})`">{{ props.mode === 'cdf' ? '累積 %' : 'Counts' }}</text>
 
       <!-- X axis ticks + labels -->
       <g v-for="t in xTicks" :key="'x'+t.label">
@@ -97,6 +172,7 @@ const yTicks = [0, 25, 50, 75, 100]
       <!-- X axis label -->
       <text :x="W / 2" :y="H + PAD_B - 4" text-anchor="middle" font-size="8" fill="#6b7280">粒徑 (μm)</text>
 
+      <template v-if="props.mode === 'cdf'">
       <!-- Golden CDF (dashed, orange) -->
       <polyline v-if="goldenPoints"
         :points="goldenPoints"
@@ -114,6 +190,60 @@ const yTicks = [0, 25, 50, 75, 100]
         stroke-width="1.8"
         stroke-linejoin="round"
       />
+      </template>
+      <template v-else>
+        <g class="hist-fill-layer">
+          <rect
+            v-for="(b, i) in goldenBars"
+            :key="'golden-fill-'+i"
+            :x="b.x"
+            :y="b.y"
+            :width="b.w"
+            :height="b.h"
+            fill="#F59E0B"
+            fill-opacity="0.28"
+            stroke="none"
+          />
+          <rect
+            v-for="(b, i) in sampleBars"
+            :key="'sample-fill-'+i"
+            :x="b.x"
+            :y="b.y"
+            :width="b.w"
+            :height="b.h"
+            fill="#0f766e"
+            fill-opacity="0.28"
+            stroke="none"
+          />
+        </g>
+        <g class="hist-stroke-layer">
+          <rect
+            v-for="(b, i) in goldenBars"
+            :key="'golden-stroke-'+i"
+            :x="b.x"
+            :y="b.y"
+            :width="b.w"
+            :height="b.h"
+            fill="none"
+            stroke="#F59E0B"
+            stroke-opacity="0.95"
+            stroke-width="0.9"
+            stroke-dasharray="2.2,1.4"
+          />
+          <rect
+            v-for="(b, i) in sampleBars"
+            :key="'sample-stroke-'+i"
+            :x="b.x"
+            :y="b.y"
+            :width="b.w"
+            :height="b.h"
+            fill="none"
+            stroke="#0f766e"
+            stroke-opacity="0.95"
+            stroke-width="0.9"
+          />
+        </g>
+      </template>
     </g>
   </svg>
 </template>

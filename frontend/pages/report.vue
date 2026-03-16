@@ -66,13 +66,34 @@
     <!-- ══════════════ REPORT ══════════════ -->
     <template v-if="reportData">
 
-      <!-- ── Section 1: Grain CDF curves ──────────── -->
+      <!-- ── Section 1: Grain distribution curves ──────────── -->
       <section class="card">
-        <h2 class="section-title">Grain 粒徑累積分布比對</h2>
+        <h2 class="section-title">Grain 粒徑分布比對</h2>
+        <div class="grain-mode-switch">
+          <span class="grain-mode-label">圖形模式</span>
+          <button
+            class="grain-mode-btn"
+            :class="{ active: grainChartMode === 'cdf' }"
+            @click="grainChartMode = 'cdf'"
+          > 累積曲線 </button>
+          <button
+            class="grain-mode-btn"
+            :class="{ active: grainChartMode === 'hist' }"
+            @click="grainChartMode = 'hist'"
+          > 分布直方圖 </button>
+        </div>
         <div class="chart-legend-row">
-          <svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#3B82F6" stroke-width="2.5"/></svg>
+          <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#3B82F6" stroke-width="2.5"/></svg>
+          <svg v-else width="16" height="14">
+            <rect x="2" y="2" width="12" height="10" fill="#0f766e" opacity="0.28"/>
+            <rect x="2" y="2" width="12" height="10" fill="none" stroke="#0f766e" stroke-width="1"/>
+          </svg>
           <span class="legend-lbl">{{ selectedSample }}</span>
-          <svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
+          <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
+          <svg v-else width="16" height="14">
+            <rect x="2" y="2" width="12" height="10" fill="#F59E0B" opacity="0.28"/>
+            <rect x="2" y="2" width="12" height="10" fill="none" stroke="#F59E0B" stroke-width="1" stroke-dasharray="2,1"/>
+          </svg>
           <span class="legend-lbl">{{ goldenSample }} (黃金)</span>
         </div>
 
@@ -87,6 +108,7 @@
                   :golden="getGoldenGrains(`${colKey}-${rowKey}`)"
                   :sampleLabel="selectedSample"
                   :goldenLabel="goldenSample"
+                  :mode="grainChartMode"
                 />
               </div>
             </template>
@@ -312,6 +334,7 @@ const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
+const grainChartMode = ref<'cdf' | 'hist'>('cdf')
 
 const canGenerate = computed(
   () =>
@@ -412,6 +435,7 @@ async function generateReport() {
   } finally {
     loading.value = false
   }
+  console.log(reportData.value)
 }
 
 // ─── Data accessors ───────────────────────────────────────────────────────────
@@ -445,9 +469,9 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
 // ─── Analysis helpers ────────────────────────────────────────────────────────
 function getColorForValue(valuePercent: number): string {
   const [low, high] = colorThresholds.value
-  if (valuePercent <= low) return '#10B981'
-  if (valuePercent >= high) return '#EF4444'
-  return '#F59E0B'
+  if (Math.abs(valuePercent) <= low) return "#10B981"
+  if (Math.abs(valuePercent) >= high) return "#EF4444"
+  return "#F59E0B"
 }
 
 function convertToNineposFormat(sampleData: Record<string, number>) {
@@ -623,6 +647,33 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   flex-wrap: wrap;
 }
 .legend-lbl { font-size: .82rem; color: #374151; margin-right: .5rem; }
+.grain-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: .75rem;
+  flex-wrap: wrap;
+}
+.grain-mode-label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #4b5563;
+}
+.grain-mode-btn {
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  color: #4b5563;
+  border-radius: 999px;
+  padding: .24rem .75rem;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.grain-mode-btn.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
 
 .nine-cdf-grid {
   display: grid;

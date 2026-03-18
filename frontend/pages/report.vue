@@ -199,22 +199,38 @@
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
           </div>
-          <div class="row-toggle-group">
-            <span class="toggle-label">顯示位置:</span>
-            <button
-              v-for="info in ROW_SERIES_INFO"
-              :key="info.rowKey"
-              class="row-toggle-btn"
-              :class="{ active: visibleRows.has(info.rowKey) }"
-              :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
-              @click="toggleRow(info.rowKey)"
-            >{{ info.label }}</button>
+          <div class="orient-toggle-bar">
+            <div class="row-toggle-group">
+              <span class="toggle-label">顯示位置:</span>
+              <button
+                v-for="info in ROW_SERIES_INFO"
+                :key="info.rowKey"
+                class="row-toggle-btn"
+                :class="{ active: visibleRows.has(info.rowKey) }"
+                :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleRow(info.rowKey)"
+              >{{ info.label }}</button>
+            </div>
+            <div class="label-toggle-group">
+              <span class="toggle-label">數字顯示:</span>
+              <button
+                class="simple-toggle-btn"
+                :class="{ active: showTriangleLabels }"
+                @click="showTriangleLabels = true"
+              >顯示</button>
+              <button
+                class="simple-toggle-btn"
+                :class="{ active: !showTriangleLabels }"
+                @click="showTriangleLabels = false"
+              >隱藏</button>
+            </div>
           </div>
         </div>
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '20%')" />
+            <TriangleChart :series="buildOrientSeries(colKey, '20%')"
+              :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -233,22 +249,38 @@
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
           </div>
-          <div class="row-toggle-group">
-            <span class="toggle-label">顯示位置:</span>
-            <button
-              v-for="info in ROW_SERIES_INFO"
-              :key="info.rowKey"
-              class="row-toggle-btn"
-              :class="{ active: visibleRows.has(info.rowKey) }"
-              :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
-              @click="toggleRow(info.rowKey)"
-            >{{ info.label }}</button>
+          <div class="orient-toggle-bar">
+            <div class="row-toggle-group">
+              <span class="toggle-label">顯示位置:</span>
+              <button
+                v-for="info in ROW_SERIES_INFO"
+                :key="info.rowKey"
+                class="row-toggle-btn"
+                :class="{ active: visibleRows.has(info.rowKey) }"
+                :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleRow(info.rowKey)"
+              >{{ info.label }}</button>
+            </div>
+            <div class="label-toggle-group">
+              <span class="toggle-label">數字顯示:</span>
+              <button
+                class="simple-toggle-btn"
+                :class="{ active: showTriangleLabels }"
+                @click="showTriangleLabels = true"
+              >顯示</button>
+              <button
+                class="simple-toggle-btn"
+                :class="{ active: !showTriangleLabels }"
+                @click="showTriangleLabels = false"
+              >隱藏</button>
+            </div>
           </div>
         </div>
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '15%')" />
+            <TriangleChart :series="buildOrientSeries(colKey, '15%')"
+              :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -308,6 +340,7 @@ const ROW_SERIES_INFO = [
 ]
 // 控制三角圖顯示哪些 row 位置（同時套用於 20° 和 15° 圖）
 const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
+const showTriangleLabels = ref(true)
 function toggleRow(rowKey: string) {
   if (visibleRows.value.has(rowKey)) {
     if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey) // 至少保留一個
@@ -791,6 +824,18 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   gap: .4rem;
   flex-wrap: wrap;
 }
+.orient-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem 1.25rem;
+  flex-wrap: wrap;
+}
+.label-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
 .toggle-label {
   font-size: .8rem;
   font-weight: 600;
@@ -808,6 +853,22 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   transition: background .15s, color .15s, border-color .15s;
 }
 .row-toggle-btn.active {
+  color: #fff;
+}
+.simple-toggle-btn {
+  padding: .28rem .75rem;
+  border: 1.5px solid #d1d5db;
+  border-radius: 20px;
+  background: #f9fafb;
+  color: #6b7280;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.simple-toggle-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
   color: #fff;
 }
 .triangle-row {

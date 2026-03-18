@@ -24,9 +24,11 @@ interface Series {
 const props = withDefaults(defineProps<{
   series: Series[]
   title?: string
+  showValueLabels?: boolean
 }>(), {
   series: () => [],
-  title: ''
+  title: '',
+  showValueLabels: true,
 })
 
 // SVG geometry
@@ -37,8 +39,6 @@ const R = 100 // radius for 100%
 const ANGLES = [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6] // 001, 110, 111
 const AXIS_LABELS = ['001', '110', '111']
 const MAX_PCT = 50  // 頂點 = 50%，超過自然超出
-
-const GRID_LEVELS = [10, 20, 30, 40, 50]
 
 function axisPoint(axisIdx: number, pct: number): { x: number; y: number } {
   const r = (pct / MAX_PCT) * R
@@ -144,6 +144,7 @@ function axisLabelPos(idx: number) {
             :fill="s.color"
           />
           <text
+            v-if="props.showValueLabels"
             :x="seriesPoint(v, vi).x"
             :y="seriesPoint(v, vi).y - 5"
             text-anchor="middle"

@@ -56,7 +56,7 @@
       </div>
       <div class="btn-row">
         <button class="gen-btn" @click="generateReport" :disabled="!canGenerate || loading">
-          <span v-if="loading">處理中… ({{ doneCount }}/{{ pairs.length }})</span>
+          <span v-if="loading">處理中… ({{ doneCount }}/{{ totalTasks || pairs.length }})</span>
           <span v-else>產生報表</span>
         </button>
         <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
@@ -118,7 +118,34 @@
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card">
-        <h2 class="section-title">九宮格完整數據 — {{ selectedSample }}</h2>
+        <h2 class="section-title">九宮格完整數據 — {{ currentVersionDisplayName }}</h2>
+        <div class="version-switch-wrap">
+          <div class="version-switch-head">
+            <div>
+              <div class="version-switch-label">資料版本</div>
+              <div class="version-switch-current">{{ currentVersionDisplayName }}</div>
+            </div>
+            <div class="version-switch-note">紅底表示該位置會在下一個版本重測</div>
+          </div>
+          <div v-if="selectedSampleVersions.length > 1" class="version-slider-wrap">
+            <el-slider
+              v-model="selectedVersionIndex"
+              :min="0"
+              :max="selectedSampleVersions.length - 1"
+              :step="1"
+              :show-tooltip="true"
+              :format-tooltip="formatVersionTooltip"
+            />
+            <div class="version-ticks">
+              <span
+                v-for="(version, idx) in selectedSampleVersions"
+                :key="version.label"
+                class="version-tick"
+                :class="{ active: idx === selectedVersionIndex }"
+              >{{ version.label }}</span>
+            </div>
+          </div>
+        </div>
         <div class="nine-grid-wrapper">
           <!-- Header row -->
           <div class="ng-header-row">
@@ -134,6 +161,7 @@
               v-for="(_, colKey) in COL_LABELS"
               :key="colKey"
               class="ng-cell"
+              :class="{ 'ng-cell-retest': nextRetestPositions.has(`${colKey}-${rowKey}`) }"
             >
               <div class="ng-cell-inner">
                 <!-- Grain stats -->
@@ -141,19 +169,19 @@
                   <div class="stat-title">Grain Size (μm)</div>
                   <div class="stat-row">
                     <span class="stat-key">Mean</span>
-                    <span class="stat-val">{{ fmtGrain(colKey+'-'+rowKey, 'mean') }}</span>
+                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'mean') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Max</span>
-                    <span class="stat-val">{{ fmtGrain(colKey+'-'+rowKey, 'max') }}</span>
+                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'max') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">P75</span>
-                    <span class="stat-val">{{ fmtGrain(colKey+'-'+rowKey, 'p75') }}</span>
+                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'p75') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Count</span>
-                    <span class="stat-val">{{ fmtGrain(colKey+'-'+rowKey, 'count') }}</span>
+                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'count') }}</span>
                   </div>
                 </div>
                 <!-- Orientation ratios -->
@@ -166,15 +194,15 @@
                     <tbody>
                       <tr>
                         <td class="dev-label">20°</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '20%', 0) }}%</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '20%', 1) }}%</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '20%', 2) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 0) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 1) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 2) }}%</td>
                       </tr>
                       <tr>
                         <td class="dev-label">15°</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '15%', 0) }}%</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '15%', 1) }}%</td>
-                        <td>{{ fmtOrient(colKey+'-'+rowKey, '15%', 2) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 0) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 1) }}%</td>
+                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 2) }}%</td>
                       </tr>
                     </tbody>
                   </table>
@@ -320,6 +348,8 @@
 <script setup lang="ts">
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FilePair { name: string; crc: File; cpr: File; sample: string; pos: string }
+interface VersionedFilePair extends FilePair { versionNum: number; versionLabel: string }
+interface SampleVersionMeta { label: string; versionNum: number }
 type CppFeatures = {
   grains: number[]
   'orientation_ratio(20%)': number[]   // [001, 110, 111]  values 0-1
@@ -353,13 +383,18 @@ function toggleRow(rowKey: string) {
 // ─── Reactive state ───────────────────────────────────────────────────────────
 const folderInput = ref<HTMLInputElement>()
 const pairs = ref<FilePair[]>([])
+const versionedPairs = ref<VersionedFilePair[]>([])
+const sampleVersionsMap = ref<Record<string, SampleVersionMeta[]>>({})
 const samples = ref(new Set<string>())
 const selectedSample = ref('')
 const goldenSample = ref('')
 const loading = ref(false)
 const doneCount = ref(0)
+const totalTasks = ref(0)
 const error = ref('')
 const reportData = ref<AllDataResult | null>(null)
+const versionedReportData = ref<Record<string, Record<string, Record<string, CppFeatures>>>>({})
+const selectedVersionIndex = ref(0)
 
 // ─── Analysis state ──────────────────────────────────────────────────────────
 type AnalysisResult = Record<string, Record<string, number>>
@@ -375,6 +410,47 @@ const canGenerate = computed(
     goldenSample.value !== '' &&
     selectedSample.value !== goldenSample.value,
 )
+
+const selectedSampleVersions = computed(() => sampleVersionsMap.value[selectedSample.value] ?? [])
+const currentVersionMeta = computed(() => {
+  const versions = selectedSampleVersions.value
+  if (!versions.length) return null
+  const safeIdx = Math.min(selectedVersionIndex.value, versions.length - 1)
+  return versions[safeIdx] ?? null
+})
+const currentVersionDisplayName = computed(() => currentVersionMeta.value?.label ?? selectedSample.value)
+
+watch(
+  selectedSample,
+  () => {
+    const versions = sampleVersionsMap.value[selectedSample.value] ?? []
+    selectedVersionIndex.value = versions.length ? versions.length - 1 : 0
+  },
+  { immediate: true },
+)
+
+const currentVersionData = computed<Record<string, CppFeatures>>(() => {
+  const sample = selectedSample.value
+  const versions = selectedSampleVersions.value
+  if (!sample || !versions.length) return {}
+  const merged: Record<string, CppFeatures> = {}
+  const rawByVersion = versionedReportData.value[sample] ?? {}
+  const safeIdx = Math.min(selectedVersionIndex.value, versions.length - 1)
+  for (let i = 0; i <= safeIdx; i++) {
+    const versionLabel = versions[i]?.label
+    if (!versionLabel) continue
+    Object.assign(merged, rawByVersion[versionLabel] ?? {})
+  }
+  return merged
+})
+
+const nextRetestPositions = computed(() => {
+  const sample = selectedSample.value
+  const versions = selectedSampleVersions.value
+  const nextMeta = versions[selectedVersionIndex.value + 1]
+  if (!sample || !nextMeta) return new Set<string>()
+  return new Set(Object.keys(versionedReportData.value[sample]?.[nextMeta.label] ?? {}))
+})
 
 // ─── Upload helpers ───────────────────────────────────────────────────────────
 function triggerInput() { folderInput.value?.click() }
@@ -398,35 +474,80 @@ function standard_pos(pos: string): string {
 function processFiles(fileList: FileList | null | undefined) {
   if (!fileList?.length) return
   reportData.value = null
+  versionedReportData.value = {}
   error.value = ''
 
   const allFiles = Array.from(fileList)
-  const crcFiles = new Map<string, { file: File; sample: string; pos: string; num: string }>()
-  const cprFiles = new Map<string, { file: File; num: string }>()
+  const latestCrcFiles = new Map<string, { file: File; sample: string; pos: string; versionNum: number }>()
+  const latestCprFiles = new Map<string, { file: File; versionNum: number }>()
+  const versionedCrcFiles = new Map<string, { file: File; sample: string; pos: string; versionNum: number; versionLabel: string }>()
+  const versionedCprFiles = new Map<string, { file: File; versionNum: number; versionLabel: string }>()
+  const versionMetaMap = new Map<string, Map<number, string>>()
+
   samples.value = new Set()
   pairs.value = []
+  versionedPairs.value = []
+  sampleVersionsMap.value = {}
+  selectedVersionIndex.value = 0
 
   for (const f of allFiles) {
     if (!f.name.endsWith('.crc') && !f.name.endsWith('.cpr')) continue
     const parts = f.webkitRelativePath.split('/')
-    const subdir = parts[1] || ''
-    const lastDash = subdir.lastIndexOf('-')
-    const dataPatch = lastDash > 0 ? subdir.slice(0, lastDash) : subdir
-    const num = lastDash > 0 ? subdir.slice(lastDash + 1) : '01'
+    const subdir = (parts[1] || '').trim()
+    if (!subdir) continue
+
+    const match = subdir.match(/^(.*?)-(\d+)$/)
+    const sample = (match?.[1] || subdir).trim()
+    const versionNum = match ? Number.parseInt(match[2], 10) : 1
+    const versionLabel = subdir
     const pos = standard_pos(f.name.replace(/\.(crc|cpr)$/i, '').trim())
-    const key = `${dataPatch}-${pos}`
-    samples.value.add(dataPatch)
+    const latestKey = `${sample}-${pos}`
+    const versionedKey = `${sample}__${versionLabel}__${pos}`
+
+    samples.value.add(sample)
+    if (!versionMetaMap.has(sample)) versionMetaMap.set(sample, new Map())
+    versionMetaMap.get(sample)!.set(versionNum, versionLabel)
+
     if (f.name.endsWith('.crc')) {
-      const existing = crcFiles.get(key)
-      if (!existing || num > existing.num) crcFiles.set(key, { file: f, sample: dataPatch, pos, num })
+      versionedCrcFiles.set(versionedKey, { file: f, sample, pos, versionNum, versionLabel })
+      const existing = latestCrcFiles.get(latestKey)
+      if (!existing || versionNum >= existing.versionNum) {
+        latestCrcFiles.set(latestKey, { file: f, sample, pos, versionNum })
+      }
     } else {
-      const existing = cprFiles.get(key)
-      if (!existing || num > existing.num) cprFiles.set(key, { file: f, num })
+      versionedCprFiles.set(versionedKey, { file: f, versionNum, versionLabel })
+      const existing = latestCprFiles.get(latestKey)
+      if (!existing || versionNum >= existing.versionNum) {
+        latestCprFiles.set(latestKey, { file: f, versionNum })
+      }
     }
   }
 
-  for (const [key, { file: crc, sample, pos }] of crcFiles) {
-    const cprEntry = cprFiles.get(key)
+  const versionsObj: Record<string, SampleVersionMeta[]> = {}
+  for (const [sample, versionMap] of versionMetaMap.entries()) {
+    versionsObj[sample] = Array.from(versionMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([versionNum, label]) => ({ versionNum, label }))
+  }
+  sampleVersionsMap.value = versionsObj
+
+  for (const [key, { file: crc, sample, pos, versionNum, versionLabel }] of versionedCrcFiles) {
+    const cprEntry = versionedCprFiles.get(key)
+    if (cprEntry) {
+      versionedPairs.value.push({
+        name: key,
+        crc,
+        cpr: cprEntry.file,
+        sample,
+        pos,
+        versionNum,
+        versionLabel,
+      })
+    }
+  }
+
+  for (const [key, { file: crc, sample, pos }] of latestCrcFiles) {
+    const cprEntry = latestCprFiles.get(key)
     if (cprEntry) pairs.value.push({ name: key, crc, cpr: cprEntry.file, sample, pos })
   }
 }
@@ -437,31 +558,74 @@ async function generateReport() {
   loading.value = true
   error.value = ''
   reportData.value = null
+  versionedReportData.value = {}
   doneCount.value = 0
+  totalTasks.value = 0
 
   try {
-    const needed = new Set([selectedSample.value, goldenSample.value])
-    const filteredPairs = pairs.value.filter((p) => needed.has(p.sample))
+    const neededLatestPairs = pairs.value.filter(
+      (p) => p.sample === selectedSample.value || p.sample === goldenSample.value,
+    )
+    const neededVersionedPairs = versionedPairs.value.filter((p) => p.sample === selectedSample.value)
 
-    const promises = filteredPairs.map(async (p) => {
-      const formData = new FormData()
-      formData.append('crc', p.crc)
-      formData.append('cpr', p.cpr)
-      const features = await $fetch<CppFeatures>('/cppapi/features', {
-        method: 'POST',
-        body: formData,
-      })
-      doneCount.value++
-      return { sample: p.sample, pos: p.pos, features }
-    })
+    const requestCache = new Map<string, Promise<CppFeatures>>()
+    const requestKeys = new Set<string>()
 
-    const results = await Promise.all(promises)
-    const data: AllDataResult = {}
-    for (const r of results) {
-      if (!data[r.sample]) data[r.sample] = {}
-      data[r.sample][r.pos] = r.features
+    const getRequestKey = (p: { crc: File; cpr: File }) => `${p.crc.webkitRelativePath}__${p.cpr.webkitRelativePath}`
+    for (const p of neededLatestPairs) requestKeys.add(getRequestKey(p))
+    for (const p of neededVersionedPairs) requestKeys.add(getRequestKey(p))
+    totalTasks.value = requestKeys.size
+
+    const fetchFeatures = async (p: { crc: File; cpr: File }) => {
+      const key = getRequestKey(p)
+      const cached = requestCache.get(key)
+      if (cached) return cached
+      const promise = (async () => {
+        const formData = new FormData()
+        formData.append('crc', p.crc)
+        formData.append('cpr', p.cpr)
+        const features = await $fetch<CppFeatures>('/cppapi/features', {
+          method: 'POST',
+          body: formData,
+        })
+        doneCount.value++
+        return features
+      })()
+      requestCache.set(key, promise)
+      return promise
     }
-    reportData.value = data
+
+    const latestResults = await Promise.all(
+      neededLatestPairs.map(async (p) => ({
+        sample: p.sample,
+        pos: p.pos,
+        features: await fetchFeatures(p),
+      })),
+    )
+
+    const versionedResults = await Promise.all(
+      neededVersionedPairs.map(async (p) => ({
+        sample: p.sample,
+        pos: p.pos,
+        versionLabel: p.versionLabel,
+        features: await fetchFeatures(p),
+      })),
+    )
+
+    const latestData: AllDataResult = {}
+    for (const r of latestResults) {
+      if (!latestData[r.sample]) latestData[r.sample] = {}
+      latestData[r.sample][r.pos] = r.features
+    }
+    reportData.value = latestData
+
+    const versionData: Record<string, Record<string, Record<string, CppFeatures>>> = {}
+    for (const r of versionedResults) {
+      if (!versionData[r.sample]) versionData[r.sample] = {}
+      if (!versionData[r.sample][r.versionLabel]) versionData[r.sample][r.versionLabel] = {}
+      versionData[r.sample][r.versionLabel][r.pos] = r.features
+    }
+    versionedReportData.value = versionData
   } catch (e: unknown) {
     const err = e as { data?: { message?: string }; message?: string }
     error.value = err.data?.message || err.message || '未知錯誤'
@@ -477,6 +641,31 @@ function getSampleGrains(pos: string): number[] {
 }
 function getGoldenGrains(pos: string): number[] {
   return reportData.value?.[goldenSample.value]?.[pos]?.grains ?? []
+}
+function getCurrentVersionGrains(pos: string): number[] {
+  return currentVersionData.value?.[pos]?.grains ?? []
+}
+function formatVersionTooltip(idx: number) {
+  const meta = selectedSampleVersions.value[idx]
+  return meta?.label ?? String(idx + 1)
+}
+
+function fmtVersionGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
+  const g = getCurrentVersionGrains(pos)
+  if (!g.length) return '—'
+  if (stat === 'count') return String(g.length)
+  const sorted = [...g].sort((a, b) => a - b)
+  if (stat === 'mean') return (g.reduce((s, v) => s + v, 0) / g.length).toFixed(2)
+  if (stat === 'max') return sorted[sorted.length - 1].toFixed(2)
+  if (stat === 'p75') return sorted[Math.floor(sorted.length * 0.75)].toFixed(2)
+  return '—'
+}
+
+function fmtVersionOrient(pos: string, dev: '20%' | '15%', idx: number): string {
+  const key = `orientation_ratio(${dev})` as keyof CppFeatures
+  const arr = currentVersionData.value?.[pos]?.[key] as number[] | undefined
+  if (!arr) return '—'
+  return (arr[idx] * 100).toFixed(1)
 }
 
 function fmtGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
@@ -728,6 +917,57 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 
 /* ── Nine-grid data ──────────────────────────────────────────────────────────── */
+
+.version-switch-wrap {
+  margin-bottom: 1rem;
+  padding: .9rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+.version-switch-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.version-switch-label {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #6b7280;
+}
+.version-switch-current {
+  margin-top: .18rem;
+  font-size: .95rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+.version-switch-note {
+  font-size: .78rem;
+  font-weight: 600;
+  color: #dc2626;
+}
+.version-slider-wrap {
+  padding: 0 .35rem;
+}
+.version-ticks {
+  display: flex;
+  justify-content: space-between;
+  gap: .4rem;
+  margin-top: .35rem;
+  flex-wrap: wrap;
+}
+.version-tick {
+  font-size: .74rem;
+  color: #6b7280;
+}
+.version-tick.active {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
 .nine-grid-wrapper { overflow-x: auto; }
 .ng-header-row {
   display: grid;
@@ -771,6 +1011,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-left: 5px solid #1e40af;
   border-radius: 8px;
   overflow: hidden;
+}
+.ng-cell-retest {
+  background: #fef2f2;
+  border-color: #fecaca;
+  border-left-color: #dc2626;
 }
 .ng-cell-inner {
   padding: 10px 12px;

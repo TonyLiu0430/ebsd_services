@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
   golden: number[]
   sampleLabel?: string
   goldenLabel?: string
-  mode?: 'cdf' | 'hist'
+  mode?: 'cdf' | 'hist' | 'area-hist'
 }>(), {
   sample: () => [],
   golden: () => [],
@@ -76,25 +76,70 @@ const samplePoints = computed(() => makeCdf(props.sample, cdfXMin.value, cdfXMax
 const goldenPoints = computed(() => makeCdf(props.golden, cdfXMin.value, cdfXMax.value))
 
 const HIST_BINS = 16
-function makeHistogram(arr: number[], bins: number, minV: number, maxV: number): number[] {
+function equivalentAreaWeight(diameter: number): number {
+  const radius = diameter / 2
+  return Math.PI * radius * radius
+}
+
+function makeHistogram(
+  arr: number[],
+  bins: number,
+  minV: number,
+  maxV: number,
+  weightFn: (value: number) => number = () => 1,
+): number[] {
   const safeBins = Math.max(1, bins)
   const counts = Array.from({ length: safeBins }, () => 0)
   if (!arr.length) return counts
   const span = Math.max(maxV - minV, 1e-6)
   for (const raw of arr) {
-    const v = Number.isFinite(raw) ? raw : 0
+    if (!Number.isFinite(raw) || raw <= 0) continue
+    const v = raw
     const pct = (v - minV) / span
     const idx = Math.min(safeBins - 1, Math.max(0, Math.floor(pct * safeBins)))
-    counts[idx]++
+    counts[idx] += weightFn(v)
   }
   return counts
 }
 
+function normalizeToPercent(values: number[]): number[] {
+  const total = values.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) return values.map(() => 0)
+  return values.map((value) => (value / total) * 100)
+}
+
+function niceStep(target: number): number {
+  if (target <= 0) return 1
+  const magnitude = 10 ** Math.floor(Math.log10(target))
+  const normalized = target / magnitude
+  if (normalized <= 1) return magnitude
+  if (normalized <= 2) return 2 * magnitude
+  if (normalized <= 2.5) return 2.5 * magnitude
+  if (normalized <= 5) return 5 * magnitude
+  return 10 * magnitude
+}
+
 const sampleHist = computed(() => makeHistogram(props.sample, HIST_BINS, histXMin.value, histXMax.value))
 const goldenHist = computed(() => makeHistogram(props.golden, HIST_BINS, histXMin.value, histXMax.value))
-const yCountMax = computed(() => Math.max(1, ...sampleHist.value, ...goldenHist.value))
+const sampleAreaHist = computed(() =>
+  normalizeToPercent(
+    makeHistogram(props.sample, HIST_BINS, histXMin.value, histXMax.value, equivalentAreaWeight),
+  ),
+)
+const goldenAreaHist = computed(() =>
+  normalizeToPercent(
+    makeHistogram(props.golden, HIST_BINS, histXMin.value, histXMax.value, equivalentAreaWeight),
+  ),
+)
+const activeSampleHist = computed(() => (props.mode === 'area-hist' ? sampleAreaHist.value : sampleHist.value))
+const activeGoldenHist = computed(() => (props.mode === 'area-hist' ? goldenAreaHist.value : goldenHist.value))
+const yCountMax = computed(() => Math.max(0, ...activeSampleHist.value, ...activeGoldenHist.value))
 const yAxisMax = computed(() => {
   if (props.mode === 'cdf') return 100
+  if (props.mode === 'area-hist') {
+    if (yCountMax.value <= 0) return 100
+    return niceStep(yCountMax.value / 4) * 4
+  }
   const step = Math.max(1, Math.ceil(yCountMax.value / 4))
   return step * 4
 })
@@ -105,10 +150,23 @@ const yTicks = computed(() => {
   return [0, step, step * 2, step * 3, step * 4]
 })
 
+function formatYAxisTick(value: number): string {
+  if (props.mode !== 'area-hist') return String(Math.round(value))
+  if (value >= 10) return value.toFixed(0)
+  if (value >= 1) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
+const yAxisLabel = computed(() => {
+  if (props.mode === 'cdf') return '累積 %'
+  if (props.mode === 'area-hist') return '面積占比 %'
+  return 'Counts'
+})
+
 const sampleBars = computed(() => {
   const binW = W / HIST_BINS
   const drawW = Math.max(1, binW - 1)
-  return sampleHist.value.map((count, i) => ({
+  return activeSampleHist.value.map((count, i) => ({
     x: i * binW + 0.5,
     y: H - (count / yAxisMax.value) * H,
     w: drawW,
@@ -119,7 +177,7 @@ const sampleBars = computed(() => {
 const goldenBars = computed(() => {
   const binW = W / HIST_BINS
   const drawW = Math.max(1, binW - 1)
-  return goldenHist.value.map((count, i) => ({
+  return activeGoldenHist.value.map((count, i) => ({
     x: i * binW + 0.5,
     y: H - (count / yAxisMax.value) * H,
     w: drawW,
@@ -158,11 +216,11 @@ const xTicks = computed(() => {
         <line :x1="-3" :y1="H - v / yAxisMax * H" x2="0" :y2="H - v / yAxisMax * H"
           stroke="#9ca3af" stroke-width="1" />
         <text :x="-5" :y="H - v / yAxisMax * H + 3.5"
-          text-anchor="end" font-size="8" fill="#6b7280">{{ Math.round(v) }}</text>
+          text-anchor="end" font-size="8" fill="#6b7280">{{ formatYAxisTick(v) }}</text>
       </g>
       <!-- Y axis label -->
       <text :x="-PAD_L + 6" :y="H / 2" text-anchor="middle" font-size="8" fill="#6b7280"
-        :transform="`rotate(-90,${-PAD_L + 6},${H / 2})`">{{ props.mode === 'cdf' ? '累積 %' : 'Counts' }}</text>
+        :transform="`rotate(-90,${-PAD_L + 6},${H / 2})`">{{ yAxisLabel }}</text>
 
       <!-- X axis ticks + labels -->
       <g v-for="t in xTicks" :key="'x'+t.label">

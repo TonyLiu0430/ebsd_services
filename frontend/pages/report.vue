@@ -81,6 +81,14 @@
             :class="{ active: grainChartMode === 'hist' }"
             @click="grainChartMode = 'hist'"
           > 分布直方圖 </button>
+          <button
+            class="grain-mode-btn"
+            :class="{ active: grainChartMode === 'area-hist' }"
+            @click="grainChartMode = 'area-hist'"
+          > 面積加權直方圖 </button>
+        </div>
+        <div v-if="grainChartMode === 'area-hist'" class="grain-mode-note">
+          以 grain 等效直徑 d 換算面積權重，單顆 grain 權重採用 π(d/2)^2，圖上顯示各粒徑區間的面積占比。
         </div>
         <div class="chart-legend-row">
           <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#3B82F6" stroke-width="2.5"/></svg>
@@ -402,7 +410,7 @@ const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
-const grainChartMode = ref<'cdf' | 'hist'>('cdf')
+const grainChartMode = ref<'cdf' | 'hist' | 'area-hist'>('cdf')
 
 const canGenerate = computed(
   () =>
@@ -895,6 +903,12 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-color: #2563eb;
   background: #eff6ff;
   color: #1d4ed8;
+}
+.grain-mode-note {
+  margin-bottom: .9rem;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: #6b7280;
 }
 
 .nine-cdf-grid {

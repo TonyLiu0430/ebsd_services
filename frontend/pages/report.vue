@@ -43,20 +43,20 @@
           <label>分析樣本</label>
           <select v-model="selectedSample" class="sel">
             <option value="">— 請選擇 —</option>
-            <option v-for="s in samples" :key="s" :value="s">{{ s }}</option>
+            <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
           </select>
         </div>
         <div class="selector-group">
           <label>黃金樣本（基準）</label>
           <select v-model="goldenSample" class="sel">
             <option value="">— 請選擇 —</option>
-            <option v-for="s in samples" :key="s" :value="s">{{ s }}</option>
+            <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
           </select>
         </div>
       </div>
       <div class="btn-row">
         <button class="gen-btn" @click="generateReport" :disabled="!canGenerate || loading">
-          <span v-if="loading">處理中… ({{ doneCount }}/{{ totalTasks || pairs.length }})</span>
+          <span v-if="loading">處理中… ({{ doneCount }}/{{ loadingTotal || pairs.length }})</span>
           <span v-else>產生報表</span>
         </button>
         <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
@@ -75,48 +75,74 @@
             class="grain-mode-btn"
             :class="{ active: grainChartMode === 'cdf' }"
             @click="grainChartMode = 'cdf'"
-          > 累積曲線 </button>
+          >累積曲線</button>
           <button
             class="grain-mode-btn"
             :class="{ active: grainChartMode === 'hist' }"
             @click="grainChartMode = 'hist'"
-          > 分布直方圖 </button>
+          >分布直方圖</button>
           <button
             class="grain-mode-btn"
-            :class="{ active: grainChartMode === 'area-hist' }"
-            @click="grainChartMode = 'area-hist'"
-          > 面積加權直方圖 </button>
+            :class="{ active: grainChartMode === 'areaHist' }"
+            @click="grainChartMode = 'areaHist'"
+          >面積加權直方圖</button>
         </div>
-        <div v-if="grainChartMode === 'area-hist'" class="grain-mode-note">
-          以 grain 等效直徑 d 換算面積權重，單顆 grain 權重採用 π(d/2)^2，圖上顯示各粒徑區間的面積占比。
+
+        <div class="version-slider-grid grain-version-grid">
+          <div class="version-slider-card">
+            <div class="version-slider-head">
+              <span class="version-slider-title">分析樣本版本</span>
+              <strong>{{ currentSelectedGrainVersionLabel }}</strong>
+            </div>
+            <el-slider
+              v-model="grainSampleVersionIndex"
+              :min="0"
+              :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
+              :step="1"
+              :show-stops="selectedSampleVersionOptions.length > 1"
+              :show-tooltip="false"
+              :disabled="selectedSampleVersionOptions.length <= 1"
+            />
+            <div class="version-slider-ends">
+              <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
+              <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
+            </div>
+          </div>
         </div>
+
+        <p v-if="grainChartMode === 'areaHist'" class="grain-mode-note">
+          以 grain 等效直徑 d 換算面積權重，單顆 grain 權重採用 π(d/2)^2，圖上顯示落各粒徑區間的面積占比。
+        </p>
+
         <div class="chart-legend-row">
           <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#3B82F6" stroke-width="2.5"/></svg>
           <svg v-else width="16" height="14">
             <rect x="2" y="2" width="12" height="10" fill="#0f766e" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#0f766e" stroke-width="1"/>
           </svg>
-          <span class="legend-lbl">{{ selectedSample }}</span>
+          <span class="legend-lbl">{{ currentSelectedGrainVersionLabel }}</span>
           <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
           <svg v-else width="16" height="14">
             <rect x="2" y="2" width="12" height="10" fill="#F59E0B" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#F59E0B" stroke-width="1" stroke-dasharray="2,1"/>
           </svg>
-          <span class="legend-lbl">{{ goldenSample }} (黃金)</span>
+          <span class="legend-lbl">{{ currentGoldenGrainVersionLabel }} (黃金)</span>
         </div>
 
-        <!-- 3×3 grid ordered: row=U/M/B, col=C/M/E -->
         <div class="nine-cdf-grid">
           <template v-for="(rowLabel, rowKey) in ROW_LABELS" :key="rowKey">
             <template v-for="colKey in COL_KEYS" :key="colKey">
               <div class="cdf-cell">
                 <div class="cdf-pos-label">{{ colKey }}-{{ rowKey }}</div>
                 <GrainCdfChart
-                  :sample="getSampleGrains(`${colKey}-${rowKey}`)"
-                  :golden="getGoldenGrains(`${colKey}-${rowKey}`)"
-                  :sampleLabel="selectedSample"
-                  :goldenLabel="goldenSample"
+                  :sample="getCompareSampleGrains(`${colKey}-${rowKey}`)"
+                  :golden="getCompareGoldenGrains(`${colKey}-${rowKey}`)"
+                  :sampleLabel="currentSelectedGrainVersionLabel"
+                  :goldenLabel="currentGoldenGrainVersionLabel"
                   :mode="grainChartMode"
+                  :fixedXMin="sharedGrainBins.min"
+                  :fixedXMax="sharedGrainBins.max"
+                  :binCount="sharedGrainBins.binCount"
                 />
               </div>
             </template>
@@ -126,73 +152,62 @@
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card">
-        <h2 class="section-title">九宮格完整數據 — {{ currentVersionDisplayName }}</h2>
-        <div class="version-switch-wrap">
-          <div class="version-switch-head">
-            <div>
-              <div class="version-switch-label">資料版本</div>
-              <div class="version-switch-current">{{ currentVersionDisplayName }}</div>
-            </div>
-            <div class="version-switch-note">紅底表示該位置會在下一個版本重測</div>
+        <h2 class="section-title">九宮格完整數據 — {{ currentGridVersionLabel || selectedSample }}</h2>
+        <div class="version-slider-card grid-version-card">
+          <div class="version-slider-head">
+            <span class="version-slider-title">九宮格版本</span>
+            <strong>{{ currentGridVersionLabel }}</strong>
           </div>
-          <div v-if="selectedSampleVersions.length > 1" class="version-slider-wrap">
-            <el-slider
-              v-model="selectedVersionIndex"
-              :min="0"
-              :max="selectedSampleVersions.length - 1"
-              :step="1"
-              :show-tooltip="true"
-              :format-tooltip="formatVersionTooltip"
-            />
-            <div class="version-ticks">
-              <span
-                v-for="(version, idx) in selectedSampleVersions"
-                :key="version.label"
-                class="version-tick"
-                :class="{ active: idx === selectedVersionIndex }"
-              >{{ version.label }}</span>
-            </div>
+          <el-slider
+            v-model="gridVersionIndex"
+            :min="0"
+            :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
+            :step="1"
+            :show-stops="selectedSampleVersionOptions.length > 1"
+            :show-tooltip="false"
+            :disabled="selectedSampleVersionOptions.length <= 1"
+          />
+          <div class="version-slider-ends">
+            <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
+            <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
           </div>
         </div>
+
         <div class="nine-grid-wrapper">
-          <!-- Header row -->
           <div class="ng-header-row">
             <div class="ng-corner"></div>
             <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="ng-col-header">
               {{ colLabel }}<br/><small>({{ colKey }})</small>
             </div>
           </div>
-          <!-- Data rows -->
           <div v-for="(rowLabel, rowKey) in ROW_LABELS" :key="rowKey" class="ng-data-row">
             <div class="ng-row-header">{{ rowLabel }}</div>
             <div
               v-for="(_, colKey) in COL_LABELS"
               :key="colKey"
               class="ng-cell"
-              :class="{ 'ng-cell-retest': nextRetestPositions.has(`${colKey}-${rowKey}`) }"
+              :class="{ 'ng-cell-retest': isGridPosRetestedNext(`${colKey}-${rowKey}`) }"
             >
               <div class="ng-cell-inner">
-                <!-- Grain stats -->
                 <div class="stat-block">
                   <div class="stat-title">Grain Size (μm)</div>
                   <div class="stat-row">
                     <span class="stat-key">Mean</span>
-                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'mean') }}</span>
+                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'mean') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Max</span>
-                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'max') }}</span>
+                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'max') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">P75</span>
-                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'p75') }}</span>
+                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'p75') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Count</span>
-                    <span class="stat-val">{{ fmtVersionGrain(colKey+'-'+rowKey, 'count') }}</span>
+                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'count') }}</span>
                   </div>
                 </div>
-                <!-- Orientation ratios -->
                 <div class="stat-block orient-block">
                   <div class="stat-title">Orientation Ratio</div>
                   <table class="orient-table">
@@ -202,15 +217,15 @@
                     <tbody>
                       <tr>
                         <td class="dev-label">20°</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 0) }}%</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 1) }}%</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '20%', 2) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 0) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 1) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 2) }}%</td>
                       </tr>
                       <tr>
                         <td class="dev-label">15°</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 0) }}%</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 1) }}%</td>
-                        <td>{{ fmtVersionOrient(colKey+'-'+rowKey, '15%', 2) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 0) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 1) }}%</td>
+                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 2) }}%</td>
                       </tr>
                     </tbody>
                   </table>
@@ -249,24 +264,15 @@
             </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
-              <button
-                class="simple-toggle-btn"
-                :class="{ active: showTriangleLabels }"
-                @click="showTriangleLabels = true"
-              >顯示</button>
-              <button
-                class="simple-toggle-btn"
-                :class="{ active: !showTriangleLabels }"
-                @click="showTriangleLabels = false"
-              >隱藏</button>
+              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="showTriangleLabels = true">顯示</button>
+              <button class="simple-toggle-btn" :class="{ active: !showTriangleLabels }" @click="showTriangleLabels = false">隱藏</button>
             </div>
           </div>
         </div>
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '20%')"
-              :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(colKey, '20%')" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -299,24 +305,15 @@
             </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
-              <button
-                class="simple-toggle-btn"
-                :class="{ active: showTriangleLabels }"
-                @click="showTriangleLabels = true"
-              >顯示</button>
-              <button
-                class="simple-toggle-btn"
-                :class="{ active: !showTriangleLabels }"
-                @click="showTriangleLabels = false"
-              >隱藏</button>
+              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="showTriangleLabels = true">顯示</button>
+              <button class="simple-toggle-btn" :class="{ active: !showTriangleLabels }" @click="showTriangleLabels = false">隱藏</button>
             </div>
           </div>
         </div>
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '15%')"
-              :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(colKey, '15%')" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -354,63 +351,74 @@
 </template>
 
 <script setup lang="ts">
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface FilePair { name: string; crc: File; cpr: File; sample: string; pos: string }
-interface VersionedFilePair extends FilePair { versionNum: number; versionLabel: string }
-interface SampleVersionMeta { label: string; versionNum: number }
+interface FilePair {
+  name: string
+  crc: File
+  cpr: File
+  sample: string
+  pos: string
+  versionKey: string
+  versionLabel: string
+  versionNum: number
+}
 type CppFeatures = {
   grains: number[]
-  'orientation_ratio(20%)': number[]   // [001, 110, 111]  values 0-1
+  'orientation_ratio(20%)': number[]
   'orientation_ratio(15%)': number[]
 }
 type AllDataResult = Record<string, Record<string, CppFeatures>>
+type VersionedDataResult = Record<string, Record<string, Record<string, CppFeatures>>>
+type VersionOption = { key: string; label: string; num: number }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+type AnalysisResult = Record<string, Record<string, number>>
+
 const COL_KEYS = ['C', 'M', 'E'] as const
 const COL_LABELS: Record<string, string> = { C: '內 Center', M: '中 Middle', E: '外 Edge' }
 const ROW_LABELS: Record<string, string> = { U: '上 Up', M: '中 Middle', B: '下 Bottom' }
-
-// Colors per row position (U/M/B)
 const ROW_SERIES_INFO = [
   { rowKey: 'U', color: '#EF4444', label: '上 (U)' },
   { rowKey: 'M', color: '#3B82F6', label: '中 (M)' },
   { rowKey: 'B', color: '#10B981', label: '下 (B)' },
 ]
-// 控制三角圖顯示哪些 row 位置（同時套用於 20° 和 15° 圖）
+const HIST_BIN_COUNT = 16
+
 const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
 const showTriangleLabels = ref(true)
 function toggleRow(rowKey: string) {
   if (visibleRows.value.has(rowKey)) {
-    if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey) // 至少保留一個
+    if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey)
   } else {
     visibleRows.value.add(rowKey)
   }
-  visibleRows.value = new Set(visibleRows.value) // trigger reactivity
+  visibleRows.value = new Set(visibleRows.value)
 }
 
-// ─── Reactive state ───────────────────────────────────────────────────────────
 const folderInput = ref<HTMLInputElement>()
 const pairs = ref<FilePair[]>([])
-const versionedPairs = ref<VersionedFilePair[]>([])
-const sampleVersionsMap = ref<Record<string, SampleVersionMeta[]>>({})
 const samples = ref(new Set<string>())
+const sampleOptions = computed(() =>
+  Array.from(samples.value).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })),
+)
 const selectedSample = ref('')
 const goldenSample = ref('')
 const loading = ref(false)
 const doneCount = ref(0)
-const totalTasks = ref(0)
+const loadingTotal = ref(0)
 const error = ref('')
 const reportData = ref<AllDataResult | null>(null)
-const versionedReportData = ref<Record<string, Record<string, Record<string, CppFeatures>>>>({})
-const selectedVersionIndex = ref(0)
+const versionedReportData = ref<VersionedDataResult | null>(null)
+const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
+const rawVersionPositions = ref<Record<string, Record<string, string[]>>>({})
 
-// ─── Analysis state ──────────────────────────────────────────────────────────
-type AnalysisResult = Record<string, Record<string, number>>
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
-const grainChartMode = ref<'cdf' | 'hist' | 'area-hist'>('cdf')
+const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
+
+const gridVersionIndex = ref(0)
+const grainSampleVersionIndex = ref(0)
+const grainGoldenVersionIndex = ref(0)
 
 const canGenerate = computed(
   () =>
@@ -419,48 +427,6 @@ const canGenerate = computed(
     selectedSample.value !== goldenSample.value,
 )
 
-const selectedSampleVersions = computed(() => sampleVersionsMap.value[selectedSample.value] ?? [])
-const currentVersionMeta = computed(() => {
-  const versions = selectedSampleVersions.value
-  if (!versions.length) return null
-  const safeIdx = Math.min(selectedVersionIndex.value, versions.length - 1)
-  return versions[safeIdx] ?? null
-})
-const currentVersionDisplayName = computed(() => currentVersionMeta.value?.label ?? selectedSample.value)
-
-watch(
-  selectedSample,
-  () => {
-    const versions = sampleVersionsMap.value[selectedSample.value] ?? []
-    selectedVersionIndex.value = versions.length ? versions.length - 1 : 0
-  },
-  { immediate: true },
-)
-
-const currentVersionData = computed<Record<string, CppFeatures>>(() => {
-  const sample = selectedSample.value
-  const versions = selectedSampleVersions.value
-  if (!sample || !versions.length) return {}
-  const merged: Record<string, CppFeatures> = {}
-  const rawByVersion = versionedReportData.value[sample] ?? {}
-  const safeIdx = Math.min(selectedVersionIndex.value, versions.length - 1)
-  for (let i = 0; i <= safeIdx; i++) {
-    const versionLabel = versions[i]?.label
-    if (!versionLabel) continue
-    Object.assign(merged, rawByVersion[versionLabel] ?? {})
-  }
-  return merged
-})
-
-const nextRetestPositions = computed(() => {
-  const sample = selectedSample.value
-  const versions = selectedSampleVersions.value
-  const nextMeta = versions[selectedVersionIndex.value + 1]
-  if (!sample || !nextMeta) return new Set<string>()
-  return new Set(Object.keys(versionedReportData.value[sample]?.[nextMeta.label] ?? {}))
-})
-
-// ─── Upload helpers ───────────────────────────────────────────────────────────
 function triggerInput() { folderInput.value?.click() }
 function handleSelect(e: Event) { processFiles((e.target as HTMLInputElement).files) }
 function handleDrop(e: DragEvent) { processFiles(e.dataTransfer?.files) }
@@ -479,24 +445,33 @@ function standard_pos(pos: string): string {
   return pos
 }
 
+function parseSampleFolder(subdir: string) {
+  const trimmed = subdir.trim()
+  const m = trimmed.match(/^(.*?)-(\d+)$/)
+  if (!m) {
+    return { sample: trimmed, versionKey: '01', versionLabel: trimmed, versionNum: 1 }
+  }
+  return {
+    sample: m[1],
+    versionKey: m[2].padStart(2, '0'),
+    versionLabel: trimmed,
+    versionNum: Number.parseInt(m[2], 10) || 1,
+  }
+}
+
 function processFiles(fileList: FileList | null | undefined) {
   if (!fileList?.length) return
   reportData.value = null
-  versionedReportData.value = {}
+  versionedReportData.value = null
   error.value = ''
 
   const allFiles = Array.from(fileList)
-  const latestCrcFiles = new Map<string, { file: File; sample: string; pos: string; versionNum: number }>()
-  const latestCprFiles = new Map<string, { file: File; versionNum: number }>()
-  const versionedCrcFiles = new Map<string, { file: File; sample: string; pos: string; versionNum: number; versionLabel: string }>()
-  const versionedCprFiles = new Map<string, { file: File; versionNum: number; versionLabel: string }>()
-  const versionMetaMap = new Map<string, Map<number, string>>()
+  const crcFiles = new Map<string, { file: File; sample: string; pos: string; versionKey: string; versionLabel: string; versionNum: number }>()
+  const cprFiles = new Map<string, File>()
+  const versionMap: Record<string, Map<string, VersionOption>> = {}
 
   samples.value = new Set()
   pairs.value = []
-  versionedPairs.value = []
-  sampleVersionsMap.value = {}
-  selectedVersionIndex.value = 0
 
   for (const f of allFiles) {
     if (!f.name.endsWith('.crc') && !f.name.endsWith('.cpr')) continue
@@ -504,180 +479,193 @@ function processFiles(fileList: FileList | null | undefined) {
     const subdir = (parts[1] || '').trim()
     if (!subdir) continue
 
-    const match = subdir.match(/^(.*?)-(\d+)$/)
-    const sample = (match?.[1] || subdir).trim()
-    const versionNum = match ? Number.parseInt(match[2], 10) : 1
-    const versionLabel = subdir
+    const { sample, versionKey, versionLabel, versionNum } = parseSampleFolder(subdir)
     const pos = standard_pos(f.name.replace(/\.(crc|cpr)$/i, '').trim())
-    const latestKey = `${sample}-${pos}`
-    const versionedKey = `${sample}__${versionLabel}__${pos}`
+    const key = `${sample}::${versionKey}::${pos}`
 
     samples.value.add(sample)
-    if (!versionMetaMap.has(sample)) versionMetaMap.set(sample, new Map())
-    versionMetaMap.get(sample)!.set(versionNum, versionLabel)
+    if (!versionMap[sample]) versionMap[sample] = new Map()
+    versionMap[sample].set(versionKey, { key: versionKey, label: versionLabel, num: versionNum })
 
     if (f.name.endsWith('.crc')) {
-      versionedCrcFiles.set(versionedKey, { file: f, sample, pos, versionNum, versionLabel })
-      const existing = latestCrcFiles.get(latestKey)
-      if (!existing || versionNum >= existing.versionNum) {
-        latestCrcFiles.set(latestKey, { file: f, sample, pos, versionNum })
-      }
+      crcFiles.set(key, { file: f, sample, pos, versionKey, versionLabel, versionNum })
     } else {
-      versionedCprFiles.set(versionedKey, { file: f, versionNum, versionLabel })
-      const existing = latestCprFiles.get(latestKey)
-      if (!existing || versionNum >= existing.versionNum) {
-        latestCprFiles.set(latestKey, { file: f, versionNum })
-      }
+      cprFiles.set(key, f)
     }
   }
 
-  const versionsObj: Record<string, SampleVersionMeta[]> = {}
-  for (const [sample, versionMap] of versionMetaMap.entries()) {
-    versionsObj[sample] = Array.from(versionMap.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([versionNum, label]) => ({ versionNum, label }))
-  }
-  sampleVersionsMap.value = versionsObj
-
-  for (const [key, { file: crc, sample, pos, versionNum, versionLabel }] of versionedCrcFiles) {
-    const cprEntry = versionedCprFiles.get(key)
-    if (cprEntry) {
-      versionedPairs.value.push({
-        name: key,
-        crc,
-        cpr: cprEntry.file,
-        sample,
-        pos,
-        versionNum,
-        versionLabel,
-      })
-    }
+  const matchedPairs: FilePair[] = []
+  for (const [key, info] of crcFiles) {
+    const cpr = cprFiles.get(key)
+    if (!cpr) continue
+    matchedPairs.push({
+      name: key,
+      crc: info.file,
+      cpr,
+      sample: info.sample,
+      pos: info.pos,
+      versionKey: info.versionKey,
+      versionLabel: info.versionLabel,
+      versionNum: info.versionNum,
+    })
   }
 
-  for (const [key, { file: crc, sample, pos }] of latestCrcFiles) {
-    const cprEntry = latestCprFiles.get(key)
-    if (cprEntry) pairs.value.push({ name: key, crc, cpr: cprEntry.file, sample, pos })
-  }
+  matchedPairs.sort((a, b) =>
+    a.sample.localeCompare(b.sample, undefined, { numeric: true, sensitivity: 'base' }) ||
+    a.versionNum - b.versionNum ||
+    a.pos.localeCompare(b.pos, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+
+  pairs.value = matchedPairs
+  versionOptionsMap.value = Object.fromEntries(
+    Object.entries(versionMap).map(([sample, map]) => [
+      sample,
+      Array.from(map.values()).sort((a, b) => a.num - b.num || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })),
+    ]),
+  )
 }
 
-// ─── Generate report ──────────────────────────────────────────────────────────
+function getVersionOptions(sample: string): VersionOption[] {
+  return versionOptionsMap.value[sample] ?? []
+}
+
+const selectedSampleVersionOptions = computed(() => getVersionOptions(selectedSample.value))
+const goldenSampleVersionOptions = computed(() => getVersionOptions(goldenSample.value))
+
+watch(selectedSampleVersionOptions, (opts) => {
+  const last = Math.max(0, opts.length - 1)
+  gridVersionIndex.value = last
+  grainSampleVersionIndex.value = last
+}, { immediate: true })
+
+watch(goldenSampleVersionOptions, (opts) => {
+  grainGoldenVersionIndex.value = Math.max(0, opts.length - 1)
+}, { immediate: true })
+
+const currentGridVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
+const currentSelectedGrainVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
+const currentGoldenGrainVersionKey = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.key ?? '')
+
+const currentGridVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
+const currentSelectedGrainVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
+const currentGoldenGrainVersionLabel = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.label ?? goldenSample.value)
+
 async function generateReport() {
   if (!canGenerate.value) return
   loading.value = true
   error.value = ''
   reportData.value = null
-  versionedReportData.value = {}
+  versionedReportData.value = null
   doneCount.value = 0
-  totalTasks.value = 0
+  loadingTotal.value = 0
 
   try {
-    const neededLatestPairs = pairs.value.filter(
-      (p) => p.sample === selectedSample.value || p.sample === goldenSample.value,
-    )
-    const neededVersionedPairs = versionedPairs.value.filter((p) => p.sample === selectedSample.value)
+    const needed = new Set([selectedSample.value, goldenSample.value])
+    const filteredPairs = pairs.value.filter((p) => needed.has(p.sample))
+    loadingTotal.value = filteredPairs.length
 
-    const requestCache = new Map<string, Promise<CppFeatures>>()
-    const requestKeys = new Set<string>()
+    const promises = filteredPairs.map(async (p) => {
+      const formData = new FormData()
+      formData.append('crc', p.crc)
+      formData.append('cpr', p.cpr)
+      const features = await $fetch<CppFeatures>('/cppapi/features', {
+        method: 'POST',
+        body: formData,
+      })
+      doneCount.value++
+      return { sample: p.sample, versionKey: p.versionKey, versionLabel: p.versionLabel, versionNum: p.versionNum, pos: p.pos, features }
+    })
 
-    const getRequestKey = (p: { crc: File; cpr: File }) => `${p.crc.webkitRelativePath}__${p.cpr.webkitRelativePath}`
-    for (const p of neededLatestPairs) requestKeys.add(getRequestKey(p))
-    for (const p of neededVersionedPairs) requestKeys.add(getRequestKey(p))
-    totalTasks.value = requestKeys.size
+    const results = await Promise.all(promises)
+    const rawData: VersionedDataResult = {}
+    const rawPosMap: Record<string, Record<string, Set<string>>> = {}
 
-    const fetchFeatures = async (p: { crc: File; cpr: File }) => {
-      const key = getRequestKey(p)
-      const cached = requestCache.get(key)
-      if (cached) return cached
-      const promise = (async () => {
-        const formData = new FormData()
-        formData.append('crc', p.crc)
-        formData.append('cpr', p.cpr)
-        const features = await $fetch<CppFeatures>('/cppapi/features', {
-          method: 'POST',
-          body: formData,
-        })
-        doneCount.value++
-        return features
-      })()
-      requestCache.set(key, promise)
-      return promise
+    for (const r of results) {
+      if (!rawData[r.sample]) rawData[r.sample] = {}
+      if (!rawData[r.sample][r.versionKey]) rawData[r.sample][r.versionKey] = {}
+      rawData[r.sample][r.versionKey][r.pos] = r.features
+
+      if (!rawPosMap[r.sample]) rawPosMap[r.sample] = {}
+      if (!rawPosMap[r.sample][r.versionKey]) rawPosMap[r.sample][r.versionKey] = new Set()
+      rawPosMap[r.sample][r.versionKey].add(r.pos)
     }
 
-    const latestResults = await Promise.all(
-      neededLatestPairs.map(async (p) => ({
-        sample: p.sample,
-        pos: p.pos,
-        features: await fetchFeatures(p),
-      })),
-    )
+    const mergedLatest: AllDataResult = {}
+    const cumulative: VersionedDataResult = {}
 
-    const versionedResults = await Promise.all(
-      neededVersionedPairs.map(async (p) => ({
-        sample: p.sample,
-        pos: p.pos,
-        versionLabel: p.versionLabel,
-        features: await fetchFeatures(p),
-      })),
-    )
+    for (const sample of Object.keys(rawData)) {
+      const opts = getVersionOptions(sample)
+      let acc: Record<string, CppFeatures> = {}
+      cumulative[sample] = {}
 
-    const latestData: AllDataResult = {}
-    for (const r of latestResults) {
-      if (!latestData[r.sample]) latestData[r.sample] = {}
-      latestData[r.sample][r.pos] = r.features
+      for (const opt of opts) {
+        const patch = rawData[sample]?.[opt.key] ?? {}
+        acc = { ...acc, ...patch }
+        cumulative[sample][opt.key] = { ...acc }
+      }
+
+      const latestKey = opts[opts.length - 1]?.key
+      if (latestKey) mergedLatest[sample] = cumulative[sample][latestKey] ?? {}
     }
-    reportData.value = latestData
 
-    const versionData: Record<string, Record<string, Record<string, CppFeatures>>> = {}
-    for (const r of versionedResults) {
-      if (!versionData[r.sample]) versionData[r.sample] = {}
-      if (!versionData[r.sample][r.versionLabel]) versionData[r.sample][r.versionLabel] = {}
-      versionData[r.sample][r.versionLabel][r.pos] = r.features
-    }
-    versionedReportData.value = versionData
+    reportData.value = mergedLatest
+    versionedReportData.value = cumulative
+    rawVersionPositions.value = Object.fromEntries(
+      Object.entries(rawPosMap).map(([sample, versions]) => [
+        sample,
+        Object.fromEntries(
+          Object.entries(versions).map(([versionKey, posSet]) => [versionKey, Array.from(posSet)]),
+        ),
+      ]),
+    )
   } catch (e: unknown) {
     const err = e as { data?: { message?: string }; message?: string }
     error.value = err.data?.message || err.message || '未知錯誤'
   } finally {
     loading.value = false
   }
-  console.log(reportData.value)
 }
 
-// ─── Data accessors ───────────────────────────────────────────────────────────
-function getSampleGrains(pos: string): number[] {
-  return reportData.value?.[selectedSample.value]?.[pos]?.grains ?? []
-}
-function getGoldenGrains(pos: string): number[] {
-  return reportData.value?.[goldenSample.value]?.[pos]?.grains ?? []
-}
-function getCurrentVersionGrains(pos: string): number[] {
-  return currentVersionData.value?.[pos]?.grains ?? []
-}
-function formatVersionTooltip(idx: number) {
-  const meta = selectedSampleVersions.value[idx]
-  return meta?.label ?? String(idx + 1)
+function getVersionSnapshot(sample: string, versionKey: string): Record<string, CppFeatures> {
+  return versionedReportData.value?.[sample]?.[versionKey] ?? reportData.value?.[sample] ?? {}
 }
 
-function fmtVersionGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
-  const g = getCurrentVersionGrains(pos)
-  if (!g.length) return '—'
-  if (stat === 'count') return String(g.length)
-  const sorted = [...g].sort((a, b) => a - b)
-  if (stat === 'mean') return (g.reduce((s, v) => s + v, 0) / g.length).toFixed(2)
-  if (stat === 'max') return sorted[sorted.length - 1].toFixed(2)
-  if (stat === 'p75') return sorted[Math.floor(sorted.length * 0.75)].toFixed(2)
-  return '—'
+function getCompareSampleGrains(pos: string): number[] {
+  return getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)?.[pos]?.grains ?? []
+}
+function getCompareGoldenGrains(pos: string): number[] {
+  return getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)?.[pos]?.grains ?? []
+}
+function getGridPosData(pos: string): CppFeatures | undefined {
+  return getVersionSnapshot(selectedSample.value, currentGridVersionKey.value)?.[pos]
+}
+function getLatestPosData(sample: string, pos: string): CppFeatures | undefined {
+  return reportData.value?.[sample]?.[pos]
 }
 
-function fmtVersionOrient(pos: string, dev: '20%' | '15%', idx: number): string {
-  const key = `orientation_ratio(${dev})` as keyof CppFeatures
-  const arr = currentVersionData.value?.[pos]?.[key] as number[] | undefined
-  if (!arr) return '—'
-  return (arr[idx] * 100).toFixed(1)
-}
+const sharedGrainBins = computed(() => {
+  const values: number[] = []
+  const selectedSnapshot = getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)
+  const goldenSnapshot = getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)
+
+  for (const pos of Object.keys(selectedSnapshot)) {
+    values.push(...(selectedSnapshot[pos]?.grains ?? []))
+  }
+  for (const pos of Object.keys(goldenSnapshot)) {
+    values.push(...(goldenSnapshot[pos]?.grains ?? []))
+  }
+
+  const finitePositive = values.filter((v) => Number.isFinite(v) && v > 0)
+  if (!finitePositive.length) {
+    return { min: 7.1, max: 200, binCount: HIST_BIN_COUNT }
+  }
+
+  const min = Math.floor(Math.min(...finitePositive) * 10) / 10
+  return { min, max: 200, binCount: HIST_BIN_COUNT }
+})
 
 function fmtGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
-  const g = getSampleGrains(pos)
+  const g = getGridPosData(pos)?.grains ?? []
   if (!g.length) return '—'
   if (stat === 'count') return String(g.length)
   const sorted = [...g].sort((a, b) => a - b)
@@ -689,19 +677,25 @@ function fmtGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
 
 function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   const key = `orientation_ratio(${dev})` as keyof CppFeatures
-  const arr = reportData.value?.[selectedSample.value]?.[pos]?.[key] as number[] | undefined
+  const arr = getGridPosData(pos)?.[key] as number[] | undefined
   if (!arr) return '—'
   return (arr[idx] * 100).toFixed(1)
 }
 
+function isGridPosRetestedNext(pos: string): boolean {
+  const opts = selectedSampleVersionOptions.value
+  const currentIdx = Math.min(gridVersionIndex.value, Math.max(0, opts.length - 1))
+  const nextKey = opts[currentIdx + 1]?.key
+  if (!nextKey) return false
+  const nextPositions = rawVersionPositions.value?.[selectedSample.value]?.[nextKey] ?? []
+  return nextPositions.includes(pos)
+}
 
-
-// ─── Analysis helpers ────────────────────────────────────────────────────────
 function getColorForValue(valuePercent: number): string {
   const [low, high] = colorThresholds.value
-  if (Math.abs(valuePercent) <= low) return "#10B981"
-  if (Math.abs(valuePercent) >= high) return "#EF4444"
-  return "#F59E0B"
+  if (Math.abs(valuePercent) <= low) return '#10B981'
+  if (Math.abs(valuePercent) >= high) return '#EF4444'
+  return '#F59E0B'
 }
 
 function convertToNineposFormat(sampleData: Record<string, number>) {
@@ -750,17 +744,15 @@ async function analysis() {
   analysisRes.value = res
 }
 
-// ─── Triangle chart series builder ───────────────────────────────────────────
 function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   const ratioKey = `orientation_ratio(${dev})` as keyof CppFeatures
   const series: Array<{ name: string; color: string; dashed: boolean; values: [number, number, number] }> = []
 
   for (const { rowKey, color } of ROW_SERIES_INFO) {
-    if (!visibleRows.value.has(rowKey)) continue  // 根據篩選略過
+    if (!visibleRows.value.has(rowKey)) continue
     const pos = `${colKey}-${rowKey}`
 
-    // Sample series (solid)
-    const sampleArr = reportData.value?.[selectedSample.value]?.[pos]?.[ratioKey] as number[] | undefined
+    const sampleArr = getLatestPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${selectedSample.value})`,
       color,
@@ -770,8 +762,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
         : [0, 0, 0],
     })
 
-    // Golden series (dashed)
-    const goldenArr = reportData.value?.[goldenSample.value]?.[pos]?.[ratioKey] as number[] | undefined
+    const goldenArr = getLatestPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${goldenSample.value})`,
       color,
@@ -786,12 +777,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 </script>
 
 <style scoped>
-/* ── Page layout ─────────────────────────────────────────────────────────────── */
 .report-page {
   max-width: 1100px;
   margin: 0 auto;
   padding: 1.5rem 1rem 4rem;
-  font-family: ui-sans-serif, system-ui, "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
   color: #111827;
 }
 .page-header {
@@ -819,7 +809,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #1f2937;
 }
 
-/* ── Upload ──────────────────────────────────────────────────────────────────── */
 .upload-area {
   border: 2px dashed #d1d5db;
   border-radius: 10px;
@@ -835,7 +824,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .upload-done { color: #059669; font-weight: 500; }
 .check { font-size: 1.2rem; margin-right: .4rem; }
 
-/* ── Sample selectors ────────────────────────────────────────────────────────── */
 .selector-row {
   display: flex;
   align-items: flex-end;
@@ -851,7 +839,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   font-size: .9rem;
   min-width: 180px;
 }
-.arrow-icon { font-size: 1.4rem; color: #9ca3af; padding-bottom: .3rem; }
 .btn-row { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
 .gen-btn {
   padding: .55rem 1.6rem;
@@ -868,7 +855,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .gen-btn:disabled { background: #93c5fd; cursor: not-allowed; }
 .err-msg { font-size: .85rem; }
 
-/* ── CDF grain curves ────────────────────────────────────────────────────────── */
 .chart-legend-row, .orient-legend-row {
   display: flex;
   align-items: center;
@@ -905,10 +891,54 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #1d4ed8;
 }
 .grain-mode-note {
-  margin-bottom: .9rem;
-  font-size: .78rem;
-  line-height: 1.5;
+  margin: .3rem 0 1rem;
   color: #6b7280;
+  font-size: .82rem;
+  line-height: 1.55;
+}
+.version-slider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+.grain-version-grid {
+  grid-template-columns: 1fr;
+}
+.version-slider-card {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: .9rem 1rem .65rem;
+}
+.grid-version-card {
+  margin-bottom: 1rem;
+}
+.version-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: .45rem;
+  font-size: .86rem;
+  color: #374151;
+}
+.version-slider-title {
+  font-weight: 700;
+}
+.version-slider-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: .3rem;
+  font-size: .76rem;
+  color: #6b7280;
+}
+.version-slider-card :deep(.el-slider) {
+  margin: .45rem 0 .1rem;
+}
+.version-slider-card :deep(.el-slider__runway) {
+  margin: 8px 0;
 }
 
 .nine-cdf-grid {
@@ -928,58 +958,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #374151;
   margin-bottom: 4px;
   text-align: center;
-}
-
-/* ── Nine-grid data ──────────────────────────────────────────────────────────── */
-
-.version-switch-wrap {
-  margin-bottom: 1rem;
-  padding: .9rem 1rem;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-}
-.version-switch-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: .75rem 1rem;
-  flex-wrap: wrap;
-  margin-bottom: .75rem;
-}
-.version-switch-label {
-  font-size: .78rem;
-  font-weight: 700;
-  color: #6b7280;
-}
-.version-switch-current {
-  margin-top: .18rem;
-  font-size: .95rem;
-  font-weight: 700;
-  color: #1f2937;
-}
-.version-switch-note {
-  font-size: .78rem;
-  font-weight: 600;
-  color: #dc2626;
-}
-.version-slider-wrap {
-  padding: 0 .35rem;
-}
-.version-ticks {
-  display: flex;
-  justify-content: space-between;
-  gap: .4rem;
-  margin-top: .35rem;
-  flex-wrap: wrap;
-}
-.version-tick {
-  font-size: .74rem;
-  color: #6b7280;
-}
-.version-tick.active {
-  color: #1d4ed8;
-  font-weight: 700;
 }
 
 .nine-grid-wrapper { overflow-x: auto; }
@@ -1069,7 +1047,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .orient-table th { color: #6b7280; font-weight: 600; }
 .dev-label { color: #6b7280; font-weight: 700; text-align: left; }
 
-/* ── Triangle charts ─────────────────────────────────────────────────────────── */
 .orient-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1155,7 +1132,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-radius: 50%;
 }
 
-/* ── Analysis section ───────────────────────────────────────────────────────── */
 .feat-label { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: .4rem; }
 .feat-checkbox-group { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: 1rem; }
 
@@ -1199,7 +1175,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .analysis-result-wrap h3 { font-size: 1rem; margin-bottom: 1rem; color: #1f2937; }
 .analysis-result-wrap h4 { font-size: .9rem; font-weight: 700; color: #374151; margin-bottom: .5rem; }
 
-/* ── Responsive ──────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .version-slider-grid { grid-template-columns: 1fr; }
+}
 @media (max-width: 700px) {
   .nine-cdf-grid { grid-template-columns: repeat(2, 1fr); }
   .triangle-row { grid-template-columns: 1fr; }

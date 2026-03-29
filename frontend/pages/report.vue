@@ -611,7 +611,7 @@ const ORIENT_LINE_ROWS = [
   { rowKey: 'M', title: ROW_LABELS.M },
   { rowKey: 'B', title: ROW_LABELS.B },
 ] as const
-const ORIENT_LINE_X_LABELS = ['100', '110', '111'] as const
+const ORIENT_LINE_X_LABELS = ['001', '110', '111'] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
   width: 320,

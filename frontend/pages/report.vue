@@ -65,6 +65,22 @@
 
     <!-- ══════════════ REPORT ══════════════ -->
     <template v-if="reportData">
+      <div class="report-version-dock" aria-label="Report version switcher">
+        <div class="report-version-dock__title">Report 版本</div>
+        <div class="report-version-dock__meta">
+          <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
+          <span>可拉動下方拉桿調整版本</span>
+        </div>
+        <el-slider
+          v-model="reportVersionIndex"
+          :min="0"
+          :max="reportVersionSliderMax"
+          :step="1"
+          :show-stops="reportVersionStepCount > 1"
+          :show-tooltip="false"
+          :disabled="reportVersionStepCount <= 1"
+        />
+      </div>
 
       <!-- ── Section 1: Grain distribution curves ──────────── -->
       <section class="card">
@@ -88,28 +104,6 @@
           >面積加權直方圖</button>
         </div>
 
-        <div class="version-slider-grid grain-version-grid">
-          <div class="version-slider-card">
-            <div class="version-slider-head">
-              <span class="version-slider-title">分析樣本版本</span>
-              <strong>{{ currentSelectedGrainVersionLabel }}</strong>
-            </div>
-            <el-slider
-              v-model="grainSampleVersionIndex"
-              :min="0"
-              :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
-              :step="1"
-              :show-stops="selectedSampleVersionOptions.length > 1"
-              :show-tooltip="false"
-              :disabled="selectedSampleVersionOptions.length <= 1"
-            />
-            <div class="version-slider-ends">
-              <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
-              <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
-            </div>
-          </div>
-        </div>
-
         <p v-if="grainChartMode === 'areaHist'" class="grain-mode-note">
           以 grain 等效直徑 d 換算面積權重，單顆 grain 權重採用 π(d/2)^2，圖上顯示落各粒徑區間的面積占比。
         </p>
@@ -120,13 +114,13 @@
             <rect x="2" y="2" width="12" height="10" fill="#0f766e" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#0f766e" stroke-width="1"/>
           </svg>
-          <span class="legend-lbl">{{ currentSelectedGrainVersionLabel }}</span>
+          <span class="legend-lbl">{{ currentSelectedVersionLabel }}</span>
           <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
           <svg v-else width="16" height="14">
             <rect x="2" y="2" width="12" height="10" fill="#F59E0B" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#F59E0B" stroke-width="1" stroke-dasharray="2,1"/>
           </svg>
-          <span class="legend-lbl">{{ currentGoldenGrainVersionLabel }} (黃金)</span>
+          <span class="legend-lbl">{{ currentGoldenVersionLabel }} (黃金)</span>
         </div>
 
         <div class="nine-cdf-grid">
@@ -137,8 +131,8 @@
                 <GrainCdfChart
                   :sample="getCompareSampleGrains(`${colKey}-${rowKey}`)"
                   :golden="getCompareGoldenGrains(`${colKey}-${rowKey}`)"
-                  :sampleLabel="currentSelectedGrainVersionLabel"
-                  :goldenLabel="currentGoldenGrainVersionLabel"
+                  :sampleLabel="currentSelectedVersionLabel"
+                  :goldenLabel="currentGoldenVersionLabel"
                   :mode="grainChartMode"
                   :fixedXMin="sharedGrainBins.min"
                   :fixedXMax="sharedGrainBins.max"
@@ -152,26 +146,7 @@
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card">
-        <h2 class="section-title">九宮格完整數據 — {{ currentGridVersionLabel || selectedSample }}</h2>
-        <div class="version-slider-card grid-version-card">
-          <div class="version-slider-head">
-            <span class="version-slider-title">九宮格版本</span>
-            <strong>{{ currentGridVersionLabel }}</strong>
-          </div>
-          <el-slider
-            v-model="gridVersionIndex"
-            :min="0"
-            :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
-            :step="1"
-            :show-stops="selectedSampleVersionOptions.length > 1"
-            :show-tooltip="false"
-            :disabled="selectedSampleVersionOptions.length <= 1"
-          />
-          <div class="version-slider-ends">
-            <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
-            <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
-          </div>
-        </div>
+        <h2 class="section-title">九宮格完整數據 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
 
         <div class="nine-grid-wrapper">
           <div class="ng-header-row">
@@ -242,9 +217,9 @@
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
-            <span class="legend-lbl">{{ selectedSample }}（實線）</span>
+            <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }}（虛線）</span>
+            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
             <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
@@ -282,9 +257,9 @@
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
-            <span class="legend-lbl">{{ selectedSample }}（實線）</span>
+            <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }}（虛線）</span>
+            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
             <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
@@ -335,7 +310,7 @@
               </svg>
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
-            <span class="orient-line-version">{{ currentGridVersionLabel || selectedSample }}</span>
+            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
           </div>
           <div class="orient-toggle-bar">
             <div class="row-toggle-group">
@@ -446,7 +421,7 @@
               </svg>
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
-            <span class="orient-line-version">{{ currentGridVersionLabel || selectedSample }}</span>
+            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
           </div>
           <div class="orient-toggle-bar">
             <div class="row-toggle-group">
@@ -543,7 +518,7 @@
         <h2 class="section-title">④ 特徵分析 </h2>
         <div class="feat-label">選擇分析項目</div>
         <el-checkbox-group v-model="selectedFeatures" class="feat-checkbox-group">
-          <el-checkbox v-for="feat in featuresOptions || []" :key="feat" :label="feat" :value="feat" />
+          <el-checkbox v-for="feat in featureOptionsList" :key="feat" :label="feat" :value="feat" />
         </el-checkbox-group>
         <div class="color-range-settings">
           <h4>顏色範圍設定（%）</h4>
@@ -611,7 +586,7 @@ const ORIENT_LINE_ROWS = [
   { rowKey: 'M', title: ROW_LABELS.M },
   { rowKey: 'B', title: ROW_LABELS.B },
 ] as const
-const ORIENT_LINE_X_LABELS = ['100', '110', '111'] as const
+const ORIENT_LINE_X_LABELS = ['001', '110', '111'] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
   width: 320,
@@ -668,15 +643,31 @@ const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
 const rawVersionPositions = ref<Record<string, Record<string, string[]>>>({})
 
+const DEFAULT_FEATURE_OPTIONS = [
+  'overall distribution : wasserstein_distance / mean',
+  'mean',
+  'max',
+  '25 percentiles',
+  '75 percentiles',
+  'standard deviation',
+  '[001] (deviation 20%)',
+  '[110] (deviation 20%)',
+  '[111] (deviation 20%)',
+  '[001] (deviation 15%)',
+  '[110] (deviation 15%)',
+  '[111] (deviation 15%)',
+] as const
+
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
 
-const gridVersionIndex = ref(0)
-const grainSampleVersionIndex = ref(0)
-const grainGoldenVersionIndex = ref(0)
+const reportVersionIndex = ref(0)
+const featureOptionsList = computed(() =>
+  featuresOptions.value?.length ? featuresOptions.value : [...DEFAULT_FEATURE_OPTIONS],
+)
 
 const canGenerate = computed(
   () =>
@@ -721,6 +712,7 @@ function processFiles(fileList: FileList | null | undefined) {
   if (!fileList?.length) return
   reportData.value = null
   versionedReportData.value = null
+  analysisRes.value = null
   error.value = ''
 
   const allFiles = Array.from(fileList)
@@ -790,23 +782,35 @@ function getVersionOptions(sample: string): VersionOption[] {
 const selectedSampleVersionOptions = computed(() => getVersionOptions(selectedSample.value))
 const goldenSampleVersionOptions = computed(() => getVersionOptions(goldenSample.value))
 
-watch(selectedSampleVersionOptions, (opts) => {
-  const last = Math.max(0, opts.length - 1)
-  gridVersionIndex.value = last
-  grainSampleVersionIndex.value = last
+function resolveVersionOption(options: VersionOption[], index: number): VersionOption | undefined {
+  if (!options.length) return undefined
+  return options[Math.min(index, options.length - 1)]
+}
+
+function getLatestVersionOption(options: VersionOption[]): VersionOption | undefined {
+  return options[options.length - 1]
+}
+
+const reportVersionSliderMax = computed(() =>
+  Math.max(0, selectedSampleVersionOptions.value.length - 1),
+)
+const reportVersionStepCount = computed(() =>
+  selectedSampleVersionOptions.value.length,
+)
+
+watch(selectedSampleVersionOptions, (selectedOpts) => {
+  reportVersionIndex.value = Math.max(0, selectedOpts.length - 1)
 }, { immediate: true })
 
-watch(goldenSampleVersionOptions, (opts) => {
-  grainGoldenVersionIndex.value = Math.max(0, opts.length - 1)
-}, { immediate: true })
+const currentSelectedVersionOption = computed(() =>
+  resolveVersionOption(selectedSampleVersionOptions.value, reportVersionIndex.value),
+)
+const currentGoldenVersionOption = computed(() =>
+  getLatestVersionOption(goldenSampleVersionOptions.value),
+)
 
-const currentGridVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
-const currentSelectedGrainVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
-const currentGoldenGrainVersionKey = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.key ?? '')
-
-const currentGridVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
-const currentSelectedGrainVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
-const currentGoldenGrainVersionLabel = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.label ?? goldenSample.value)
+const currentSelectedVersionLabel = computed(() => currentSelectedVersionOption.value?.label ?? selectedSample.value)
+const currentGoldenVersionLabel = computed(() => currentGoldenVersionOption.value?.label ?? goldenSample.value)
 
 async function generateReport() {
   if (!canGenerate.value) return
@@ -814,6 +818,7 @@ async function generateReport() {
   error.value = ''
   reportData.value = null
   versionedReportData.value = null
+  analysisRes.value = null
   doneCount.value = 0
   loadingTotal.value = 0
 
@@ -888,23 +893,51 @@ function getVersionSnapshot(sample: string, versionKey: string): Record<string, 
   return versionedReportData.value?.[sample]?.[versionKey] ?? reportData.value?.[sample] ?? {}
 }
 
+function getDisplayedVersionKey(sample: string): string {
+  if (sample === selectedSample.value) {
+    return currentSelectedVersionOption.value?.key ?? ''
+  }
+  return getLatestVersionOption(getVersionOptions(sample))?.key ?? ''
+}
+
+function getLatestSampleSnapshot(sample: string): Record<string, CppFeatures> {
+  return reportData.value?.[sample] ?? {}
+}
+
+function getDisplayedSampleSnapshot(sample: string): Record<string, CppFeatures> {
+  const versionKey = getDisplayedVersionKey(sample)
+  return versionKey ? getVersionSnapshot(sample, versionKey) : getLatestSampleSnapshot(sample)
+}
+
+function getDisplayedPosData(sample: string, pos: string): CppFeatures | undefined {
+  return getDisplayedSampleSnapshot(sample)?.[pos]
+}
+
+const currentReportData = computed<AllDataResult>(() => {
+  const sampleNames = new Set([
+    ...Object.keys(versionedReportData.value ?? {}),
+    ...Object.keys(reportData.value ?? {}),
+  ])
+
+  return Object.fromEntries(
+    Array.from(sampleNames).map((sample) => [sample, getDisplayedSampleSnapshot(sample)]),
+  )
+})
+
 function getCompareSampleGrains(pos: string): number[] {
-  return getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)?.[pos]?.grains ?? []
+  return getDisplayedPosData(selectedSample.value, pos)?.grains ?? []
 }
 function getCompareGoldenGrains(pos: string): number[] {
-  return getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)?.[pos]?.grains ?? []
+  return getDisplayedPosData(goldenSample.value, pos)?.grains ?? []
 }
 function getGridPosData(pos: string): CppFeatures | undefined {
-  return getVersionSnapshot(selectedSample.value, currentGridVersionKey.value)?.[pos]
-}
-function getLatestPosData(sample: string, pos: string): CppFeatures | undefined {
-  return reportData.value?.[sample]?.[pos]
+  return getDisplayedPosData(selectedSample.value, pos)
 }
 
 const sharedGrainBins = computed(() => {
   const values: number[] = []
-  const selectedSnapshot = getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)
-  const goldenSnapshot = getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)
+  const selectedSnapshot = getDisplayedSampleSnapshot(selectedSample.value)
+  const goldenSnapshot = getDisplayedSampleSnapshot(goldenSample.value)
 
   for (const pos of Object.keys(selectedSnapshot)) {
     values.push(...(selectedSnapshot[pos]?.grains ?? []))
@@ -921,6 +954,7 @@ const sharedGrainBins = computed(() => {
   const min = Math.floor(Math.min(...finitePositive) * 10) / 10
   return { min, max: 200, binCount: HIST_BIN_COUNT }
 })
+
 
 function fmtGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
   const g = getGridPosData(pos)?.grains ?? []
@@ -1012,7 +1046,7 @@ const orientLineCharts15 = computed(() =>
 
 function isGridPosRetestedNext(pos: string): boolean {
   const opts = selectedSampleVersionOptions.value
-  const currentIdx = Math.min(gridVersionIndex.value, Math.max(0, opts.length - 1))
+  const currentIdx = Math.min(reportVersionIndex.value, Math.max(0, opts.length - 1))
   const nextKey = opts[currentIdx + 1]?.key
   if (!nextKey) return false
   const nextPositions = rawVersionPositions.value?.[selectedSample.value]?.[nextKey] ?? []
@@ -1066,11 +1100,17 @@ async function analysis() {
     body: {
       golden: goldenSample.value,
       features: selectedFeatures.value,
-      data: reportData.value,
+      data: currentReportData.value,
     },
   })
   analysisRes.value = res
 }
+
+watch(reportVersionIndex, async () => {
+  if (analysisRes.value && selectedFeatures.value.length > 0 && goldenSample.value !== '') {
+    await analysis()
+  }
+})
 
 function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   const ratioKey = `orientation_ratio(${dev})` as keyof CppFeatures
@@ -1080,7 +1120,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     if (!visibleRows.value.has(rowKey)) continue
     const pos = `${colKey}-${rowKey}`
 
-    const sampleArr = getLatestPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
+    const sampleArr = getDisplayedPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${selectedSample.value})`,
       color,
@@ -1090,7 +1130,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
         : [0, 0, 0],
     })
 
-    const goldenArr = getLatestPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
+    const goldenArr = getDisplayedPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${goldenSample.value})`,
       color,
@@ -1108,7 +1148,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .report-page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 4rem;
+  padding: 1.5rem 1rem 7rem;
   font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
   color: #111827;
 }
@@ -1223,6 +1263,54 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #6b7280;
   font-size: .82rem;
   line-height: 1.55;
+}
+.report-version-dock {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 40;
+  width: min(290px, calc(100vw - 28px));
+  padding: .95rem 1.05rem .82rem;
+  border: 1px solid rgba(191, 219, 254, 0.95);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+.report-version-dock__title {
+  margin-bottom: .4rem;
+  font-size: .82rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: #1d4ed8;
+}
+.report-version-dock__meta {
+  display: flex;
+  flex-direction: column;
+  gap: .22rem;
+  font-size: .83rem;
+  line-height: 1.35;
+  color: #475569;
+}
+.report-version-dock__meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-version-dock :deep(.el-slider) {
+  margin: .7rem 0 .1rem;
+}
+.report-version-dock :deep(.el-slider__runway) {
+  margin: 10px 0 4px;
+  height: 6px;
+}
+.report-version-dock :deep(.el-slider__button) {
+  width: 18px;
+  height: 18px;
+}
+.report-version-dock :deep(.el-slider__stop) {
+  width: 6px;
+  height: 6px;
 }
 .version-slider-grid {
   display: grid;
@@ -1534,6 +1622,14 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 
 .feat-label { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: .4rem; }
 .feat-checkbox-group { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: 1rem; }
+.feat-checkbox-group :deep(.el-checkbox) {
+  margin-right: 1rem;
+  min-height: 32px;
+}
+.feat-checkbox-group :deep(.el-checkbox__label) {
+  color: #374151;
+  font-size: .95rem;
+}
 
 .color-range-settings {
   margin: 1rem 0;
@@ -1579,6 +1675,13 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .version-slider-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
+  .report-page { padding-bottom: 8rem; }
+  .report-version-dock {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+  }
   .nine-cdf-grid { grid-template-columns: repeat(2, 1fr); }
   .triangle-row { grid-template-columns: 1fr; }
   .orient-line-grid { grid-template-columns: 1fr; }

@@ -259,7 +259,21 @@ void test() {
     grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
 }
 
+void test2() {
+    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/鋁(Al)");
+    for(auto &[key, value] : ebsds) {
+        auto &[path, good] = value;
+        std::filesystem::path img_path = "/home/tonyliu/project/ebsd_services/cpp_backend/_out";
+        img_path += path;
+        auto stem = img_path.stem().string() + ".png";
+        img_path = img_path.parent_path() / stem;
+        save_ipf_map(path, img_path);
+    }
+}
+
 int main() {
+    // test2();
+    // return 0;
     // srand(time(NULL));
     // test();
     // return 0;

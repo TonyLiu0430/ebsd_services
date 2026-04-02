@@ -80,6 +80,7 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
             img.push_back(static_cast<uint8_t>(b));
         }
     }
+    std::filesystem::create_directories(img_path.parent_path());
     int ok = stbi_write_png(img_path.string().c_str(), w, h, 3, img.data(), w * 3);
     if(!ok) std::cout << "failed" << std::endl;
 }

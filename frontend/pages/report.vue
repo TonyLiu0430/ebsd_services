@@ -65,6 +65,22 @@
 
     <!-- ══════════════ REPORT ══════════════ -->
     <template v-if="reportData">
+      <div class="report-version-dock" aria-label="Report version switcher">
+        <div class="report-version-dock__title">Report 版本</div>
+        <div class="report-version-dock__meta">
+          <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
+          <span>可拉動下方拉桿調整版本</span>
+        </div>
+        <el-slider
+          v-model="reportVersionIndex"
+          :min="0"
+          :max="reportVersionSliderMax"
+          :step="1"
+          :show-stops="reportVersionStepCount > 1"
+          :show-tooltip="false"
+          :disabled="reportVersionStepCount <= 1"
+        />
+      </div>
 
       <!-- ── Section 1: Grain distribution curves ──────────── -->
       <section class="card">
@@ -88,28 +104,6 @@
           >面積加權直方圖</button>
         </div>
 
-        <div class="version-slider-grid grain-version-grid">
-          <div class="version-slider-card">
-            <div class="version-slider-head">
-              <span class="version-slider-title">分析樣本版本</span>
-              <strong>{{ currentSelectedGrainVersionLabel }}</strong>
-            </div>
-            <el-slider
-              v-model="grainSampleVersionIndex"
-              :min="0"
-              :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
-              :step="1"
-              :show-stops="selectedSampleVersionOptions.length > 1"
-              :show-tooltip="false"
-              :disabled="selectedSampleVersionOptions.length <= 1"
-            />
-            <div class="version-slider-ends">
-              <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
-              <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
-            </div>
-          </div>
-        </div>
-
         <p v-if="grainChartMode === 'areaHist'" class="grain-mode-note">
           以 grain 等效直徑 d 換算面積權重，單顆 grain 權重採用 π(d/2)^2，圖上顯示落各粒徑區間的面積占比。
         </p>
@@ -120,13 +114,13 @@
             <rect x="2" y="2" width="12" height="10" fill="#0f766e" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#0f766e" stroke-width="1"/>
           </svg>
-          <span class="legend-lbl">{{ currentSelectedGrainVersionLabel }}</span>
+          <span class="legend-lbl">{{ currentSelectedVersionLabel }}</span>
           <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
           <svg v-else width="16" height="14">
             <rect x="2" y="2" width="12" height="10" fill="#F59E0B" opacity="0.28"/>
             <rect x="2" y="2" width="12" height="10" fill="none" stroke="#F59E0B" stroke-width="1" stroke-dasharray="2,1"/>
           </svg>
-          <span class="legend-lbl">{{ currentGoldenGrainVersionLabel }} (黃金)</span>
+          <span class="legend-lbl">{{ currentGoldenVersionLabel }} (黃金)</span>
         </div>
 
         <div class="nine-cdf-grid">
@@ -137,8 +131,8 @@
                 <GrainCdfChart
                   :sample="getCompareSampleGrains(`${colKey}-${rowKey}`)"
                   :golden="getCompareGoldenGrains(`${colKey}-${rowKey}`)"
-                  :sampleLabel="currentSelectedGrainVersionLabel"
-                  :goldenLabel="currentGoldenGrainVersionLabel"
+                  :sampleLabel="currentSelectedVersionLabel"
+                  :goldenLabel="currentGoldenVersionLabel"
                   :mode="grainChartMode"
                   :fixedXMin="sharedGrainBins.min"
                   :fixedXMax="sharedGrainBins.max"
@@ -152,26 +146,7 @@
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card">
-        <h2 class="section-title">九宮格完整數據 — {{ currentGridVersionLabel || selectedSample }}</h2>
-        <div class="version-slider-card grid-version-card">
-          <div class="version-slider-head">
-            <span class="version-slider-title">九宮格版本</span>
-            <strong>{{ currentGridVersionLabel }}</strong>
-          </div>
-          <el-slider
-            v-model="gridVersionIndex"
-            :min="0"
-            :max="Math.max(0, selectedSampleVersionOptions.length - 1)"
-            :step="1"
-            :show-stops="selectedSampleVersionOptions.length > 1"
-            :show-tooltip="false"
-            :disabled="selectedSampleVersionOptions.length <= 1"
-          />
-          <div class="version-slider-ends">
-            <span>{{ selectedSampleVersionOptions[0]?.label || '—' }}</span>
-            <span>{{ selectedSampleVersionOptions[selectedSampleVersionOptions.length - 1]?.label || '—' }}</span>
-          </div>
-        </div>
+        <h2 class="section-title">九宮格完整數據 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
 
         <div class="nine-grid-wrapper">
           <div class="ng-header-row">
@@ -242,9 +217,9 @@
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
-            <span class="legend-lbl">{{ selectedSample }}（實線）</span>
+            <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }}（虛線）</span>
+            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
             <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
@@ -264,8 +239,7 @@
             </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
-              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="showTriangleLabels = true">顯示</button>
-              <button class="simple-toggle-btn" :class="{ active: !showTriangleLabels }" @click="showTriangleLabels = false">隱藏</button>
+              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="toggleTriangleLabels()">{{ showTriangleLabels ? '隱藏' : '顯示' }}</button>
             </div>
           </div>
         </div>
@@ -283,9 +257,9 @@
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
-            <span class="legend-lbl">{{ selectedSample }}（實線）</span>
+            <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }}（虛線）</span>
+            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
             <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
@@ -305,8 +279,7 @@
             </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
-              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="showTriangleLabels = true">顯示</button>
-              <button class="simple-toggle-btn" :class="{ active: !showTriangleLabels }" @click="showTriangleLabels = false">隱藏</button>
+              <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="toggleTriangleLabels()">{{ showTriangleLabels ? '隱藏' : '顯示' }}</button>
             </div>
           </div>
         </div>
@@ -318,12 +291,234 @@
         </div>
       </section>
 
+      <!-- Section 3c: Orientation line charts 20度 -->
+      <section class="card">
+        <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
+        <div class="orient-controls orient-line-controls">
+          <div class="orient-legend-row">
+            <template v-for="info in COL_LINE_SERIES_INFO" :key="info.colKey">
+              <svg width="28" height="12">
+                <line
+                  x1="1"
+                  y1="6"
+                  x2="27"
+                  y2="6"
+                  :stroke="info.color"
+                  stroke-width="2.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span class="legend-lbl">{{ info.label }}</span>
+            </template>
+            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
+          </div>
+          <div class="orient-toggle-bar">
+            <div class="row-toggle-group">
+              <span class="toggle-label">線條顯示:</span>
+              <button
+                v-for="info in COL_LINE_SERIES_INFO"
+                :key="info.colKey"
+                class="row-toggle-btn"
+                :class="{ active: visibleLineCols.has(info.colKey) }"
+                :style="visibleLineCols.has(info.colKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleLineCol(info.colKey)"
+              >{{ info.label }}</button>
+            </div>
+            <div class="label-toggle-group">
+              <span class="toggle-label">數字顯示:</span>
+              <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="orient-line-grid">
+          <div v-for="rowInfo in orientLineCharts20" :key="rowInfo.rowKey" class="orient-line-panel">
+            <div class="tri-col-title">{{ rowInfo.title }}</div>
+            <svg
+              class="orient-line-svg"
+              :viewBox="rowInfo.chart.viewBox"
+              role="img"
+              :aria-label="`Misorientation 20度 ${rowInfo.title} 晶粒取向折線圖`"
+            >
+              <line
+                v-for="tick in rowInfo.chart.yTicks"
+                :key="`grid-20-${rowInfo.rowKey}-${tick.label}`"
+                :x1="rowInfo.chart.plot.left"
+                :y1="tick.y"
+                :x2="rowInfo.chart.plot.right"
+                :y2="tick.y"
+                class="orient-line-gridline"
+              />
+              <line
+                :x1="rowInfo.chart.plot.left"
+                :y1="rowInfo.chart.plot.top"
+                :x2="rowInfo.chart.plot.left"
+                :y2="rowInfo.chart.plot.bottom"
+                class="orient-line-axis"
+              />
+              <line
+                :x1="rowInfo.chart.plot.left"
+                :y1="rowInfo.chart.plot.bottom"
+                :x2="rowInfo.chart.plot.right"
+                :y2="rowInfo.chart.plot.bottom"
+                class="orient-line-axis"
+              />
+              <text
+                v-for="tick in rowInfo.chart.yTicks"
+                :key="`ylabel-20-${rowInfo.rowKey}-${tick.label}`"
+                :x="rowInfo.chart.plot.left - 8"
+                :y="tick.y + 1"
+                class="orient-line-ytext"
+              >{{ tick.label }}</text>
+              <text
+                v-for="tick in rowInfo.chart.xTicks"
+                :key="`xlabel-20-${rowInfo.rowKey}-${tick.label}`"
+                :x="tick.x"
+                :y="rowInfo.chart.plot.bottom + 20"
+                class="orient-line-xtext"
+              >{{ tick.label }}</text>
+              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.colKey}`">
+                <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
+                <circle
+                  v-for="point in series.points"
+                  :key="`point-20-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="3.25"
+                  :fill="series.color"
+                  class="orient-line-point"
+                />
+                <text
+                  v-if="showOrientLineLabels"
+                  v-for="point in series.points"
+                  :key="`label-20-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :x="point.x"
+                  :y="point.labelY"
+                  :fill="series.color"
+                  class="orient-line-value"
+                >{{ point.label }}</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 3d: Orientation line charts 15度 -->
+      <section class="card">
+        <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
+        <div class="orient-controls orient-line-controls">
+          <div class="orient-legend-row">
+            <template v-for="info in COL_LINE_SERIES_INFO" :key="info.colKey">
+              <svg width="28" height="12">
+                <line
+                  x1="1"
+                  y1="6"
+                  x2="27"
+                  y2="6"
+                  :stroke="info.color"
+                  stroke-width="2.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span class="legend-lbl">{{ info.label }}</span>
+            </template>
+            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
+          </div>
+          <div class="orient-toggle-bar">
+            <div class="row-toggle-group">
+              <span class="toggle-label">線條顯示:</span>
+              <button
+                v-for="info in COL_LINE_SERIES_INFO"
+                :key="info.colKey"
+                class="row-toggle-btn"
+                :class="{ active: visibleLineCols.has(info.colKey) }"
+                :style="visibleLineCols.has(info.colKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleLineCol(info.colKey)"
+              >{{ info.label }}</button>
+            </div>
+            <div class="label-toggle-group">
+              <span class="toggle-label">數字顯示:</span>
+              <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="orient-line-grid">
+          <div v-for="rowInfo in orientLineCharts15" :key="rowInfo.rowKey" class="orient-line-panel">
+            <div class="tri-col-title">{{ rowInfo.title }}</div>
+            <svg
+              class="orient-line-svg"
+              :viewBox="rowInfo.chart.viewBox"
+              role="img"
+              :aria-label="`Misorientation 15度 ${rowInfo.title} 晶粒取向折線圖`"
+            >
+              <line
+                v-for="tick in rowInfo.chart.yTicks"
+                :key="`grid-15-${rowInfo.rowKey}-${tick.label}`"
+                :x1="rowInfo.chart.plot.left"
+                :y1="tick.y"
+                :x2="rowInfo.chart.plot.right"
+                :y2="tick.y"
+                class="orient-line-gridline"
+              />
+              <line
+                :x1="rowInfo.chart.plot.left"
+                :y1="rowInfo.chart.plot.top"
+                :x2="rowInfo.chart.plot.left"
+                :y2="rowInfo.chart.plot.bottom"
+                class="orient-line-axis"
+              />
+              <line
+                :x1="rowInfo.chart.plot.left"
+                :y1="rowInfo.chart.plot.bottom"
+                :x2="rowInfo.chart.plot.right"
+                :y2="rowInfo.chart.plot.bottom"
+                class="orient-line-axis"
+              />
+              <text
+                v-for="tick in rowInfo.chart.yTicks"
+                :key="`ylabel-15-${rowInfo.rowKey}-${tick.label}`"
+                :x="rowInfo.chart.plot.left - 8"
+                :y="tick.y + 1"
+                class="orient-line-ytext"
+              >{{ tick.label }}</text>
+              <text
+                v-for="tick in rowInfo.chart.xTicks"
+                :key="`xlabel-15-${rowInfo.rowKey}-${tick.label}`"
+                :x="tick.x"
+                :y="rowInfo.chart.plot.bottom + 20"
+                class="orient-line-xtext"
+              >{{ tick.label }}</text>
+              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.colKey}`">
+                <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
+                <circle
+                  v-for="point in series.points"
+                  :key="`point-15-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="3.25"
+                  :fill="series.color"
+                  class="orient-line-point"
+                />
+                <text
+                  v-if="showOrientLineLabels"
+                  v-for="point in series.points"
+                  :key="`label-15-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :x="point.x"
+                  :y="point.labelY"
+                  :fill="series.color"
+                  class="orient-line-value"
+                >{{ point.label }}</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Section 4: Python Analysis ──────── -->
       <section class="card">
         <h2 class="section-title">④ 特徵分析 </h2>
         <div class="feat-label">選擇分析項目</div>
         <el-checkbox-group v-model="selectedFeatures" class="feat-checkbox-group">
-          <el-checkbox v-for="feat in featuresOptions || []" :key="feat" :label="feat" :value="feat" />
+          <el-checkbox v-for="feat in featureOptionsList" :key="feat" :label="feat" :value="feat" />
         </el-checkbox-group>
         <div class="color-range-settings">
           <h4>顏色範圍設定（%）</h4>
@@ -369,6 +564,7 @@ type CppFeatures = {
 type AllDataResult = Record<string, Record<string, CppFeatures>>
 type VersionedDataResult = Record<string, Record<string, Record<string, CppFeatures>>>
 type VersionOption = { key: string; label: string; num: number }
+type OrientDev = '20%' | '15%'
 
 type AnalysisResult = Record<string, Record<string, number>>
 
@@ -380,10 +576,34 @@ const ROW_SERIES_INFO = [
   { rowKey: 'M', color: '#3B82F6', label: '中 (M)' },
   { rowKey: 'B', color: '#10B981', label: '下 (B)' },
 ]
+const COL_LINE_SERIES_INFO = [
+  { colKey: 'C', color: '#2563EB', label: '內(C)' },
+  { colKey: 'M', color: '#10B981', label: '中(M)' },
+  { colKey: 'E', color: '#F59E0B', label: '外(E)' },
+] as const
+const ORIENT_LINE_ROWS = [
+  { rowKey: 'U', title: ROW_LABELS.U },
+  { rowKey: 'M', title: ROW_LABELS.M },
+  { rowKey: 'B', title: ROW_LABELS.B },
+] as const
+const ORIENT_LINE_X_LABELS = ['001', '110', '111'] as const
+const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
+const ORIENT_LINE_LAYOUT = {
+  width: 320,
+  height: 220,
+  left: 42,
+  right: 16,
+  top: 18,
+  bottom: 36,
+  maxValue: 100,
+} as const
 const HIST_BIN_COUNT = 16
 
 const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
 const showTriangleLabels = ref(true)
+function toggleTriangleLabels() {
+  showTriangleLabels.value = !showTriangleLabels.value
+}
 function toggleRow(rowKey: string) {
   if (visibleRows.value.has(rowKey)) {
     if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey)
@@ -391,6 +611,19 @@ function toggleRow(rowKey: string) {
     visibleRows.value.add(rowKey)
   }
   visibleRows.value = new Set(visibleRows.value)
+}
+const visibleLineCols = ref(new Set<string>(['C', 'M', 'E']))
+const showOrientLineLabels = ref(true)
+function toggleOrientLineLabels() {
+  showOrientLineLabels.value = !showOrientLineLabels.value
+}
+function toggleLineCol(colKey: string) {
+  if (visibleLineCols.value.has(colKey)) {
+    if (visibleLineCols.value.size > 1) visibleLineCols.value.delete(colKey)
+  } else {
+    visibleLineCols.value.add(colKey)
+  }
+  visibleLineCols.value = new Set(visibleLineCols.value)
 }
 
 const folderInput = ref<HTMLInputElement>()
@@ -410,15 +643,31 @@ const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
 const rawVersionPositions = ref<Record<string, Record<string, string[]>>>({})
 
+const DEFAULT_FEATURE_OPTIONS = [
+  'overall distribution : wasserstein_distance / mean',
+  'mean',
+  'max',
+  '25 percentiles',
+  '75 percentiles',
+  'standard deviation',
+  '[001] (deviation 20%)',
+  '[110] (deviation 20%)',
+  '[111] (deviation 20%)',
+  '[001] (deviation 15%)',
+  '[110] (deviation 15%)',
+  '[111] (deviation 15%)',
+] as const
+
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
 
-const gridVersionIndex = ref(0)
-const grainSampleVersionIndex = ref(0)
-const grainGoldenVersionIndex = ref(0)
+const reportVersionIndex = ref(0)
+const featureOptionsList = computed(() =>
+  featuresOptions.value?.length ? featuresOptions.value : [...DEFAULT_FEATURE_OPTIONS],
+)
 
 const canGenerate = computed(
   () =>
@@ -463,6 +712,7 @@ function processFiles(fileList: FileList | null | undefined) {
   if (!fileList?.length) return
   reportData.value = null
   versionedReportData.value = null
+  analysisRes.value = null
   error.value = ''
 
   const allFiles = Array.from(fileList)
@@ -532,23 +782,35 @@ function getVersionOptions(sample: string): VersionOption[] {
 const selectedSampleVersionOptions = computed(() => getVersionOptions(selectedSample.value))
 const goldenSampleVersionOptions = computed(() => getVersionOptions(goldenSample.value))
 
-watch(selectedSampleVersionOptions, (opts) => {
-  const last = Math.max(0, opts.length - 1)
-  gridVersionIndex.value = last
-  grainSampleVersionIndex.value = last
+function resolveVersionOption(options: VersionOption[], index: number): VersionOption | undefined {
+  if (!options.length) return undefined
+  return options[Math.min(index, options.length - 1)]
+}
+
+function getLatestVersionOption(options: VersionOption[]): VersionOption | undefined {
+  return options[options.length - 1]
+}
+
+const reportVersionSliderMax = computed(() =>
+  Math.max(0, selectedSampleVersionOptions.value.length - 1),
+)
+const reportVersionStepCount = computed(() =>
+  selectedSampleVersionOptions.value.length,
+)
+
+watch(selectedSampleVersionOptions, (selectedOpts) => {
+  reportVersionIndex.value = Math.max(0, selectedOpts.length - 1)
 }, { immediate: true })
 
-watch(goldenSampleVersionOptions, (opts) => {
-  grainGoldenVersionIndex.value = Math.max(0, opts.length - 1)
-}, { immediate: true })
+const currentSelectedVersionOption = computed(() =>
+  resolveVersionOption(selectedSampleVersionOptions.value, reportVersionIndex.value),
+)
+const currentGoldenVersionOption = computed(() =>
+  getLatestVersionOption(goldenSampleVersionOptions.value),
+)
 
-const currentGridVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
-const currentSelectedGrainVersionKey = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.key ?? '')
-const currentGoldenGrainVersionKey = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.key ?? '')
-
-const currentGridVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(gridVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
-const currentSelectedGrainVersionLabel = computed(() => selectedSampleVersionOptions.value[Math.min(grainSampleVersionIndex.value, Math.max(0, selectedSampleVersionOptions.value.length - 1))]?.label ?? selectedSample.value)
-const currentGoldenGrainVersionLabel = computed(() => goldenSampleVersionOptions.value[Math.min(grainGoldenVersionIndex.value, Math.max(0, goldenSampleVersionOptions.value.length - 1))]?.label ?? goldenSample.value)
+const currentSelectedVersionLabel = computed(() => currentSelectedVersionOption.value?.label ?? selectedSample.value)
+const currentGoldenVersionLabel = computed(() => currentGoldenVersionOption.value?.label ?? goldenSample.value)
 
 async function generateReport() {
   if (!canGenerate.value) return
@@ -556,6 +818,7 @@ async function generateReport() {
   error.value = ''
   reportData.value = null
   versionedReportData.value = null
+  analysisRes.value = null
   doneCount.value = 0
   loadingTotal.value = 0
 
@@ -630,23 +893,51 @@ function getVersionSnapshot(sample: string, versionKey: string): Record<string, 
   return versionedReportData.value?.[sample]?.[versionKey] ?? reportData.value?.[sample] ?? {}
 }
 
+function getDisplayedVersionKey(sample: string): string {
+  if (sample === selectedSample.value) {
+    return currentSelectedVersionOption.value?.key ?? ''
+  }
+  return getLatestVersionOption(getVersionOptions(sample))?.key ?? ''
+}
+
+function getLatestSampleSnapshot(sample: string): Record<string, CppFeatures> {
+  return reportData.value?.[sample] ?? {}
+}
+
+function getDisplayedSampleSnapshot(sample: string): Record<string, CppFeatures> {
+  const versionKey = getDisplayedVersionKey(sample)
+  return versionKey ? getVersionSnapshot(sample, versionKey) : getLatestSampleSnapshot(sample)
+}
+
+function getDisplayedPosData(sample: string, pos: string): CppFeatures | undefined {
+  return getDisplayedSampleSnapshot(sample)?.[pos]
+}
+
+const currentReportData = computed<AllDataResult>(() => {
+  const sampleNames = new Set([
+    ...Object.keys(versionedReportData.value ?? {}),
+    ...Object.keys(reportData.value ?? {}),
+  ])
+
+  return Object.fromEntries(
+    Array.from(sampleNames).map((sample) => [sample, getDisplayedSampleSnapshot(sample)]),
+  )
+})
+
 function getCompareSampleGrains(pos: string): number[] {
-  return getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)?.[pos]?.grains ?? []
+  return getDisplayedPosData(selectedSample.value, pos)?.grains ?? []
 }
 function getCompareGoldenGrains(pos: string): number[] {
-  return getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)?.[pos]?.grains ?? []
+  return getDisplayedPosData(goldenSample.value, pos)?.grains ?? []
 }
 function getGridPosData(pos: string): CppFeatures | undefined {
-  return getVersionSnapshot(selectedSample.value, currentGridVersionKey.value)?.[pos]
-}
-function getLatestPosData(sample: string, pos: string): CppFeatures | undefined {
-  return reportData.value?.[sample]?.[pos]
+  return getDisplayedPosData(selectedSample.value, pos)
 }
 
 const sharedGrainBins = computed(() => {
   const values: number[] = []
-  const selectedSnapshot = getVersionSnapshot(selectedSample.value, currentSelectedGrainVersionKey.value)
-  const goldenSnapshot = getVersionSnapshot(goldenSample.value, currentGoldenGrainVersionKey.value)
+  const selectedSnapshot = getDisplayedSampleSnapshot(selectedSample.value)
+  const goldenSnapshot = getDisplayedSampleSnapshot(goldenSample.value)
 
   for (const pos of Object.keys(selectedSnapshot)) {
     values.push(...(selectedSnapshot[pos]?.grains ?? []))
@@ -663,6 +954,7 @@ const sharedGrainBins = computed(() => {
   const min = Math.floor(Math.min(...finitePositive) * 10) / 10
   return { min, max: 200, binCount: HIST_BIN_COUNT }
 })
+
 
 function fmtGrain(pos: string, stat: 'mean' | 'max' | 'p75' | 'count'): string {
   const g = getGridPosData(pos)?.grains ?? []
@@ -682,9 +974,79 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   return (arr[idx] * 100).toFixed(1)
 }
 
+function getOrientLineValues(rowKey: string, dev: OrientDev, colKey: string): number[] {
+  const key = `orientation_ratio(${dev})` as keyof CppFeatures
+  const arr = getGridPosData(`${colKey}-${rowKey}`)?.[key] as number[] | undefined
+  return [0, 1, 2].map((idx) => Number(((arr?.[idx] ?? 0) * 100).toFixed(1)))
+}
+
+function orientLineX(index: number): number {
+  const plotWidth = ORIENT_LINE_LAYOUT.width - ORIENT_LINE_LAYOUT.left - ORIENT_LINE_LAYOUT.right
+  const segments = Math.max(1, ORIENT_LINE_X_LABELS.length - 1)
+  return ORIENT_LINE_LAYOUT.left + (plotWidth * index) / segments
+}
+
+function orientLineY(value: number): number {
+  const plotHeight = ORIENT_LINE_LAYOUT.height - ORIENT_LINE_LAYOUT.top - ORIENT_LINE_LAYOUT.bottom
+  const clampedValue = Math.min(ORIENT_LINE_LAYOUT.maxValue, Math.max(0, value))
+  return ORIENT_LINE_LAYOUT.top + plotHeight * (1 - clampedValue / ORIENT_LINE_LAYOUT.maxValue)
+}
+
+function orientLineLabelY(y: number): number {
+  return Math.max(ORIENT_LINE_LAYOUT.top + 11, y - 8)
+}
+
+function buildOrientLineChart(rowKey: string, dev: OrientDev) {
+  const plot = {
+    left: ORIENT_LINE_LAYOUT.left,
+    right: ORIENT_LINE_LAYOUT.width - ORIENT_LINE_LAYOUT.right,
+    top: ORIENT_LINE_LAYOUT.top,
+    bottom: ORIENT_LINE_LAYOUT.height - ORIENT_LINE_LAYOUT.bottom,
+  }
+  return {
+    viewBox: `0 0 ${ORIENT_LINE_LAYOUT.width} ${ORIENT_LINE_LAYOUT.height}`,
+    plot,
+    xTicks: ORIENT_LINE_X_LABELS.map((label, index) => ({
+      label,
+      x: orientLineX(index),
+    })),
+    yTicks: ORIENT_LINE_Y_TICKS.map((value) => ({
+      label: String(value),
+      y: orientLineY(value),
+    })),
+    series: COL_LINE_SERIES_INFO.filter((info) => visibleLineCols.value.has(info.colKey)).map((info) => {
+      const points = getOrientLineValues(rowKey, dev, info.colKey).map((value, index) => ({
+        x: orientLineX(index),
+        y: orientLineY(value),
+        labelY: orientLineLabelY(orientLineY(value)),
+        label: `${value.toFixed(1)}%`,
+      }))
+      return {
+        ...info,
+        points,
+        polyline: points.map((point) => `${point.x},${point.y}`).join(' '),
+      }
+    }),
+  }
+}
+
+const orientLineCharts20 = computed(() =>
+  ORIENT_LINE_ROWS.map((row) => ({
+    ...row,
+    chart: buildOrientLineChart(row.rowKey, '20%'),
+  })),
+)
+
+const orientLineCharts15 = computed(() =>
+  ORIENT_LINE_ROWS.map((row) => ({
+    ...row,
+    chart: buildOrientLineChart(row.rowKey, '15%'),
+  })),
+)
+
 function isGridPosRetestedNext(pos: string): boolean {
   const opts = selectedSampleVersionOptions.value
-  const currentIdx = Math.min(gridVersionIndex.value, Math.max(0, opts.length - 1))
+  const currentIdx = Math.min(reportVersionIndex.value, Math.max(0, opts.length - 1))
   const nextKey = opts[currentIdx + 1]?.key
   if (!nextKey) return false
   const nextPositions = rawVersionPositions.value?.[selectedSample.value]?.[nextKey] ?? []
@@ -738,11 +1100,17 @@ async function analysis() {
     body: {
       golden: goldenSample.value,
       features: selectedFeatures.value,
-      data: reportData.value,
+      data: currentReportData.value,
     },
   })
   analysisRes.value = res
 }
+
+watch(reportVersionIndex, async () => {
+  if (analysisRes.value && selectedFeatures.value.length > 0 && goldenSample.value !== '') {
+    await analysis()
+  }
+})
 
 function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   const ratioKey = `orientation_ratio(${dev})` as keyof CppFeatures
@@ -752,7 +1120,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     if (!visibleRows.value.has(rowKey)) continue
     const pos = `${colKey}-${rowKey}`
 
-    const sampleArr = getLatestPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
+    const sampleArr = getDisplayedPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${selectedSample.value})`,
       color,
@@ -762,7 +1130,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
         : [0, 0, 0],
     })
 
-    const goldenArr = getLatestPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
+    const goldenArr = getDisplayedPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
     series.push({
       name: `${pos} (${goldenSample.value})`,
       color,
@@ -780,7 +1148,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .report-page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 4rem;
+  padding: 1.5rem 1rem 7rem;
   font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
   color: #111827;
 }
@@ -895,6 +1263,54 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #6b7280;
   font-size: .82rem;
   line-height: 1.55;
+}
+.report-version-dock {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 40;
+  width: min(290px, calc(100vw - 28px));
+  padding: .95rem 1.05rem .82rem;
+  border: 1px solid rgba(191, 219, 254, 0.95);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+.report-version-dock__title {
+  margin-bottom: .4rem;
+  font-size: .82rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: #1d4ed8;
+}
+.report-version-dock__meta {
+  display: flex;
+  flex-direction: column;
+  gap: .22rem;
+  font-size: .83rem;
+  line-height: 1.35;
+  color: #475569;
+}
+.report-version-dock__meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-version-dock :deep(.el-slider) {
+  margin: .7rem 0 .1rem;
+}
+.report-version-dock :deep(.el-slider__runway) {
+  margin: 10px 0 4px;
+  height: 6px;
+}
+.report-version-dock :deep(.el-slider__button) {
+  width: 18px;
+  height: 18px;
+}
+.report-version-dock :deep(.el-slider__stop) {
+  width: 6px;
+  height: 6px;
 }
 .version-slider-grid {
   display: grid;
@@ -1118,6 +1534,78 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-radius: 10px;
   padding: 12px 8px 8px;
 }
+.orient-line-controls {
+  margin-bottom: .85rem;
+}
+.orient-line-version {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: .24rem .72rem;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: .76rem;
+  font-weight: 700;
+}
+.orient-line-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.orient-line-panel {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 10px 10px;
+}
+.orient-line-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.orient-line-axis {
+  stroke: #94a3b8;
+  stroke-width: 1.2;
+}
+.orient-line-gridline {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.orient-line-path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.orient-line-point {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.orient-line-xtext,
+.orient-line-ytext {
+  fill: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+}
+.orient-line-value {
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.96);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.orient-line-xtext {
+  text-anchor: middle;
+}
+.orient-line-ytext {
+  text-anchor: end;
+  dominant-baseline: middle;
+}
 .tri-col-title {
   text-align: center;
   font-weight: 700;
@@ -1134,6 +1622,14 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 
 .feat-label { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: .4rem; }
 .feat-checkbox-group { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: 1rem; }
+.feat-checkbox-group :deep(.el-checkbox) {
+  margin-right: 1rem;
+  min-height: 32px;
+}
+.feat-checkbox-group :deep(.el-checkbox__label) {
+  color: #374151;
+  font-size: .95rem;
+}
 
 .color-range-settings {
   margin: 1rem 0;
@@ -1179,8 +1675,16 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .version-slider-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
+  .report-page { padding-bottom: 8rem; }
+  .report-version-dock {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+  }
   .nine-cdf-grid { grid-template-columns: repeat(2, 1fr); }
   .triangle-row { grid-template-columns: 1fr; }
+  .orient-line-grid { grid-template-columns: 1fr; }
   .ng-header-row, .ng-data-row { grid-template-columns: 60px repeat(3, 1fr); }
 }
 </style>

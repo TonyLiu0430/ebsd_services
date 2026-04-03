@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <ranges>
 #include <map>
+#include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include "utils.h"
@@ -169,6 +170,79 @@ std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsd
 #include "httplib.h"
 #include "stduuid/uuid.h"
 
+enum class AuthCheckResult {
+    Authorized,
+    Unauthorized,
+    Unavailable,
+};
+
+static std::vector<std::pair<std::string, int>> auth_verify_endpoints() {
+    std::vector<std::pair<std::string, int>> endpoints;
+
+    if (const char* host = std::getenv("AUTH_VERIFY_HOST")) {
+        int port = 8000;
+        if (const char* port_env = std::getenv("AUTH_VERIFY_PORT")) {
+            try {
+                port = std::stoi(port_env);
+            } catch (...) {
+                port = 8000;
+            }
+        }
+        endpoints.emplace_back(host, port);
+    }
+
+    endpoints.emplace_back("ml_backend", 8000);
+    endpoints.emplace_back("127.0.0.1", 8000);
+    return endpoints;
+}
+
+static AuthCheckResult verify_bearer_token(const std::string& authorization) {
+    httplib::Headers headers = {
+        {"Authorization", authorization},
+    };
+
+    for (const auto& [host, port] : auth_verify_endpoints()) {
+        httplib::Client cli(host, port);
+        cli.set_connection_timeout(2, 0);
+        cli.set_read_timeout(2, 0);
+
+        if (auto resp = cli.Get("/auth/verify", headers)) {
+            if (resp->status == 200) {
+                return AuthCheckResult::Authorized;
+            }
+            if (resp->status == 401 || resp->status == 403) {
+                return AuthCheckResult::Unauthorized;
+            }
+        }
+    }
+
+    return AuthCheckResult::Unavailable;
+}
+
+static bool require_auth(const httplib::Request& req, httplib::Response& res) {
+    const auto it = req.headers.find("Authorization");
+    if (it == req.headers.end()) {
+        res.status = 401;
+        res.set_content(R"({"message":"Missing Authorization header"})", "application/json");
+        return false;
+    }
+
+    const auto result = verify_bearer_token(it->second);
+    if (result == AuthCheckResult::Authorized) {
+        return true;
+    }
+
+    if (result == AuthCheckResult::Unauthorized) {
+        res.status = 401;
+        res.set_content(R"({"message":"Invalid or expired token"})", "application/json");
+        return false;
+    }
+
+    res.status = 503;
+    res.set_content(R"({"message":"Authentication service unavailable"})", "application/json");
+    return false;
+}
+
 void ml_feature() {
     auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
     std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
@@ -281,6 +355,10 @@ int main() {
     // return 0;
     httplib::Server svr;
     svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
+        if (!require_auth(req, res)) {
+            return;
+        }
+
         if (!req.is_multipart_form_data()) {
             res.status = 400;
             res.set_content("Content-Type must be multipart/form-data", "text/plain");

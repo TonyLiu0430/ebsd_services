@@ -3,7 +3,8 @@ import os
 import pathlib
 import shutil
 from typing import Annotated, Any, Dict, List
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 import defdap.ebsd as ebsd # type: ignore
 import tempfile
 import numpy as np
@@ -11,12 +12,36 @@ import joblib
 from pydantic import BaseModel, TypeAdapter, ValidationError # type: ignore
 from ebsd_utils import *
 from typing import Callable, Any
+from auth import AUTH_PASSWORD, AUTH_USERNAME, JWT_EXPIRES_IN, create_token, parse_bearer_token, verify_token
 
 app = FastAPI()
 
 @app.get('/')
 def hello():
     return 'Hello world!'
+
+
+PUBLIC_PATHS = {
+    '/',
+    '/login',
+    '/docs',
+    '/openapi.json',
+    '/redoc',
+}
+
+
+@app.middleware("http")
+async def jwt_auth_middleware(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    try:
+        token = parse_bearer_token(request.headers.get("Authorization"))
+        request.state.jwt_payload = verify_token(token)
+    except ValueError as exc:
+        return JSONResponse(status_code=401, content={"message": str(exc)})
+
+    return await call_next(request)
 
 GRAIN_FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
     "overall distribution : wasserstein_distance / mean": Overall_distribution_analysis,
@@ -46,6 +71,31 @@ class AnalysisRequest(BaseModel):
     # payload (from cpp_backend features + frontend result):
     # sample -> pos -> {"grains": [...], "orientation_ratio(20%)": [..3..], "orientation_ratio(15%)": [..3..]}
     data: Dict[str, Dict[str, Dict[str, Any]]]
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post('/login')
+def login(req: LoginRequest):
+    if req.username != AUTH_USERNAME or req.password != AUTH_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    return {
+        "token": create_token(req.username),
+        "token_type": "Bearer",
+        "expires_in": JWT_EXPIRES_IN,
+    }
+
+
+@app.get('/auth/verify')
+def auth_verify(request: Request):
+    return {
+        "valid": True,
+        "payload": request.state.jwt_payload,
+    }
 
 
 @app.post('/analysis')

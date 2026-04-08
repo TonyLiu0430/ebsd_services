@@ -1,5 +1,5 @@
 # ─── Stage 1: Builder ────────────────────────────────────────────────────────
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:24.04@sha256:84e77dee7d1bc93fb029a45e3c6cb9d8aa4831ccfcc7103d36e876938d28895b AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VCPKG_ROOT=/opt/vcpkg
@@ -52,7 +52,7 @@ RUN cmake --preset release \
     && if [ -d "/app/build/release/vcpkg_installed/linux-dynamic/bin" ]; then cp -a "/app/build/release/vcpkg_installed/linux-dynamic/bin/." /opt/runtime-bin/; fi
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:24.04@sha256:84e77dee7d1bc93fb029a45e3c6cb9d8aa4831ccfcc7103d36e876938d28895b AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

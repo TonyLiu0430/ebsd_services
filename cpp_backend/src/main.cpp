@@ -350,6 +350,11 @@ int main() {
         res.set_content(j.dump(4), "application/json");
     });
 
+    svr.Get("/", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_content("Hello, World!", "text/plain");
+    });
+
+    std::cout << "Server is running" << std::endl;
     svr.listen("0.0.0.0", 8080);
 
 

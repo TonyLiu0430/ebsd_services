@@ -2,23 +2,23 @@ package route
 
 import (
 	"context"
-	"encoding/json"
-	"go_backend/auth"
 	"go_backend/db"
+	"go_backend/ent"
 	"go_backend/ent/user"
 	"go_backend/routeRegister"
-	"io"
-	"log"
+	"os"
 	"regexp"
-	"strings"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
-var passwordRe = regexp.MustCompile(`^[[:graph:]]+$`)
+var passwordRe = regexp.MustCompile(`^[^\s]+$`)
 
 func vaildate(username string, password string) bool {
 	return usernameRe.MatchString(username) && passwordRe.MatchString(password) && len(username) >= 3 && len(username) <= 30 && len(password) >= 8 && len(password) <= 100
@@ -33,10 +33,113 @@ func checkPassword(password, hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
+func makeJWT(userID string) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		panic("JWT_SECRET isn't set")
+	}
+
+	bsecret := []byte(secret)
+
+	claims := jwt.MapClaims{
+		"sub": userID,
+		"exp": time.Now().Add(48 * time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(bsecret)
+}
+
+func parseJWT(tokenString string) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		panic("JWT_SECRET isn't set")
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		return []byte(secret), nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil || !token.Valid {
+		return "", err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", jwt.ErrTokenInvalidClaims
+	}
+
+	sub, ok := claims["sub"].(string)
+	if !ok || sub == "" {
+		return "", jwt.ErrTokenInvalidClaims
+	}
+
+	return sub, nil
+}
+
 func init() {
 	routeRegister.Register = append(routeRegister.Register, func(rg *gin.RouterGroup) {
 		route := rg.Group("user")
-		route.POST("/login", func(c *gin.Context) {
+
+		route.GET("/check", func(c *gin.Context) {
+			session := sessions.Default(c)
+			token, ok := session.Get("jwt").(string)
+			if !ok || token == "" {
+				c.JSON(401, gin.H{
+					"error": "not logged in",
+				})
+				return
+			}
+
+			userID, err := parseJWT(token)
+			if err != nil {
+				session.Delete("jwt")
+				_ = session.Save()
+				c.JSON(401, gin.H{
+					"error": "invalid session",
+				})
+				return
+			}
+
+			id, err := uuid.Parse(userID)
+			if err != nil {
+				c.JSON(401, gin.H{
+					"error": "invalid session",
+				})
+				return
+			}
+
+			found, err := db.DB.User.Get(context.Background(), id)
+			if err != nil {
+				c.JSON(401, gin.H{
+					"error": "invalid session",
+				})
+				return
+			}
+
+			c.JSON(200, gin.H{
+				"user": gin.H{
+					"id":       found.ID,
+					"username": found.Username,
+				},
+			})
+		})
+
+		route.POST("/logout", func(c *gin.Context) {
+			session := sessions.Default(c)
+			session.Delete("jwt")
+			if err := session.Save(); err != nil {
+				c.JSON(500, gin.H{
+					"error": "failed to clear session",
+				})
+				return
+			}
+			c.JSON(200, gin.H{
+				"msg": "ok",
+			})
+		})
+
+		route.POST("/register", func(c *gin.Context) {
 			var body struct {
 				Username string `json:"username"`
 				Password string `json:"password"`
@@ -48,9 +151,81 @@ func init() {
 				return
 			}
 
-			if strings.TrimSpace(body.Username) == "" || strings.TrimSpace(body.Password) == "" {
+			if body.Username == "" || body.Password == "" {
 				c.JSON(400, gin.H{
 					"error": "username and password cannot be empty",
+				})
+				return
+			}
+
+			if !vaildate(body.Username, body.Password) {
+				c.JSON(400, gin.H{
+					"error": "invalid username or password",
+				})
+				return
+			}
+
+			hash, err := hashPassword(body.Password)
+			if err != nil {
+				c.JSON(500, gin.H{
+					"error": "failed to hash password",
+				})
+				return
+			}
+
+			created, err := db.DB.User.
+				Create().
+				SetUsername(body.Username).
+				SetPassword(hash).
+				Save(context.Background())
+
+			if err != nil {
+				if ent.IsConstraintError(err) {
+					c.JSON(409, gin.H{
+						"error": "username already exists",
+					})
+					return
+				}
+				c.JSON(500, gin.H{
+					"error": "failed to create user",
+				})
+				return
+			}
+
+			token, err := makeJWT(created.ID.String())
+			if err != nil {
+				c.JSON(500, gin.H{
+					"error": "failed to create token",
+				})
+				return
+			}
+
+			session := sessions.Default(c)
+			session.Set("jwt", token)
+
+			if err := session.Save(); err != nil {
+				c.JSON(500, gin.H{
+					"error": "failed to save session",
+				})
+				return
+			}
+
+			c.JSON(201, gin.H{
+				"user": gin.H{
+					"id":       created.ID,
+					"username": created.Username,
+				},
+			})
+		})
+
+		route.POST("/login", func(c *gin.Context) {
+			var body struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			if err := c.ShouldBindJSON(&body); err != nil {
+				c.JSON(400, gin.H{
+					"error": "invalid request body",
 				})
 				return
 			}
@@ -65,136 +240,45 @@ func init() {
 			user, err := db.DB.User.
 				Query().
 				Where(user.UsernameEQ(body.Username)).
-				Select(user.FieldUsername, user.FieldPassword).
 				First(context.Background())
 
-		})
-		route.GET("/google/callback", func(c *gin.Context) {
-			session := sessions.Default(c)
-
-			if c.Query("state") != session.Get("OauthState") {
-				log.Println("Invalid csrf token from IP:", c.ClientIP(), "=>", c.Query("state"), "!=", session.Get("OauthState"))
+			if err != nil {
 				c.JSON(401, gin.H{
-					"error": "invalid csrf token",
+					"error": "invalid username or password",
 				})
 				return
 			}
 
-			baseUrl := session.Get("BaseUrl").(string)
-
-			if baseUrl == "" {
-				c.JSON(500, gin.H{
-					"error": "BaseUrl is not set in session",
+			if !checkPassword(body.Password, user.Password) {
+				c.JSON(401, gin.H{
+					"error": "invalid username or password",
 				})
 				return
 			}
 
-			session.Delete("BaseUrl")
-
-			session.Delete("OauthState")
-			session.Save()
-
-			code := c.Query("code")
-
-			token, err := auth.GoogleOauthConfig(baseUrl).Exchange(context.Background(), code)
-
+			token, err := makeJWT(user.ID.String())
 			if err != nil {
 				c.JSON(500, gin.H{
-					"error": "internal server error: " + err.Error(),
+					"error": "failed to create token",
 				})
 				return
 			}
 
-			client := auth.GoogleOauthConfig(baseUrl).Client(context.Background(), token)
-
-			response, err := client.Get("https://people.googleapis.com/v1/people/me?personFields=emailAddresses")
-
-			if err != nil {
+			session := sessions.Default(c)
+			session.Set("jwt", token)
+			if err := session.Save(); err != nil {
 				c.JSON(500, gin.H{
-					"error": "fail to get userInfo from google",
+					"error": "failed to save session",
 				})
 				return
 			}
 
-			responseData, err := io.ReadAll(response.Body)
-
-			if err != nil {
-				c.JSON(500, gin.H{
-					"error": "fail to read response from google api",
-				})
-				return
-			}
-
-			var userInfo map[string]any
-
-			if err := json.Unmarshal(responseData, &userInfo); err != nil {
-				c.JSON(500, gin.H{
-					"error": "userInfo from google parse failed : Invaild Json",
-				})
-				return
-			}
-
-			email, ok := userInfo["emailAddresses"].([]any)[0].(map[string]any)["value"].(string)
-
-			if !ok {
-				c.JSON(500, gin.H{
-					"error": "userInfo from google parse failed : field email error",
-				})
-				return
-			}
-
-			userId, err := db.DB.User.
-				Create().
-				SetEmail(email).
-				OnConflictColumns(user.FieldEmail).
-				UpdateNewValues().
-				ID(context.Background())
-
-			if err != nil {
-				c.JSON(500, gin.H{
-					"error": "internal server error: " + err.Error(),
-				})
-				return
-			}
-
-			session.Set("session", userId)
-
-			// db := database.GetDB(c)
-
-			// var user models.User
-
-			// if result := db.Model(&models.User{}).Where(&models.User{Email: email}).FirstOrCreate(&user); result.Error != nil {
-			// 	fmt.Println(result.Error)
-
-			// 	c.JSON(500, gin.H{
-			// 		"error": "internal server error",
-			// 	})
-			// 	return
-			// }
-
-			// if result := db.Model(&models.User{}).Where(&models.User{Email: email}).Update("last_login", time.Now()); result.Error != nil {
-			// 	fmt.Println(result.Error)
-
-			// 	c.JSON(500, gin.H{
-			// 		"error": "internal server error",
-			// 	})
-			// 	return
-			// }
-
-			// session.Set("Email", email)
-
-			// redirect := session.Get("Redirect").(string)
-
-			// if redirect == "" || redirect[0] != '/' {
-			// 	redirect = "/"
-			// }
-
-			// session.Delete("Redirect")
-			// session.Save()
-
-			// fmt.Println("Redirect to => ", redirect)
-
-			// c.Redirect(http.StatusFound, redirect)
+			c.JSON(200, gin.H{
+				"user": gin.H{
+					"id":       user.ID,
+					"username": user.Username,
+				},
+			})
 		})
 	})
 }

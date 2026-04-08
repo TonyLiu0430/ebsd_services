@@ -1,7 +1,6 @@
 services:
   ml_backend:
     build: ./ML_backend
-    #  container_name: ebsd-ml-backend
     ports:
       - "8000:8000"
 
@@ -9,13 +8,11 @@ services:
     build:
       context: ./cpp_backend
       network: host # vcpkg 會出事 DO NOT EDIT!
-    # container_name: ebsd-cpp-backend
     ports:
       - "8080:8080"
 
   frontend:
     build: ./frontend
-    # container_name: ebsd-frontend
     ports:
       - "3000:3000"
 
@@ -23,15 +20,14 @@ services:
     build: 
       context: ./go_backend
       network: host # DO NOT EDIT
-    # container_name: go-backend
     ports:
       - "8051:8080"
     environment:
       DATABASE_CONNECTION_STRING: "dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} host=postgres port=5432 sslmode=disable"
-
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_SECRET: ${AUTH_SECRET}
   caddy:
     image: caddy:2
-    # container_name: ebsd-caddy
     ports:
       - "80:80"
       - "443:443"
@@ -44,7 +40,6 @@ services:
 
   postgres:
     image: postgres:15
-    # container_name: postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -54,7 +49,6 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    # container_name: ebsd-cloudflared
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL:-}

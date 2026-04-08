@@ -18,7 +18,7 @@ func (User) Fields() []ent.Field {
 			Default(uuid.New).
 			Immutable(),
 		field.String("username").Unique(),
-		field.String("password").Unique(),
+		field.String("password"),
 	}
 }
 

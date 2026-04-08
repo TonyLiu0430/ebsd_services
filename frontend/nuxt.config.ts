@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   telemetry: false,
   devtools: { enabled: false },
   ssr: false,
-  modules: ['@element-plus/nuxt'],
+  modules: ['@element-plus/nuxt', '@nuxtjs/tailwindcss'],
   app: {
     head: {
       title: 'EBSD Frontend'
@@ -11,7 +11,8 @@ export default defineNuxtConfig({
   },
   nitro: {
     routeRules: {
-      '/api/**': { proxy: 'http://127.0.0.1:8000/**' }
+      '/api/**': { proxy: 'http://127.0.0.1:8000/**' },
+      '/goapi/**': { proxy: 'http://127.0.0.1:8051/**' }
     }
   }
 })

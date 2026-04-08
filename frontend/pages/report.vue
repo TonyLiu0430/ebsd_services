@@ -1,9 +1,6 @@
 <template>
-  <div class="report-page">
-    <header class="page-header">
-      <h1>EBSD 自動化報表</h1>
-      <a href="/" class="back-link">← 返回分析頁</a>
-    </header>
+  <div class="page-shell">
+    <h1 class="page-title">EBSD 自動化報表</h1>
 
     <!-- ── Step 1: Upload ─────────────────────────── -->
     <section class="card">
@@ -546,6 +543,10 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  middleware: 'auth'
+})
+
 interface FilePair {
   name: string
   crc: File
@@ -1145,22 +1146,17 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 </script>
 
 <style scoped>
-.report-page {
-  max-width: 1100px;
+.page-shell {
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 7rem;
-  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
+  padding: 2rem 1.5rem 7rem;
   color: #111827;
 }
-.page-header {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
+.page-title {
+  margin: 0 0 1.5rem;
+  font-size: 1.7rem;
+  font-weight: 500;
 }
-.page-header h1 { margin: 0; font-size: 1.7rem; }
-.back-link { font-size: 0.85rem; color: #6b7280; text-decoration: none; }
-.back-link:hover { color: #374151; text-decoration: underline; }
 
 .card {
   background: #fff;
@@ -1675,7 +1671,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .version-slider-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
-  .report-page { padding-bottom: 8rem; }
+  .page-shell { padding-bottom: 8rem; }
   .report-version-dock {
     left: 12px;
     right: 12px;

@@ -1,9 +1,6 @@
 <template>
-  <div class="container">
-    <header class="page-header">
-      <h1>EBSD 分析</h1>
-      <a href="/report" class="back-link">自動化報表產生</a>
-    </header>
+  <div class="page-shell">
+    <h1 class="page-title">EBSD 分析</h1>
     
     <div
       class="upload-area"
@@ -72,6 +69,10 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  middleware: 'auth'
+})
+
 interface FilePair { name: string; crc: File; cpr: File; sample: string; pos: string }
 type CppFeatures = {
   grains: number[]
@@ -281,8 +282,18 @@ const analysis = async () => {
 </script>
 
 <style scoped>
-.container { max-width: 800px; margin: 0 auto; padding: 2rem; }
-h1 { margin-bottom: 2rem; }
+.page-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  color: #111827;
+}
+
+.page-title {
+  margin: 0 0 1.5rem;
+  font-size: 1.7rem;
+  font-weight: 500;
+}
 .upload-area {
   border: 2px dashed #d1d5db;
   border-radius: 10px;
@@ -354,12 +365,4 @@ pre { margin-top: 1rem; background: #fff; padding: 1rem; border-radius: 4px; ove
 .color-slider-wrap :deep(.el-slider__bar) {
   background: transparent;
 }
-.page-header {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-}
-.back-link { font-size: 0.85rem; color: #6b7280; text-decoration: none; }
-.back-link:hover { color: #374151; text-decoration: underline; }
 </style>

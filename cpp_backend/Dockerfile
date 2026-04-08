@@ -36,6 +36,11 @@ RUN git clone https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
 WORKDIR /app
 COPY CMakeLists.txt CMakePresets.json vcpkg.json vcpkg-configuration.json ./
 COPY vcpkg-triplets/ vcpkg-triplets/
+
+RUN ${VCPKG_ROOT}/vcpkg install \
+    --triplet=linux-dynamic \
+    --overlay-triplets=/app/vcpkg-triplets
+
 COPY include/ include/
 COPY src/ src/
 

@@ -86,26 +86,6 @@ def analysis(req: AnalysisRequest):
             avg = statistics.mean(statRes)
             res.setdefault(sample, {})[pos] = avg
     return res
-    # for feat in req.features:
-    #     if feat not in GRAIN_FEATURES:
-    #         raise HTTPException(status_code=400, detail="Invalid feature options")
-    # if req.golden not in req.data:
-    #     raise HTTPException(status_code=400, detail="Invalid golden sample")
-    # res: Any = {}
-    # for (sample, posdata) in req.data.items():
-    #     if sample == req.golden:
-    #         continue
-    #     for (pos, grain_data) in posdata.items():
-    #         statRes: List[float] = []
-    #         for feat in req.features:
-    #             handler = GRAIN_FEATURES[feat]
-    #             statRes.append(handler(req.data[req.golden][pos], grain_data))
-
-    #         # TODO 改用 Winsorized mean 並且前端要可調整權重
-    #         avg = statistics.mean(statRes)
-    #         res.setdefault(sample, {})[pos] = avg
-    # return res
-
             
 
     

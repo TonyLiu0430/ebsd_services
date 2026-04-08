@@ -1,0 +1,7 @@
+# ent 官方社群說 generated code 要進版控
+# ent/**
+
+# # ent schema files
+# !ent/
+# !ent/schema/
+# !ent/schema/**

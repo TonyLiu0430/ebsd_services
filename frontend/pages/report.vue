@@ -828,19 +828,22 @@ async function generateReport() {
     const filteredPairs = pairs.value.filter((p) => needed.has(p.sample))
     loadingTotal.value = filteredPairs.length
 
-    const promises = filteredPairs.map(async (p) => {
-      const formData = new FormData()
-      formData.append('crc', p.crc)
-      formData.append('cpr', p.cpr)
-      const features = await $fetch<CppFeatures>('/cppapi/features', {
-        method: 'POST',
-        body: formData,
-      })
-      doneCount.value++
-      return { sample: p.sample, versionKey: p.versionKey, versionLabel: p.versionLabel, versionNum: p.versionNum, pos: p.pos, features }
-    })
+    const results = []
+    for (let i = 0; i < filteredPairs.length; i += 2) {
+      const batch = filteredPairs.slice(i, i + 2)
+      results.push(...await Promise.all(batch.map(async (p) => {
+        const formData = new FormData()
+        formData.append('crc', p.crc)
+        formData.append('cpr', p.cpr)
+        const features = await $fetch<CppFeatures>('/cppapi/features', {
+          method: 'POST',
+          body: formData,
+        })
+        doneCount.value++
+        return { sample: p.sample, versionKey: p.versionKey, versionLabel: p.versionLabel, versionNum: p.versionNum, pos: p.pos, features }
+      })))
+    }
 
-    const results = await Promise.all(promises)
     const rawData: VersionedDataResult = {}
     const rawPosMap: Record<string, Record<string, Set<string>>> = {}
 

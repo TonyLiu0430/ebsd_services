@@ -221,22 +221,18 @@ async function submit() {
   doneCount.value = 0
   
   try {
-    const promises = pairs.value.map(async (p) => {
-      const formData = new FormData()
-      // py backend 
-      // formData.append('files', p.crc)
-      // formData.append('files', p.cpr)
-      
-      // const grains = await $fetch<number[]>('/api/grains', { method: 'POST', body: formData })
-      // updated cpp backend
-      formData.append('crc', p.crc)
-      formData.append('cpr', p.cpr)
-      const features = await $fetch<CppFeatures>('/cppapi/features', { method: 'POST', body: formData })
-      doneCount.value++
-      return { sample: p.sample, pos: p.pos, features }
-    })
-
-    const results = await Promise.all(promises)
+    const results = []
+    for (let i = 0; i < pairs.value.length; i += 2) {
+      const batch = pairs.value.slice(i, i + 2)
+      results.push(...await Promise.all(batch.map(async (p) => {
+        const formData = new FormData()
+        formData.append('crc', p.crc)
+        formData.append('cpr', p.cpr)
+        const features = await $fetch<CppFeatures>('/cppapi/features', { method: 'POST', body: formData })
+        doneCount.value++
+        return { sample: p.sample, pos: p.pos, features }
+      })))
+    }
 
     const allResult: AllDataResult = {}
     for (const res of results) {

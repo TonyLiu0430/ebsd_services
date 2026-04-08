@@ -20,6 +20,7 @@ temp_data/
 
 # env
 *.env
+!.env.example
 
 # achieve
 *.zip

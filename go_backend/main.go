@@ -3,19 +3,18 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
-	"go_backend/ent"
+	"go_backend/db"
 	"go_backend/routeRegister"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	client, err := ent.Open("sqlite3", "file:ent?mode=memory&cache=shared&_fk=1")
-	if err != nil {
-		log.Fatalf("failed opening connection to sqlite: %v", err)
-	}
-	defer client.Close()
+	time.Sleep(3 * time.Second)
+
+	client := db.DB
 
 	if err := client.Schema.Create(context.Background()); err != nil {
 		log.Fatalf("failed creating schema resources: %v", err)
@@ -27,6 +26,12 @@ func main() {
 	for _, route := range routeRegister.Register {
 		route(rg)
 	}
+
+	rg.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"msg": "Hello World! from golang",
+		})
+	})
 
 	r.Run()
 }

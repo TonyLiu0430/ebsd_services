@@ -1,40 +1,60 @@
 services:
   ml_backend:
     build: ./ML_backend
-    container_name: ebsd-ml-backend
+    #  container_name: ebsd-ml-backend
     ports:
       - "8000:8000"
 
   cpp_backend:
     build:
       context: ./cpp_backend
-      network: host
-    container_name: ebsd-cpp-backend
+      network: host # vcpkg 會出事 DO NOT EDIT!
+    # container_name: ebsd-cpp-backend
     ports:
       - "8080:8080"
 
   frontend:
     build: ./frontend
-    container_name: ebsd-frontend
+    # container_name: ebsd-frontend
     ports:
       - "3000:3000"
 
+  go_backend:
+    build: 
+      context: ./go_backend
+      network: host # DO NOT EDIT
+    # container_name: go-backend
+    ports:
+      - "8051:8080"
+    environment:
+      DATABASE_CONNECTION_STRING: "dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} host=postgres port=5432 sslmode=disable"
+
   caddy:
     image: caddy:2
-    container_name: ebsd-caddy
+    # container_name: ebsd-caddy
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
     depends_on:
       - frontend
+      - cpp_backend
+      - ml_backend
+
+  postgres:
+    image: postgres:15
+    # container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: ebsd-cloudflared
+    # container_name: ebsd-cloudflared
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL:-}
@@ -43,5 +63,4 @@ services:
     profiles: ["tunnel"]
 
 volumes:
-  caddy_data:
-  caddy_config:
+  pgdata:

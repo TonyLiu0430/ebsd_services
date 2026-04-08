@@ -240,7 +240,8 @@ public:
 };
 
 void test() {
-    std::string cpr_file_path = "/home/tonyliu/project/ebsd_services/cpp_backend/_data/C-U.cpr";
+    
+    std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_file_path);
     int err_code = reader->readFile();
@@ -256,11 +257,17 @@ void test() {
     auto euler3 = reader->getEuler3Pointer();
     GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
     grainSegmenter.find_grains(10);
-    grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
+    //grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
+    Orientations_finder_by_pixel finder(euler1, euler2, euler3, phase, xDim, yDim);
+    std::tuple<double, double, double> ratio = finder.ratio(20);
+    cout << "ratio(pixel): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
+    Orientations_finder finder2(grainSegmenter.find_grains(10));
+    ratio = finder2.ratio(20);
+    cout << "ratio(grain): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
 }
 
 void test2() {
-    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/鋁(Al)");
+    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
     for(auto &[key, value] : ebsds) {
         auto &[path, good] = value;
         std::filesystem::path img_path = "/home/tonyliu/project/ebsd_services/cpp_backend/_out";
@@ -276,8 +283,10 @@ void test3() {
 }
 
 int main() {
-    // test2();
-    // return 0;
+    //test2();
+    //return 0;
+    //test2();
+    //return 0;
     // srand(time(NULL));
     // test();
     // return 0;

@@ -7,7 +7,7 @@ require (
 	github.com/gin-contrib/sessions v1.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.3.0
-	github.com/mattn/go-sqlite3 v1.14.28
+	github.com/lib/pq v1.10.9
 	golang.org/x/oauth2 v0.36.0
 )
 

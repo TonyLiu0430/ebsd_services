@@ -9,14 +9,66 @@ import (
 	"go_backend/routeRegister"
 	"io"
 	"log"
+	"regexp"
+	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
+
+var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+var passwordRe = regexp.MustCompile(`^[[:graph:]]+$`)
+
+func vaildate(username string, password string) bool {
+	return usernameRe.MatchString(username) && passwordRe.MatchString(password) && len(username) >= 3 && len(username) <= 30 && len(password) >= 8 && len(password) <= 100
+}
+
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(hash), err
+}
+
+func checkPassword(password, hash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
 
 func init() {
 	routeRegister.Register = append(routeRegister.Register, func(rg *gin.RouterGroup) {
 		route := rg.Group("user")
+		route.POST("/login", func(c *gin.Context) {
+			var body struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			if err := c.ShouldBindJSON(&body); err != nil {
+				c.JSON(400, gin.H{
+					"error": "invalid request body",
+				})
+				return
+			}
+
+			if strings.TrimSpace(body.Username) == "" || strings.TrimSpace(body.Password) == "" {
+				c.JSON(400, gin.H{
+					"error": "username and password cannot be empty",
+				})
+				return
+			}
+
+			if !vaildate(body.Username, body.Password) {
+				c.JSON(400, gin.H{
+					"error": "invalid username or password",
+				})
+				return
+			}
+
+			user, err := db.DB.User.
+				Query().
+				Where(user.UsernameEQ(body.Username)).
+				Select(user.FieldUsername, user.FieldPassword).
+				First(context.Background())
+
+		})
 		route.GET("/google/callback", func(c *gin.Context) {
 			session := sessions.Default(c)
 

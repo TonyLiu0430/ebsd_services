@@ -33,6 +33,10 @@ vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<v
 
     for(int i = 0; i < x; i++ ) {
         for(int j = 0; j < y; j++ ) {
+            if(std::isnan(orientations[i][j].w())) {
+                img[i][j] = {0, 0, 0};
+                continue;
+            }
             std::vector<float> eulen = OrientationTransformation::qu2eu<QuatF, std::vector<float>>(orientations[i][j]);
             EbsdLib::Rgb c = ops->generateIPFColor(eulen[0], eulen[1], eulen[2], refDir[0], refDir[1], refDir[2], false);
             img[i][j] = {static_cast<uint8_t>((c >> 16) & 0xFF), static_cast<uint8_t>((c >> 8) & 0xFF), static_cast<uint8_t>(c & 0xFF)};
@@ -54,6 +58,7 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     auto euler1 = reader->getEuler1Pointer();
     auto euler2 = reader->getEuler2Pointer();
     auto euler3 = reader->getEuler3Pointer();
+    denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
     
     vector<vector<QuatF>> orientations(yDim, vector<QuatF>(xDim));
     for (int y = 0; y < yDim; ++y) {
@@ -62,6 +67,9 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
             std::vector<float> euler = {euler1[p], euler2[p], euler3[p]};
             auto qu = OrientationTransformation::eu2qu<std::vector<float>, QuatF>(euler);
             orientations[y][x] = qu;
+            if(phase[p] == 0) {
+                orientations[y][x] = QuatF(NAN, NAN, NAN, NAN);
+            }
         }
     }
 
@@ -84,19 +92,3 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     int ok = stbi_write_png(img_path.string().c_str(), w, h, 3, img.data(), w * 3);
     if(!ok) std::cout << "failed" << std::endl;
 }
-// auto pixels = ipf_map(orientations);
-    // std::vector<uint8_t> img;
-    // int w = xDim, h = yDim;
-    // img.reserve((size_t)w * h * 3);
-
-    // for (const auto& row : pixels) {
-    //     for (const auto& px : row) {
-    //         auto [r, g, b] = px;
-
-    //         img.push_back(static_cast<uint8_t>(r));
-    //         img.push_back(static_cast<uint8_t>(g));
-    //         img.push_back(static_cast<uint8_t>(b));
-    //     }
-    // }
-    // int ok = stbi_write_png("test.png", w, h, 3, img.data(), w * 3);
-    // if(!ok) std::cout << "failed" << std::endl;

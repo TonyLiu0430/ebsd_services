@@ -45,8 +45,8 @@ var (
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeUUID},
-		{Name: "name", Type: field.TypeString},
-		{Name: "email", Type: field.TypeString, Unique: true},
+		{Name: "username", Type: field.TypeString, Unique: true},
+		{Name: "password", Type: field.TypeString, Unique: true},
 		{Name: "chat_session_user", Type: field.TypeUUID, Nullable: true},
 	}
 	// UsersTable holds the schema information for the "users" table.

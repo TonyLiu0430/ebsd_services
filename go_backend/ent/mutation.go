@@ -1050,8 +1050,8 @@ type UserMutation struct {
 	op            Op
 	typ           string
 	id            *uuid.UUID
-	name          *string
-	email         *string
+	username      *string
+	password      *string
 	clearedFields map[string]struct{}
 	done          bool
 	oldValue      func(context.Context) (*User, error)
@@ -1162,76 +1162,76 @@ func (m *UserMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
 	}
 }
 
-// SetName sets the "name" field.
-func (m *UserMutation) SetName(s string) {
-	m.name = &s
+// SetUsername sets the "username" field.
+func (m *UserMutation) SetUsername(s string) {
+	m.username = &s
 }
 
-// Name returns the value of the "name" field in the mutation.
-func (m *UserMutation) Name() (r string, exists bool) {
-	v := m.name
+// Username returns the value of the "username" field in the mutation.
+func (m *UserMutation) Username() (r string, exists bool) {
+	v := m.username
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldName returns the old "name" field's value of the User entity.
+// OldUsername returns the old "username" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldName(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldUsername(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldName is only allowed on UpdateOne operations")
+		return v, errors.New("OldUsername is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldName requires an ID field in the mutation")
+		return v, errors.New("OldUsername requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldName: %w", err)
+		return v, fmt.Errorf("querying old value for OldUsername: %w", err)
 	}
-	return oldValue.Name, nil
+	return oldValue.Username, nil
 }
 
-// ResetName resets all changes to the "name" field.
-func (m *UserMutation) ResetName() {
-	m.name = nil
+// ResetUsername resets all changes to the "username" field.
+func (m *UserMutation) ResetUsername() {
+	m.username = nil
 }
 
-// SetEmail sets the "email" field.
-func (m *UserMutation) SetEmail(s string) {
-	m.email = &s
+// SetPassword sets the "password" field.
+func (m *UserMutation) SetPassword(s string) {
+	m.password = &s
 }
 
-// Email returns the value of the "email" field in the mutation.
-func (m *UserMutation) Email() (r string, exists bool) {
-	v := m.email
+// Password returns the value of the "password" field in the mutation.
+func (m *UserMutation) Password() (r string, exists bool) {
+	v := m.password
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldEmail returns the old "email" field's value of the User entity.
+// OldPassword returns the old "password" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldEmail(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldPassword(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldEmail is only allowed on UpdateOne operations")
+		return v, errors.New("OldPassword is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldEmail requires an ID field in the mutation")
+		return v, errors.New("OldPassword requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldEmail: %w", err)
+		return v, fmt.Errorf("querying old value for OldPassword: %w", err)
 	}
-	return oldValue.Email, nil
+	return oldValue.Password, nil
 }
 
-// ResetEmail resets all changes to the "email" field.
-func (m *UserMutation) ResetEmail() {
-	m.email = nil
+// ResetPassword resets all changes to the "password" field.
+func (m *UserMutation) ResetPassword() {
+	m.password = nil
 }
 
 // Where appends a list predicates to the UserMutation builder.
@@ -1269,11 +1269,11 @@ func (m *UserMutation) Type() string {
 // AddedFields().
 func (m *UserMutation) Fields() []string {
 	fields := make([]string, 0, 2)
-	if m.name != nil {
-		fields = append(fields, user.FieldName)
+	if m.username != nil {
+		fields = append(fields, user.FieldUsername)
 	}
-	if m.email != nil {
-		fields = append(fields, user.FieldEmail)
+	if m.password != nil {
+		fields = append(fields, user.FieldPassword)
 	}
 	return fields
 }
@@ -1283,10 +1283,10 @@ func (m *UserMutation) Fields() []string {
 // schema.
 func (m *UserMutation) Field(name string) (ent.Value, bool) {
 	switch name {
-	case user.FieldName:
-		return m.Name()
-	case user.FieldEmail:
-		return m.Email()
+	case user.FieldUsername:
+		return m.Username()
+	case user.FieldPassword:
+		return m.Password()
 	}
 	return nil, false
 }
@@ -1296,10 +1296,10 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
-	case user.FieldName:
-		return m.OldName(ctx)
-	case user.FieldEmail:
-		return m.OldEmail(ctx)
+	case user.FieldUsername:
+		return m.OldUsername(ctx)
+	case user.FieldPassword:
+		return m.OldPassword(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -1309,19 +1309,19 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 // type.
 func (m *UserMutation) SetField(name string, value ent.Value) error {
 	switch name {
-	case user.FieldName:
+	case user.FieldUsername:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetName(v)
+		m.SetUsername(v)
 		return nil
-	case user.FieldEmail:
+	case user.FieldPassword:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetEmail(v)
+		m.SetPassword(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
@@ -1372,11 +1372,11 @@ func (m *UserMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *UserMutation) ResetField(name string) error {
 	switch name {
-	case user.FieldName:
-		m.ResetName()
+	case user.FieldUsername:
+		m.ResetUsername()
 		return nil
-	case user.FieldEmail:
-		m.ResetEmail()
+	case user.FieldPassword:
+		m.ResetPassword()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

@@ -3,14 +3,19 @@ package db
 import (
 	"go_backend/ent"
 	"log"
+	"os"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 func connectDB() *ent.Client {
-	client, err := ent.Open("sqlite3", "file:ent?mode=memory&cache=shared&_fk=1")
+	connect_str := os.Getenv("DATABASE_CONNECTION_STRING")
+	if connect_str == "" {
+		panic("DATABASE_CONNECTION_STRING isn't set")
+	}
+	client, err := ent.Open("postgres", connect_str)
 	if err != nil {
-		log.Fatalf("failed opening connection to sqlite: %v", err)
+		log.Fatalf("failed opening connection to database: %v", err)
 	}
 	return client
 }

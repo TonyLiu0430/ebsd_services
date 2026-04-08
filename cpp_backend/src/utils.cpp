@@ -80,13 +80,13 @@ nlohmann::json features(const std::string &cpr_file_path) {
     auto euler1 = reader->getEuler1Pointer();
     auto euler2 = reader->getEuler2Pointer();
     auto euler3 = reader->getEuler3Pointer();
+    denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
     GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
     std::vector<Grain> grains = grainSegmenter.find_grains(10);
     if(reader->getXStep() != reader->getYStep()) {
         throw std::invalid_argument("X and Y step sizes are not equal");
     }
     double step_size = reader->getXStep();
-    Orientations_finder orientations_finder(grains);
     std::vector<double> grain_sizes;
     double pixel_area = step_size * step_size;
     for(auto &g : grains) {
@@ -94,6 +94,8 @@ nlohmann::json features(const std::string &cpr_file_path) {
         double equivalent_radius = std::sqrt(area / M_PI);
         grain_sizes.push_back(equivalent_radius * 2); // equivalent diameter
     }
+    // Orientations_finder orientations_finder(grains);
+    Orientations_finder_by_pixel orientations_finder(euler1, euler2, euler3, phase, xDim, yDim);
     auto ratio20 = orientations_finder.ratio(20);
     auto ratio15 = orientations_finder.ratio(15);
     nlohmann::json j = {

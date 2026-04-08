@@ -9,20 +9,20 @@ wheels/
 # Virtual environments
 .venv
 
-#data
+# data
 *.ctf
 gen_data/
 *.secretdata
 temp_data/
 
-#model
+# model
 *.joblib
 
 # env
 *.env
 
-#achieve
+# achieve
 *.zip
 
-#chore
+# chore
 .codex

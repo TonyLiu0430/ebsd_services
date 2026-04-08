@@ -3,7 +3,6 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VCPKG_ROOT=/opt/vcpkg
-ENV VCPKG_DEFAULT_TRIPLET=x64-linux-dynamic
 
 # 安裝建置工具與 vcpkg 所需系統套件
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,12 +35,16 @@ RUN git clone https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
 # 複製專案原始碼
 WORKDIR /app
 COPY CMakeLists.txt CMakePresets.json vcpkg.json vcpkg-configuration.json ./
+COPY vcpkg-triplets/ vcpkg-triplets/
 COPY include/ include/
 COPY src/ src/
 
-# 使用 vcpkg 安裝相依套件並建置（Release 模式）
-RUN cmake --preset linux-release \
-    && cmake --build build/linux-release --config Release
+RUN cmake --preset release \
+    && cmake --build "build/release" --config Release \
+    && mkdir -p /opt/runtime-app /opt/runtime-lib /opt/runtime-bin \
+    && cp "/app/build/release/ebsd_cpp_backend" /opt/runtime-app/ebsd_cpp_backend \
+    && cp -a "/app/build/release/vcpkg_installed/linux-dynamic/lib/." /opt/runtime-lib/ \
+    && if [ -d "/app/build/release/vcpkg_installed/linux-dynamic/bin" ]; then cp -a "/app/build/release/vcpkg_installed/linux-dynamic/bin/." /opt/runtime-bin/; fi
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
 FROM ubuntu:24.04 AS runtime
@@ -57,11 +60,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # 複製執行檔
-COPY --from=builder /app/build/linux-release/ebsd_cpp_backend /app/ebsd_cpp_backend
+COPY --from=builder /opt/runtime-app/ebsd_cpp_backend /app/ebsd_cpp_backend
 
-# 複製動態函式庫（x64-linux-dynamic triplet）
-COPY --from=builder /app/build/linux-release/vcpkg_installed/x64-linux-dynamic/lib/ /app/lib/
-COPY --from=builder /app/build/linux-release/vcpkg_installed/x64-linux-dynamic/bin/ /app/bin/
+# 複製動態函式庫
+COPY --from=builder /opt/runtime-lib/ /app/lib/
+COPY --from=builder /opt/runtime-bin/ /app/bin/
 
 ENV LD_LIBRARY_PATH=/app/lib:/app/bin:${LD_LIBRARY_PATH}
 

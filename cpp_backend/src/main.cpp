@@ -373,19 +373,21 @@ int main() {
         std::string ipf_filename = "tempsaved_" + rand_name + ".png";
         std::filesystem::path cpr_path = temp_dir / cpr_filename;
         std::filesystem::path crc_path = temp_dir / crc_filename;
+        std::filesystem::path ipf_path = temp_dir / ipf_filename;
         TempFile cpr(cpr_path);
         TempFile crc(crc_path);
+        TempFile ipf(ipf_path);
         std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
-        save_ipf_map(cpr_path.string(), ipf_filename);
+        save_ipf_map(cpr_path.string(), ipf_path);
 
-        std::ifstream ipf(ipf_filename, std::ios::binary);
+        std::ifstream ipf_fs(ipf_path, std::ios::binary);
         std::string buffer;
-        auto size = std::filesystem::file_size(ipf_filename);
+        auto size = std::filesystem::file_size(ipf_path);
         buffer.resize(size);
 
-        ipf.read(buffer.data(), size);
+        ipf_fs.read(buffer.data(), size);
 
         res.set_content(buffer, "image/png");
     });

@@ -31,6 +31,10 @@
       <br>
       <el-text v-if="error" class="mx-1" type="danger">{{ error }}</el-text>
       <div v-if="result">
+        <section v-if="pairs.length" class="card">
+          <h2 class="section-title">IPF 晶粒取向分佈圖</h2>
+          <IpfMapGrid :pairs="pairs" :sample="[...samples][0] || ''" />
+        </section>
         <div>選擇分析項目</div>
         <el-checkbox-group v-model="selectedFeatures">
           <el-checkbox v-for="feat in featuresOptions || []" :key="feat" :label="feat" :value="feat" />
@@ -360,5 +364,20 @@ pre { margin-top: 1rem; background: #fff; padding: 1rem; border-radius: 4px; ove
 
 .color-slider-wrap :deep(.el-slider__bar) {
   background: transparent;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+.section-title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1f2937;
 }
 </style>

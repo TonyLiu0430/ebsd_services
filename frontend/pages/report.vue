@@ -141,6 +141,12 @@
         </div>
       </section>
 
+      <!-- ── Section 1b: IPF Map grid ────────── -->
+      <section v-if="pairs.length" class="card">
+        <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
+        <IpfMapGrid :pairs="ipfMapPairs" :sample="selectedSample" />
+      </section>
+
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card">
         <h2 class="section-title">九宮格完整數據 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
@@ -812,6 +818,25 @@ const currentGoldenVersionOption = computed(() =>
 
 const currentSelectedVersionLabel = computed(() => currentSelectedVersionOption.value?.label ?? selectedSample.value)
 const currentGoldenVersionLabel = computed(() => currentGoldenVersionOption.value?.label ?? goldenSample.value)
+
+const ipfMapPairs = computed(() => {
+  const versionOpt = currentSelectedVersionOption.value
+  const sample = selectedSample.value
+  if (!versionOpt || !sample) return pairs.value.filter(p => p.sample === sample)
+
+  const currentNum = versionOpt.num
+  const posMap = new Map<string, FilePair>()
+
+  for (const p of pairs.value) {
+    if (p.sample !== sample) continue
+    if (p.versionNum > currentNum) continue
+    const existing = posMap.get(p.pos)
+    if (!existing || p.versionNum > existing.versionNum) {
+      posMap.set(p.pos, p)
+    }
+  }
+  return Array.from(posMap.values())
+})
 
 async function generateReport() {
   if (!canGenerate.value) return

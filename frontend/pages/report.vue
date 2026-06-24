@@ -887,10 +887,8 @@ async function refreshLibrary() {
     versionOptionsMap.value = buildVersionOptions(rows)
 
     const opts = sampleOptions.value
-    if (!opts.includes(selectedSample.value)) selectedSample.value = opts[0] ?? ''
-    if (!opts.includes(goldenSample.value) || goldenSample.value === selectedSample.value) {
-      goldenSample.value = opts.find((sample) => sample !== selectedSample.value) ?? ''
-    }
+    if (!opts.includes(selectedSample.value)) selectedSample.value = ''
+    if (!opts.includes(goldenSample.value) || goldenSample.value === selectedSample.value) goldenSample.value = ''
   } catch (e: unknown) {
     const err = e as { data?: { detail?: string; message?: string }; message?: string }
     libraryError.value = err.data?.detail || err.data?.message || err.message || '讀取檔案庫失敗'

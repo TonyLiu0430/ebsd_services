@@ -1,57 +1,103 @@
 <template>
   <div class="page-shell">
-    <h1 class="page-title">EBSD 自動化報表</h1>
+    <header class="page-head">
+      <div>
+        <h1>EBSD 自動化報表</h1>
+        <p>{{ libraryPairs.length }} 組掃描檔 · {{ sampleOptions.length }} 筆靶材</p>
+      </div>
+      <button class="ghost-btn" type="button" :disabled="libraryLoading" @click="refreshLibrary">
+        {{ libraryLoading ? '讀取中' : '重新讀取' }}
+      </button>
+    </header>
 
-    <!-- ── Step 1: Library selection ─────────────────────────── -->
-    <section class="card">
-      <div class="library-head">
+    <section class="panel report-setup-panel">
+      <div class="panel-title-row">
         <div>
-          <h2 class="section-title">① 從檔案庫選擇靶材</h2>
-          <p class="library-note">報表資料只來自檔案庫；請先在檔案庫新增靶材並上傳掃描檔。</p>
+          <h2>報表資料來源</h2>
+          <p>從檔案庫選擇分析樣本與 Golden 樣本，報表會使用各靶材最新版本的完整位置狀態。</p>
         </div>
-        <button class="plain-btn" type="button" :disabled="libraryLoading" @click="refreshLibrary">
-          {{ libraryLoading ? '讀取中…' : '重新讀取檔案庫' }}
-        </button>
+        <NuxtLink class="ghost-link" to="/">檔案庫</NuxtLink>
       </div>
 
-      <div v-if="libraryError" class="library-state error-state">{{ libraryError }}</div>
-      <div v-else-if="libraryLoading" class="library-state">正在讀取檔案庫</div>
-      <div v-else-if="libraryPairs.length === 0" class="library-state">
-        檔案庫尚未有掃描檔。請先到 <NuxtLink to="/">檔案庫</NuxtLink> 新增靶材與位置掃描檔。
+      <div v-if="libraryError" class="empty-state error-state">{{ libraryError }}</div>
+      <div v-else-if="libraryLoading" class="empty-state">正在讀取檔案庫</div>
+      <div v-else-if="libraryPairs.length === 0" class="empty-state">
+        檔案庫尚未有掃描檔，請先新增靶材與位置掃描檔。
       </div>
-      <div v-else class="library-summary">
-        <div v-for="sample in sampleOptions" :key="sample" class="library-sample">
-          <strong>{{ sample }}</strong>
-          <span>{{ libraryPairs.filter((pair) => pair.sample === sample).length }} 組掃描檔</span>
-        </div>
-      </div>
-    </section>
+      <div v-else class="setup-grid">
+        <div class="target-picker">
+          <div class="section-subhead">
+            <strong>選擇樣本</strong>
+            <span>{{ comparablePositionCount }} 個可比對位置</span>
+          </div>
+          <div class="selector-grid">
+            <label class="field">
+              <span>分析樣本</span>
+              <select v-model="selectedSample">
+                <option value="">請選擇</option>
+                <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Golden 樣本</span>
+              <select v-model="goldenSample">
+                <option value="">請選擇</option>
+                <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </label>
+          </div>
 
-    <!-- ── Step 2: Sample selection ──────────────── -->
-    <section v-if="libraryPairs.length" class="card">
-      <h2 class="section-title">② 選擇樣本</h2>
-      <div class="selector-row">
-        <div class="selector-group">
-          <label>分析樣本</label>
-          <select v-model="selectedSample" class="sel">
-            <option value="">— 請選擇 —</option>
-            <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
-          </select>
+          <div class="selected-summary">
+            <article class="selected-card">
+              <span>分析</span>
+              <strong>{{ selectedSample || '未選擇' }}</strong>
+              <small>{{ selectedSampleSummary }}</small>
+            </article>
+            <article class="selected-card golden">
+              <span>Golden</span>
+              <strong>{{ goldenSample || '未選擇' }}</strong>
+              <small>{{ goldenSampleSummary }}</small>
+            </article>
+          </div>
+
+          <div class="action-row">
+            <button class="primary-btn" @click="generateReport" :disabled="!canGenerate || loading">
+              <span v-if="loading">處理中 {{ doneCount }}/{{ loadingTotal || selectedLibraryPairs.length }}</span>
+              <span v-else>產生報表</span>
+            </button>
+            <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
+          </div>
         </div>
-        <div class="selector-group">
-          <label>黃金樣本（基準）</label>
-          <select v-model="goldenSample" class="sel">
-            <option value="">— 請選擇 —</option>
-            <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
-          </select>
+
+        <div class="library-overview">
+          <div class="section-subhead">
+            <strong>檔案庫概覽</strong>
+            <span>{{ librarySampleCards.length }} 筆靶材</span>
+          </div>
+          <p class="interaction-hint">左鍵選分析樣本，右鍵指定 Golden。</p>
+          <div class="library-card-list">
+            <button
+              v-for="card in librarySampleCards"
+              :key="card.sample"
+              type="button"
+              class="library-target-card"
+              :class="{ selected: card.sample === selectedSample, golden: card.sample === goldenSample }"
+              title="左鍵選分析，右鍵指定 Golden"
+              @click="selectAnalysisSample(card.sample)"
+              @contextmenu.prevent="selectGoldenSample(card.sample)"
+            >
+              <div>
+                <strong>
+                  {{ card.sample }}
+                  <em v-if="card.sample === selectedSample" class="role-pill analysis">分析</em>
+                  <em v-if="card.sample === goldenSample" class="role-pill golden">Golden</em>
+                </strong>
+                <span>{{ card.positions.size }} 個位置 · {{ card.versions.length }} 個版本</span>
+              </div>
+              <small>{{ card.latestLabel }}</small>
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="btn-row">
-        <button class="gen-btn" @click="generateReport" :disabled="!canGenerate || loading">
-          <span v-if="loading">處理中… ({{ doneCount }}/{{ loadingTotal || selectedLibraryPairs.length }})</span>
-          <span v-else>產生報表</span>
-        </button>
-        <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
       </div>
     </section>
 
@@ -745,6 +791,78 @@ const selectedLibraryPairs = computed(() => {
   const needed = new Set([selectedSample.value, goldenSample.value])
   return libraryPairs.value.filter((pair) => needed.has(pair.sample))
 })
+const librarySampleCards = computed(() => {
+  const map = new Map<string, StoredEbsdPair[]>()
+  for (const pair of libraryPairs.value) {
+    const items = map.get(pair.sample) ?? []
+    items.push(pair)
+    map.set(pair.sample, items)
+  }
+
+  return Array.from(map.entries())
+    .map(([sample, items]) => {
+      const positions = new Set(items.map((item) => item.position))
+      const versionMap = new Map<string, VersionOption>()
+      for (const item of items) {
+        const num = item.version_num ?? 1
+        const key = item.version_key || `v${num}`
+        versionMap.set(key, {
+          key,
+          label: item.version_label || `${sample}-${num}`,
+          num,
+        })
+      }
+      const versions = Array.from(versionMap.values()).sort((a, b) =>
+        a.num - b.num || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }),
+      )
+      return {
+        sample,
+        positions,
+        versions,
+        latestLabel: versions[versions.length - 1]?.label ?? `${sample}-1`,
+        updatedAt: items
+          .map((item) => item.updated_at || item.created_at)
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? '',
+      }
+    })
+    .sort((a, b) => a.sample.localeCompare(b.sample, undefined, { numeric: true, sensitivity: 'base' }))
+})
+const selectedSampleCard = computed(() =>
+  librarySampleCards.value.find((card) => card.sample === selectedSample.value),
+)
+const goldenSampleCard = computed(() =>
+  librarySampleCards.value.find((card) => card.sample === goldenSample.value),
+)
+const selectedSampleSummary = computed(() => formatSampleSummary(selectedSampleCard.value))
+const goldenSampleSummary = computed(() => formatSampleSummary(goldenSampleCard.value))
+const comparablePositionCount = computed(() => {
+  if (!selectedSampleCard.value || !goldenSampleCard.value) return 0
+  const goldenPositions = goldenSampleCard.value.positions
+  return Array.from(selectedSampleCard.value.positions).filter((pos) => goldenPositions.has(pos)).length
+})
+
+watch(selectedSample, (sample) => {
+  if (sample && sample === goldenSample.value) goldenSample.value = ''
+})
+
+watch(goldenSample, (sample) => {
+  if (sample && sample === selectedSample.value) selectedSample.value = ''
+})
+
+function formatSampleSummary(card: typeof librarySampleCards.value[number] | undefined): string {
+  if (!card) return '尚未選擇'
+  return `${card.positions.size} 個位置 / ${card.versions.length} 個版本 / 最新 ${card.latestLabel}`
+}
+
+function selectAnalysisSample(sample: string) {
+  selectedSample.value = sample
+  if (goldenSample.value === sample) goldenSample.value = ''
+}
+
+function selectGoldenSample(sample: string) {
+  goldenSample.value = sample
+  if (selectedSample.value === sample) selectedSample.value = ''
+}
 
 onMounted(async () => {
   await refreshLibrary()
@@ -1392,20 +1510,50 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   padding: 2rem 1.5rem 7rem;
   color: #111827;
 }
-.page-title {
-  margin: 0 0 1.5rem;
-  font-size: 1.7rem;
-  font-weight: 500;
+
+.page-head,
+.panel-title-row,
+.action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
+.page-head {
+  margin-bottom: 1.25rem;
+}
+
+.page-head h1,
+.panel-title-row h2 {
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.page-head h1 {
+  font-size: 1.8rem;
+}
+
+.page-head p,
+.panel-title-row p {
+  margin: .35rem 0 0;
+  color: #6b7280;
+}
+
+.panel,
 .card {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
 }
+
+.card {
+  padding: 1.5rem;
+}
+
 .section-title {
   margin: 0 0 1rem;
   font-size: 1.1rem;
@@ -1413,50 +1561,235 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #1f2937;
 }
 
-.upload-area {
-  border: 2px dashed #d1d5db;
-  border-radius: 10px;
-  padding: 2rem;
-  text-align: center;
+.ghost-btn,
+.ghost-link,
+.primary-btn {
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 0 .95rem;
   cursor: pointer;
-  transition: border-color .2s, background .2s;
+  font-weight: 700;
 }
-.upload-area:hover, .upload-area.active { border-color: #3B82F6; background: #eff6ff; }
-.upload-area input { display: none; }
-.upload-icon { font-size: 2rem; margin-bottom: .4rem; }
-.upload-hint p { margin: 0; color: #6b7280; }
-.upload-done { color: #059669; font-weight: 500; }
-.check { font-size: 1.2rem; margin-right: .4rem; }
 
-.selector-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  flex-wrap: wrap;
+.ghost-btn,
+.ghost-link {
+  border: 0;
+  background: #f3f4f6;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }
-.selector-group { display: flex; flex-direction: column; gap: .3rem; }
-.selector-group label { font-size: .8rem; font-weight: 600; color: #374151; }
-.sel {
-  padding: .45rem .7rem;
+
+.primary-btn {
+  border: 0;
+  background: #111827;
+  color: #fff;
+}
+
+.primary-btn:disabled,
+.ghost-btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.report-setup-panel {
+  padding: 1.25rem;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr);
+  gap: 1rem;
+  margin-top: 1rem;
+  align-items: start;
+}
+
+.target-picker,
+.library-overview {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.section-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.section-subhead strong {
+  font-weight: 600;
+}
+
+.section-subhead span {
+  color: #6b7280;
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+.selector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .9rem;
+}
+
+.field {
+  display: grid;
+  gap: .35rem;
+}
+
+.field span {
+  color: #374151;
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.field select {
+  width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  font-size: .9rem;
-  min-width: 180px;
+  min-height: 40px;
+  padding: .65rem .75rem;
+  background: #fff;
 }
-.btn-row { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
-.gen-btn {
-  padding: .55rem 1.6rem;
-  background: #2563EB;
-  color: #fff;
-  border: none;
+
+.selected-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  margin-top: .9rem;
+}
+
+.selected-card {
+  border: 1px solid #dbeafe;
   border-radius: 8px;
-  font-size: .95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s;
+  background: #eff6ff;
+  display: grid;
+  gap: .18rem;
+  padding: .75rem;
 }
-.gen-btn:hover:not(:disabled) { background: #1d4ed8; }
-.gen-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+
+.selected-card.golden {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.selected-card span {
+  color: #64748b;
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.selected-card strong {
+  overflow-wrap: anywhere;
+}
+
+.selected-card small {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.action-row {
+  justify-content: flex-start;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.library-card-list {
+  display: grid;
+  gap: .55rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.interaction-hint {
+  color: #64748b;
+  font-size: .82rem;
+  font-weight: 700;
+  margin: .35rem 0 .6rem;
+}
+
+.library-target-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .75rem;
+  text-align: left;
+}
+
+.library-target-card:hover,
+.library-target-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.library-target-card.golden {
+  border-color: #f59e0b;
+  background: #fff7ed;
+}
+
+.library-target-card div {
+  display: grid;
+  gap: .16rem;
+  min-width: 0;
+}
+
+.library-target-card strong {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  overflow-wrap: anywhere;
+}
+
+.library-target-card span,
+.library-target-card small {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.role-pill {
+  border-radius: 999px;
+  font-size: .68rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  padding: .24rem .42rem;
+}
+
+.role-pill.analysis {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.role-pill.golden {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.empty-state {
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  color: #6b7280;
+  margin-top: 1rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.error-state {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
 .err-msg { font-size: .85rem; }
 
 .report-action-bar {
@@ -2028,11 +2361,22 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .analysis-result-wrap h4 { font-size: .9rem; font-weight: 700; color: #374151; margin-bottom: .5rem; }
 
 @media (max-width: 900px) {
+  .setup-grid,
+  .selector-grid,
+  .selected-summary {
+    grid-template-columns: 1fr;
+  }
   .version-slider-grid { grid-template-columns: 1fr; }
   .status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .page-shell { padding-bottom: 8rem; }
+  .page-head,
+  .panel-title-row,
+  .section-subhead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .report-version-dock {
     left: 12px;
     right: 12px;

@@ -3,6 +3,7 @@ import os
 import pathlib
 import re
 import shutil
+from urllib.parse import quote
 from typing import Annotated, Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 import defdap.ebsd as ebsd # type: ignore
@@ -30,6 +31,12 @@ from ebsd_store import (
 from sqlalchemy import func, select
 
 app = FastAPI()
+
+
+def attachment_content_disposition(filename: str) -> str:
+    fallback = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "ebsd-file").strip("._")
+    fallback = fallback or "ebsd-file"
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename or fallback, safe='')}"
 
 
 def resolve_retest_version(sample: str, version_key: Optional[str] = None, version_label: Optional[str] = None, version_num: Optional[int] = None):
@@ -289,7 +296,7 @@ def get_ebsd_pair_file(
         content=stored_file.content,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{stored_file.original_filename}"',
+            "Content-Disposition": attachment_content_disposition(stored_file.original_filename),
             "X-File-Hash": stored_file.content_hash,
         },
     )

@@ -25,6 +25,22 @@ std::vector<Grain> GrainSegmenter::find_grains(int min_grain_size) {
                     djs.unite({i, j}, {i, j - 1});
                 }
             }
+            if(i + 1 < y) {
+                OrientationF misor = ops->calculateMisorientation(orientations[i][j], orientations[i + 1][j]);
+                float ax, ay, az, angle;
+                misor.toAxisAngle(ax, ay, az, angle);
+                if(angle <= toleranceRad) {
+                    djs.unite({i, j}, {i + 1, j});
+                }
+            }
+            if(j + 1 < x) {
+                OrientationF misor = ops->calculateMisorientation(orientations[i][j], orientations[i][j + 1]);
+                float ax, ay, az, angle;
+                misor.toAxisAngle(ax, ay, az, angle);
+                if(angle <= toleranceRad) {
+                    djs.unite({i, j}, {i, j + 1});
+                }
+            }
         }
     }
     std::vector<Grain> grains;

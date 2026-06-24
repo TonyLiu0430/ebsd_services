@@ -1,8 +1,16 @@
 services:
   ml_backend:
-    build: ./ML_backend
+    build:
+      context: ./ML_backend
+      network: host # uv 下載 Python wheels 時避免 Docker build DNS 抖動
     ports:
       - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      GO_BACKEND_URL: "http://go_backend:8080"
+    depends_on:
+      - postgres
+      - go_backend
 
   cpp_backend:
     build:

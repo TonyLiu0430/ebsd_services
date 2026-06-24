@@ -89,7 +89,7 @@ onUnmounted(() => {
   <div class="ipf-grid-wrap">
     <div class="ipf-grid-header">
       <div class="ipf-grid-corner"></div>
-      <div v-for="(_, colKey) in COL_KEYS" :key="colKey" class="ipf-col-header">
+      <div v-for="colKey in COL_KEYS" :key="colKey" class="ipf-col-header">
         {{ COL_LABELS[colKey] }}<br /><small>({{ colKey }})</small>
       </div>
     </div>

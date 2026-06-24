@@ -2,38 +2,33 @@
   <div class="page-shell">
     <h1 class="page-title">EBSD 自動化報表</h1>
 
-    <!-- ── Step 1: Upload ─────────────────────────── -->
+    <!-- ── Step 1: Library selection ─────────────────────────── -->
     <section class="card">
-      <h2 class="section-title">① 上傳 EBSD 資料夾</h2>
-      <div
-        class="upload-area"
-        :class="{ active: pairs.length > 0 }"
-        @click="triggerInput"
-        @dragover.prevent
-        @drop.prevent="handleDrop"
-      >
-        <input
-          ref="folderInput"
-          type="file"
-          webkitdirectory
-          directory
-          multiple
-          @change="handleSelect"
-        />
-        <div v-if="pairs.length === 0" class="upload-hint">
-          <div class="upload-icon">📂</div>
-          <p>點擊或拖曳資料夾至此</p>
+      <div class="library-head">
+        <div>
+          <h2 class="section-title">① 從檔案庫選擇靶材</h2>
+          <p class="library-note">報表資料只來自檔案庫；請先在檔案庫新增靶材並上傳掃描檔。</p>
         </div>
-        <div v-else class="upload-done">
-          <span class="check">✔</span>
-          已讀取 <strong>{{ pairs.length }}</strong> 個掃描檔，共
-          <strong>{{ samples.size }}</strong> 個樣本
+        <button class="plain-btn" type="button" :disabled="libraryLoading" @click="refreshLibrary">
+          {{ libraryLoading ? '讀取中…' : '重新讀取檔案庫' }}
+        </button>
+      </div>
+
+      <div v-if="libraryError" class="library-state error-state">{{ libraryError }}</div>
+      <div v-else-if="libraryLoading" class="library-state">正在讀取檔案庫</div>
+      <div v-else-if="libraryPairs.length === 0" class="library-state">
+        檔案庫尚未有掃描檔。請先到 <NuxtLink to="/">檔案庫</NuxtLink> 新增靶材與位置掃描檔。
+      </div>
+      <div v-else class="library-summary">
+        <div v-for="sample in sampleOptions" :key="sample" class="library-sample">
+          <strong>{{ sample }}</strong>
+          <span>{{ libraryPairs.filter((pair) => pair.sample === sample).length }} 組掃描檔</span>
         </div>
       </div>
     </section>
 
     <!-- ── Step 2: Sample selection ──────────────── -->
-    <section v-if="pairs.length" class="card">
+    <section v-if="libraryPairs.length" class="card">
       <h2 class="section-title">② 選擇樣本</h2>
       <div class="selector-row">
         <div class="selector-group">
@@ -53,7 +48,7 @@
       </div>
       <div class="btn-row">
         <button class="gen-btn" @click="generateReport" :disabled="!canGenerate || loading">
-          <span v-if="loading">處理中… ({{ doneCount }}/{{ loadingTotal || pairs.length }})</span>
+          <span v-if="loading">處理中… ({{ doneCount }}/{{ loadingTotal || selectedLibraryPairs.length }})</span>
           <span v-else>產生報表</span>
         </button>
         <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
@@ -62,7 +57,11 @@
 
     <!-- ══════════════ REPORT ══════════════ -->
     <template v-if="reportData">
-      <div class="report-version-dock" aria-label="Report version switcher">
+      <div
+        class="report-version-dock pdf-exclude"
+        aria-label="Report version switcher"
+        data-html2canvas-ignore="true"
+      >
         <div class="report-version-dock__title">Report 版本</div>
         <div class="report-version-dock__meta">
           <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
@@ -79,8 +78,30 @@
         />
       </div>
 
+      <div class="report-action-bar pdf-exclude" data-html2canvas-ignore="true">
+        <button class="pdf-btn" @click="exportReportPdf" :disabled="exportingPdf">
+          <span v-if="exportingPdf">輸出中… {{ pdfExportProgress }}</span>
+          <span v-else>輸出 PDF</span>
+        </button>
+        <el-text v-if="pdfError" type="danger" class="err-msg">{{ pdfError }}</el-text>
+      </div>
+
+      <section v-if="positionStatusCards.length" class="position-status-card" data-pdf-page="position-status">
+        <h2 class="section-title">位置對位狀態</h2>
+        <div class="status-grid">
+          <div v-for="card in positionStatusCards" :key="card.kind" class="status-block" :class="`status-${card.kind}`">
+            <div class="status-title">{{ card.title }}</div>
+            <div class="status-meta">{{ card.items.length }} 個位置</div>
+            <div class="status-tags">
+              <span v-for="pos in card.items" :key="pos">{{ pos }}</span>
+              <span v-if="card.items.length === 0" class="empty-tag">無</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Section 1: Grain distribution curves ──────────── -->
-      <section class="card">
+      <section class="card" data-pdf-page="grain-distribution">
         <h2 class="section-title">Grain 粒徑分布比對</h2>
         <div class="grain-mode-switch">
           <span class="grain-mode-label">圖形模式</span>
@@ -123,8 +144,13 @@
         <div class="nine-cdf-grid">
           <template v-for="(rowLabel, rowKey) in ROW_LABELS" :key="rowKey">
             <template v-for="colKey in COL_KEYS" :key="colKey">
-              <div class="cdf-cell">
+              <div
+                class="cdf-cell"
+                :class="positionStatusClass(`${colKey}-${rowKey}`)"
+              >
                 <div class="cdf-pos-label">{{ colKey }}-{{ rowKey }}</div>
+                <div v-if="isMissingGoldenPos(`${colKey}-${rowKey}`)" class="cell-status-tag warning">缺 Golden</div>
+                <div v-else-if="isMissingSelectedPos(`${colKey}-${rowKey}`)" class="cell-status-tag muted">未上傳</div>
                 <GrainCdfChart
                   :sample="getCompareSampleGrains(`${colKey}-${rowKey}`)"
                   :golden="getCompareGoldenGrains(`${colKey}-${rowKey}`)"
@@ -142,13 +168,13 @@
       </section>
 
       <!-- ── Section 1b: IPF Map grid ────────── -->
-      <section v-if="pairs.length" class="card">
+      <section v-if="pairs.length" class="card" data-pdf-page="ipf-map">
         <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
         <IpfMapGrid :pairs="ipfMapPairs" :sample="selectedSample" />
       </section>
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
-      <section class="card">
+      <section class="card" data-pdf-page="nine-grid-data">
         <h2 class="section-title">九宮格完整數據 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
 
         <div class="nine-grid-wrapper">
@@ -164,9 +190,14 @@
               v-for="(_, colKey) in COL_LABELS"
               :key="colKey"
               class="ng-cell"
-              :class="{ 'ng-cell-retest': isGridPosRetestedNext(`${colKey}-${rowKey}`) }"
+              :class="{
+                'ng-cell-retest': isGridPosRetestedNext(`${colKey}-${rowKey}`),
+                ...positionStatusClass(`${colKey}-${rowKey}`),
+              }"
             >
               <div class="ng-cell-inner">
+                <div v-if="isMissingGoldenPos(`${colKey}-${rowKey}`)" class="cell-status-tag warning">Sample 有資料，Golden 缺少</div>
+                <div v-else-if="isMissingSelectedPos(`${colKey}-${rowKey}`)" class="cell-status-tag muted">Sample 未上傳</div>
                 <div class="stat-block">
                   <div class="stat-title">Grain Size (μm)</div>
                   <div class="stat-row">
@@ -215,7 +246,7 @@
       </section>
 
       <!-- ── Section 3a: Orientation triangles 20° ── -->
-      <section class="card">
+      <section class="card" data-pdf-page="orientation-triangle-20">
         <h2 class="section-title">晶粒取向比例 — Misorientation 20°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
@@ -255,7 +286,7 @@
       </section>
 
       <!-- ── Section 3b: Orientation triangles 15° ── -->
-      <section class="card">
+      <section class="card" data-pdf-page="orientation-triangle-15">
         <h2 class="section-title">晶粒取向比例 — Misorientation 15°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
@@ -295,7 +326,7 @@
       </section>
 
       <!-- Section 3c: Orientation line charts 20度 -->
-      <section class="card">
+      <section class="card" data-pdf-page="orientation-line-20">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
@@ -406,7 +437,7 @@
       </section>
 
       <!-- Section 3d: Orientation line charts 15度 -->
-      <section class="card">
+      <section class="card" data-pdf-page="orientation-line-15">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
@@ -517,7 +548,7 @@
       </section>
 
       <!-- ── Section 4: Python Analysis ──────── -->
-      <section class="card">
+      <section class="card" :data-pdf-page="analysisRes ? 'feature-analysis' : undefined">
         <h2 class="section-title">④ 特徵分析 </h2>
         <div class="feat-label">選擇分析項目</div>
         <el-checkbox-group v-model="selectedFeatures" class="feat-checkbox-group">
@@ -574,6 +605,26 @@ type VersionOption = { key: string; label: string; num: number }
 type OrientDev = '20%' | '15%'
 
 type AnalysisResult = Record<string, Record<string, number>>
+type StoredEbsdPair = {
+  id: string
+  pair_id: string
+  pair_hash: string
+  crc_filename: string
+  crc_size_bytes: number
+  crc_hash: string
+  cpr_filename: string
+  cpr_size_bytes: number
+  cpr_hash: string
+  sample: string
+  position: string
+  name: string
+  folder?: string | null
+  version_key?: string | null
+  version_label?: string | null
+  version_num?: number | null
+  created_at: string
+  updated_at: string
+}
 
 const COL_KEYS = ['C', 'M', 'E'] as const
 const COL_LABELS: Record<string, string> = { C: '內 Center', M: '中 Middle', E: '外 Edge' }
@@ -633,18 +684,23 @@ function toggleLineCol(colKey: string) {
   visibleLineCols.value = new Set(visibleLineCols.value)
 }
 
-const folderInput = ref<HTMLInputElement>()
 const pairs = ref<FilePair[]>([])
 const samples = ref(new Set<string>())
 const sampleOptions = computed(() =>
   Array.from(samples.value).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })),
 )
+const libraryPairs = ref<StoredEbsdPair[]>([])
+const libraryLoading = ref(false)
+const libraryError = ref('')
 const selectedSample = ref('')
 const goldenSample = ref('')
 const loading = ref(false)
 const doneCount = ref(0)
 const loadingTotal = ref(0)
 const error = ref('')
+const pdfError = ref('')
+const exportingPdf = ref(false)
+const pdfExportProgress = ref('')
 const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
@@ -672,6 +728,9 @@ const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
 
 const reportVersionIndex = ref(0)
+const PDF_CAPTURE_WIDTH = 1120
+const PDF_CAPTURE_SCALE = 1.35
+const PDF_MARGIN_MM = 8
 const featureOptionsList = computed(() =>
   featuresOptions.value?.length ? featuresOptions.value : [...DEFAULT_FEATURE_OPTIONS],
 )
@@ -682,102 +741,65 @@ const canGenerate = computed(
     goldenSample.value !== '' &&
     selectedSample.value !== goldenSample.value,
 )
+const selectedLibraryPairs = computed(() => {
+  const needed = new Set([selectedSample.value, goldenSample.value])
+  return libraryPairs.value.filter((pair) => needed.has(pair.sample))
+})
 
-function triggerInput() { folderInput.value?.click() }
-function handleSelect(e: Event) { processFiles((e.target as HTMLInputElement).files) }
-function handleDrop(e: DragEvent) { processFiles(e.dataTransfer?.files) }
+onMounted(async () => {
+  await refreshLibrary()
+})
 
-function standard_pos(pos: string): string {
-  pos = pos.trim()
-  const dashMatch = pos.match(/^([CME])-([UMB])$/i)
-  if (dashMatch) return `${dashMatch[1].toUpperCase()}-${dashMatch[2].toUpperCase()}`
-  const colMap: Record<string, string> = { E: 'E', I: 'C', M: 'M', A: 'C', B: 'M', C: 'E' }
-  const rowMap: Record<string, string> = { U: 'U', M: 'M', B: 'B', D: 'B' }
-  if (pos.length >= 2) {
-    const col = colMap[pos[0].toUpperCase()]
-    const row = rowMap[pos[1].toUpperCase()]
-    if (col && row) return `${col}-${row}`
-  }
-  return pos
-}
-
-function parseSampleFolder(subdir: string) {
-  const trimmed = subdir.trim()
-  const m = trimmed.match(/^(.*?)-(\d+)$/)
-  if (!m) {
-    return { sample: trimmed, versionKey: '01', versionLabel: trimmed, versionNum: 1 }
-  }
-  return {
-    sample: m[1],
-    versionKey: m[2].padStart(2, '0'),
-    versionLabel: trimmed,
-    versionNum: Number.parseInt(m[2], 10) || 1,
-  }
-}
-
-function processFiles(fileList: FileList | null | undefined) {
-  if (!fileList?.length) return
+async function refreshLibrary() {
+  libraryLoading.value = true
+  libraryError.value = ''
   reportData.value = null
   versionedReportData.value = null
   analysisRes.value = null
   error.value = ''
-
-  const allFiles = Array.from(fileList)
-  const crcFiles = new Map<string, { file: File; sample: string; pos: string; versionKey: string; versionLabel: string; versionNum: number }>()
-  const cprFiles = new Map<string, File>()
-  const versionMap: Record<string, Map<string, VersionOption>> = {}
-
-  samples.value = new Set()
+  pdfError.value = ''
   pairs.value = []
 
-  for (const f of allFiles) {
-    if (!f.name.endsWith('.crc') && !f.name.endsWith('.cpr')) continue
-    const parts = f.webkitRelativePath.split('/')
-    const subdir = (parts[1] || '').trim()
-    if (!subdir) continue
+  try {
+    const rows = await $fetch<StoredEbsdPair[]>('/api/ebsd/pairs', {
+      credentials: 'include',
+    })
+    libraryPairs.value = rows
+    samples.value = new Set(rows.map((row) => row.sample))
+    versionOptionsMap.value = buildVersionOptions(rows)
 
-    const { sample, versionKey, versionLabel, versionNum } = parseSampleFolder(subdir)
-    const pos = standard_pos(f.name.replace(/\.(crc|cpr)$/i, '').trim())
-    const key = `${sample}::${versionKey}::${pos}`
-
-    samples.value.add(sample)
-    if (!versionMap[sample]) versionMap[sample] = new Map()
-    versionMap[sample].set(versionKey, { key: versionKey, label: versionLabel, num: versionNum })
-
-    if (f.name.endsWith('.crc')) {
-      crcFiles.set(key, { file: f, sample, pos, versionKey, versionLabel, versionNum })
-    } else {
-      cprFiles.set(key, f)
+    const opts = sampleOptions.value
+    if (!opts.includes(selectedSample.value)) selectedSample.value = opts[0] ?? ''
+    if (!opts.includes(goldenSample.value) || goldenSample.value === selectedSample.value) {
+      goldenSample.value = opts.find((sample) => sample !== selectedSample.value) ?? ''
     }
+  } catch (e: unknown) {
+    const err = e as { data?: { detail?: string; message?: string }; message?: string }
+    libraryError.value = err.data?.detail || err.data?.message || err.message || '讀取檔案庫失敗'
+  } finally {
+    libraryLoading.value = false
   }
+}
 
-  const matchedPairs: FilePair[] = []
-  for (const [key, info] of crcFiles) {
-    const cpr = cprFiles.get(key)
-    if (!cpr) continue
-    matchedPairs.push({
-      name: key,
-      crc: info.file,
-      cpr,
-      sample: info.sample,
-      pos: info.pos,
-      versionKey: info.versionKey,
-      versionLabel: info.versionLabel,
-      versionNum: info.versionNum,
+function buildVersionOptions(rows: StoredEbsdPair[]): Record<string, VersionOption[]> {
+  const map: Record<string, Map<string, VersionOption>> = {}
+  for (const row of rows) {
+    const num = row.version_num ?? 1
+    const key = row.version_key || `v${num}`
+    if (!map[row.sample]) map[row.sample] = new Map()
+    map[row.sample].set(key, {
+      key,
+      label: row.version_label || `${row.sample}-${num}`,
+      num,
     })
   }
 
-  matchedPairs.sort((a, b) =>
-    a.sample.localeCompare(b.sample, undefined, { numeric: true, sensitivity: 'base' }) ||
-    a.versionNum - b.versionNum ||
-    a.pos.localeCompare(b.pos, undefined, { numeric: true, sensitivity: 'base' }),
-  )
-
-  pairs.value = matchedPairs
-  versionOptionsMap.value = Object.fromEntries(
-    Object.entries(versionMap).map(([sample, map]) => [
+  return Object.fromEntries(
+    Object.entries(map).map(([sample, options]) => [
       sample,
-      Array.from(map.values()).sort((a, b) => a.num - b.num || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })),
+      Array.from(options.values()).sort((a, b) =>
+        a.num - b.num || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }),
+      ),
     ]),
   )
 }
@@ -842,21 +864,26 @@ async function generateReport() {
   if (!canGenerate.value) return
   loading.value = true
   error.value = ''
+  pdfError.value = ''
   reportData.value = null
   versionedReportData.value = null
   analysisRes.value = null
   doneCount.value = 0
   loadingTotal.value = 0
+  pairs.value = []
 
   try {
-    const needed = new Set([selectedSample.value, goldenSample.value])
-    const filteredPairs = pairs.value.filter((p) => needed.has(p.sample))
+    const filteredPairs = selectedLibraryPairs.value
     loadingTotal.value = filteredPairs.length
+    if (!filteredPairs.length) {
+      throw new Error('檔案庫中找不到可用的掃描檔')
+    }
 
     const results = []
     for (let i = 0; i < filteredPairs.length; i += 2) {
       const batch = filteredPairs.slice(i, i + 2)
-      results.push(...await Promise.all(batch.map(async (p) => {
+      results.push(...await Promise.all(batch.map(async (storedPair) => {
+        const p = await hydrateStoredPair(storedPair)
         const formData = new FormData()
         formData.append('crc', p.crc)
         formData.append('cpr', p.cpr)
@@ -918,6 +945,34 @@ async function generateReport() {
   }
 }
 
+async function hydrateStoredPair(storedPair: StoredEbsdPair): Promise<FilePair> {
+  const [crc, cpr] = await Promise.all([
+    fetchStoredFile(storedPair, 'crc'),
+    fetchStoredFile(storedPair, 'cpr'),
+  ])
+  const hydrated = {
+    name: storedPair.name,
+    crc,
+    cpr,
+    sample: storedPair.sample,
+    pos: storedPair.position,
+    versionKey: storedPair.version_key || `v${storedPair.version_num ?? 1}`,
+    versionLabel: storedPair.version_label || `${storedPair.sample}-${storedPair.version_num ?? 1}`,
+    versionNum: storedPair.version_num ?? 1,
+  }
+  pairs.value.push(hydrated)
+  return hydrated
+}
+
+async function fetchStoredFile(storedPair: StoredEbsdPair, kind: 'crc' | 'cpr'): Promise<File> {
+  const blob = await $fetch<Blob>(`/api/ebsd/pairs/${storedPair.id}/files/${kind}`, {
+    responseType: 'blob',
+    credentials: 'include',
+  })
+  const filename = kind === 'crc' ? storedPair.crc_filename : storedPair.cpr_filename
+  return new File([blob], filename)
+}
+
 function getVersionSnapshot(sample: string, versionKey: string): Record<string, CppFeatures> {
   return versionedReportData.value?.[sample]?.[versionKey] ?? reportData.value?.[sample] ?? {}
 }
@@ -942,6 +997,30 @@ function getDisplayedPosData(sample: string, pos: string): CppFeatures | undefin
   return getDisplayedSampleSnapshot(sample)?.[pos]
 }
 
+const selectedDisplayedPositions = computed(() =>
+  Object.keys(getDisplayedSampleSnapshot(selectedSample.value)).sort(sortPositionKeys),
+)
+const goldenDisplayedPositions = computed(() =>
+  Object.keys(getDisplayedSampleSnapshot(goldenSample.value)).sort(sortPositionKeys),
+)
+const comparablePositions = computed(() => {
+  const goldenSet = new Set(goldenDisplayedPositions.value)
+  return selectedDisplayedPositions.value.filter((pos) => goldenSet.has(pos))
+})
+const missingGoldenPositions = computed(() => {
+  const goldenSet = new Set(goldenDisplayedPositions.value)
+  return selectedDisplayedPositions.value.filter((pos) => !goldenSet.has(pos))
+})
+const missingSelectedPositions = computed(() => {
+  const selectedSet = new Set(selectedDisplayedPositions.value)
+  return goldenDisplayedPositions.value.filter((pos) => !selectedSet.has(pos))
+})
+const positionStatusCards = computed(() => [
+  { kind: 'ok', title: '可比較', items: comparablePositions.value },
+  { kind: 'warning', title: 'Sample 有資料但 Golden 缺少', items: missingGoldenPositions.value },
+  { kind: 'muted', title: 'Golden 有資料但 Sample 未上傳', items: missingSelectedPositions.value },
+])
+
 const currentReportData = computed<AllDataResult>(() => {
   const sampleNames = new Set([
     ...Object.keys(versionedReportData.value ?? {}),
@@ -961,6 +1040,25 @@ function getCompareGoldenGrains(pos: string): number[] {
 }
 function getGridPosData(pos: string): CppFeatures | undefined {
   return getDisplayedPosData(selectedSample.value, pos)
+}
+
+function sortPositionKeys(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function isMissingGoldenPos(pos: string): boolean {
+  return missingGoldenPositions.value.includes(pos)
+}
+
+function isMissingSelectedPos(pos: string): boolean {
+  return missingSelectedPositions.value.includes(pos) || !getGridPosData(pos)
+}
+
+function positionStatusClass(pos: string): Record<string, boolean> {
+  return {
+    'pos-missing-golden': isMissingGoldenPos(pos),
+    'pos-missing-selected': !isMissingGoldenPos(pos) && isMissingSelectedPos(pos),
+  }
 }
 
 const sharedGrainBins = computed(() => {
@@ -1089,6 +1187,111 @@ function getColorForValue(valuePercent: number): string {
   return '#F59E0B'
 }
 
+function safeFileName(value: string): string {
+  return value.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') || 'report'
+}
+
+async function waitForImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll('img'))
+  await Promise.all(images.map((img) => {
+    if (img.complete) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      img.onload = () => resolve()
+      img.onerror = () => resolve()
+    })
+  }))
+}
+
+function createPdfCaptureClone(section: HTMLElement) {
+  const root = document.createElement('div')
+  root.className = 'report-pdf-capture-root'
+  root.style.width = `${PDF_CAPTURE_WIDTH}px`
+
+  const clone = section.cloneNode(true) as HTMLElement
+  clone.style.margin = '0'
+  root.appendChild(clone)
+  document.body.appendChild(root)
+
+  return { root, clone }
+}
+
+function waitForNextFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
+async function exportReportPdf() {
+  if (!reportData.value || exportingPdf.value) return
+  pdfError.value = ''
+  pdfExportProgress.value = ''
+  exportingPdf.value = true
+  document.body.classList.add('report-pdf-exporting')
+
+  try {
+    await nextTick()
+
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-pdf-page]'))
+    if (!sections.length) {
+      throw new Error('找不到可輸出的報表區塊')
+    }
+
+    const [{ jsPDF }, html2canvasModule] = await Promise.all([
+      import('jspdf'),
+      import('html2canvas'),
+    ])
+    const html2canvas = html2canvasModule.default
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const maxImageWidth = pageWidth - PDF_MARGIN_MM * 2
+    const maxImageHeight = pageHeight - PDF_MARGIN_MM * 2
+
+    for (const [index, section] of sections.entries()) {
+      pdfExportProgress.value = `${index + 1}/${sections.length}`
+      await waitForNextFrame()
+
+      const { root, clone } = createPdfCaptureClone(section)
+      try {
+        await waitForImages(clone)
+        await nextTick()
+
+        const canvas = await html2canvas(clone, {
+          backgroundColor: '#ffffff',
+          scale: PDF_CAPTURE_SCALE,
+          useCORS: true,
+          allowTaint: false,
+          width: clone.scrollWidth,
+          height: clone.scrollHeight,
+          windowWidth: PDF_CAPTURE_WIDTH,
+          ignoreElements: (element) => element.classList?.contains('pdf-exclude') ?? false,
+        })
+
+        if (index > 0) pdf.addPage()
+        const imageData = canvas.toDataURL('image/jpeg', 0.95)
+        const ratio = Math.min(maxImageWidth / canvas.width, maxImageHeight / canvas.height)
+        const imageWidth = canvas.width * ratio
+        const imageHeight = canvas.height * ratio
+        const x = (pageWidth - imageWidth) / 2
+        const y = (pageHeight - imageHeight) / 2
+        pdf.addImage(imageData, 'JPEG', x, y, imageWidth, imageHeight, undefined, 'FAST')
+      } finally {
+        root.remove()
+      }
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10)
+    pdf.save(`EBSD-report-${safeFileName(selectedSample.value)}-${stamp}.pdf`)
+  } catch (e: unknown) {
+    const err = e as { message?: string }
+    pdfError.value = err.message || 'PDF 輸出失敗'
+  } finally {
+    document.body.classList.remove('report-pdf-exporting')
+    exportingPdf.value = false
+    pdfExportProgress.value = ''
+  }
+}
+
 function convertToNineposFormat(sampleData: Record<string, number>) {
   const positionMap: Record<string, { col: string; row: string }> = {
     'C-U': { col: 'center', row: 'up' },
@@ -1122,6 +1325,15 @@ async function analysis() {
   if (!reportData.value) {
     ElMessageBox.alert('請先產生報表', '警告', { confirmButtonText: 'OK' })
     return
+  }
+  if (comparablePositions.value.length === 0) {
+    ElMessageBox.alert('目前分析樣本與 Golden Sample 沒有共同位置，無法進行比較；報表仍會保留已上傳位置並標示缺少對位資料。', '缺少對應位置', {
+      confirmButtonText: 'OK',
+    })
+    return
+  }
+  if (missingGoldenPositions.value.length > 0) {
+    ElMessage.warning(`缺少 Golden 對應位置：${missingGoldenPositions.value.join('、')}，這些位置不納入分析`)
   }
   analysisRes.value = null
   const res = await $fetch<AnalysisResult>('/api/analysis', {
@@ -1246,6 +1458,90 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .gen-btn:hover:not(:disabled) { background: #1d4ed8; }
 .gen-btn:disabled { background: #93c5fd; cursor: not-allowed; }
 .err-msg { font-size: .85rem; }
+
+.report-action-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: .75rem;
+  margin: 0 0 1rem;
+}
+.pdf-btn {
+  padding: .52rem 1.25rem;
+  background: #2563EB;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.pdf-btn:hover:not(:disabled) { background: #1d4ed8; }
+.pdf-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.position-status-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .8rem;
+}
+.status-block {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: .8rem;
+  background: #f9fafb;
+}
+.status-ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.status-warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+.status-muted {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+}
+.status-title {
+  font-weight: 800;
+  color: #111827;
+}
+.status-meta {
+  color: #6b7280;
+  font-size: .82rem;
+  margin-top: .2rem;
+}
+.status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .65rem;
+}
+.status-tags span {
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  font-size: .78rem;
+  font-weight: 700;
+  padding: .18rem .5rem;
+}
+.status-tags .empty-tag {
+  color: #9ca3af;
+  font-weight: 600;
+}
 
 .chart-legend-row, .orient-legend-row {
   display: flex;
@@ -1392,6 +1688,15 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-radius: 8px;
   padding: 8px 8px 4px;
 }
+.cdf-cell.pos-missing-golden {
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+.cdf-cell.pos-missing-selected {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  opacity: .82;
+}
 .cdf-pos-label {
   font-size: .78rem;
   font-weight: 700;
@@ -1449,11 +1754,38 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-color: #fecaca;
   border-left-color: #dc2626;
 }
+.ng-cell.pos-missing-golden {
+  background: #fff7ed;
+  border-color: #fdba74;
+  border-left-color: #ea580c;
+}
+.ng-cell.pos-missing-selected {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  border-left-color: #9ca3af;
+}
 .ng-cell-inner {
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.cell-status-tag {
+  border-radius: 999px;
+  align-self: flex-start;
+  font-size: .72rem;
+  font-weight: 800;
+  padding: .18rem .55rem;
+}
+.cell-status-tag.warning {
+  background: #ffedd5;
+  color: #9a3412;
+  border: 1px solid #fdba74;
+}
+.cell-status-tag.muted {
+  background: #e5e7eb;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
 }
 .stat-block { min-width: 0; }
 .stat-title {
@@ -1697,6 +2029,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 
 @media (max-width: 900px) {
   .version-slider-grid { grid-template-columns: 1fr; }
+  .status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .page-shell { padding-bottom: 8rem; }
@@ -1710,5 +2043,24 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .triangle-row { grid-template-columns: 1fr; }
   .orient-line-grid { grid-template-columns: 1fr; }
   .ng-header-row, .ng-data-row { grid-template-columns: 60px repeat(3, 1fr); }
+}
+
+:global(.report-pdf-capture-root) {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  width: 1120px;
+  background: #fff;
+  color: #111827;
+  pointer-events: none;
+  z-index: -1;
+}
+:global(.report-pdf-capture-root .card) {
+  margin: 0;
+  box-shadow: none;
+}
+:global(.report-pdf-capture-root .pdf-exclude),
+:global(body.report-pdf-exporting .pdf-exclude) {
+  display: none !important;
 }
 </style>

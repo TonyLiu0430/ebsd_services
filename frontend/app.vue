@@ -8,11 +8,11 @@
         :ellipsis="false"
         @select="handleSelect"
       >
-        <el-menu-item index="brand" class="brand-item" title="回到分析頁">
+        <el-menu-item index="brand" class="brand-item" title="回到檔案庫">
           <span class="brand-link">EBSD</span>
         </el-menu-item>
 
-        <el-menu-item v-if="auth.isLoggedIn.value" index="/">分析頁</el-menu-item>
+        <el-menu-item v-if="auth.isLoggedIn.value" index="/">檔案庫</el-menu-item>
         <el-menu-item v-if="auth.isLoggedIn.value" index="/report">自動化報表</el-menu-item>
         <el-menu-item v-if="!auth.isLoggedIn.value" index="/login">登入</el-menu-item>
         <el-menu-item v-if="auth.isLoggedIn.value" index="/logout">登出</el-menu-item>

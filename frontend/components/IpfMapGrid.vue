@@ -6,8 +6,7 @@ const COL_LABELS: Record<string, string> = { C: '內 Center', M: '中 Middle', E
 const ROW_LABELS: Record<string, string> = { U: '上 Up', M: '中 Middle', B: '下 Bottom' }
 
 interface FilePair {
-  crc: File
-  cpr: File
+  id: string
   sample: string
   pos: string
 }
@@ -32,14 +31,13 @@ function cellImage(pos: string): string | undefined {
   return images.value[pos]
 }
 
-async function loadCell(pos: string, crc: File, cpr: File, generation: number) {
+async function loadCell(pos: string, pairId: string, generation: number) {
   if (generation !== loadGeneration) return
   states.value[pos] = 'loading'
   try {
-    const formData = new FormData()
-    formData.append('crc', crc)
-    formData.append('cpr', cpr)
-    const response = await fetch('/cppapi/ipf_map', { method: 'POST', body: formData })
+    const response = await fetch(`/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map`, {
+      credentials: 'include',
+    })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     if (generation !== loadGeneration) return
     const blob = await response.blob()
@@ -71,7 +69,7 @@ async function loadAllCells() {
 
   const batch: Promise<void>[] = []
   for (const p of samplePairs.value) {
-    batch.push(loadCell(p.pos, p.crc, p.cpr, generation))
+    batch.push(loadCell(p.pos, p.id, generation))
   }
   await Promise.all(batch)
 }

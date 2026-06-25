@@ -1,10 +1,15 @@
 import inspect
+import json
 import os
 import pathlib
 import re
 import shutil
+import urllib.error
+import urllib.request
+import uuid
+from datetime import datetime
 from urllib.parse import quote
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 import defdap.ebsd as ebsd # type: ignore
 import tempfile
@@ -28,9 +33,13 @@ from ebsd_store import (
     upsert_user_target,
     upsert_user_pair,
 )
+from ppt_report import build_pptx_report
 from sqlalchemy import func, select
 
 app = FastAPI()
+
+CPP_BACKEND_URL = os.getenv("CPP_BACKEND_URL", "http://cpp_backend:8080").rstrip("/")
+CPP_BACKEND_TIMEOUT_SECONDS = int(os.getenv("CPP_BACKEND_TIMEOUT_SECONDS", "180"))
 
 
 def attachment_content_disposition(filename: str) -> str:
@@ -364,6 +373,273 @@ def delete_ebsd_target(target_name: str, request: Request, db: Session = Depends
         "pairs": deleted_pairs,
         "files": deleted_files,
     }
+
+
+class ReportPptRequest(BaseModel):
+    sample: str
+    golden: str
+    version_key: Optional[str] = None
+
+
+def cpp_backend_candidates() -> List[str]:
+    urls = [CPP_BACKEND_URL]
+    if CPP_BACKEND_URL != "http://127.0.0.1:8080":
+        urls.append("http://127.0.0.1:8080")
+    return urls
+
+
+def multipart_body(parts: List[Tuple[str, str, str, bytes]]) -> Tuple[bytes, str]:
+    boundary = f"----ebsd-report-{uuid.uuid4().hex}"
+    body = bytearray()
+    for name, filename, content_type, content in parts:
+        safe_filename = filename.replace('"', "_")
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{name}"; filename="{safe_filename}"\r\n'.encode("utf-8")
+        )
+        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        body.extend(content)
+        body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    return bytes(body), boundary
+
+
+def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str) -> bytes:
+    body, boundary = multipart_body([
+        ("crc", row.pair.crc_file.original_filename, "application/octet-stream", row.pair.crc_file.content),
+        ("cpr", row.pair.cpr_file.original_filename, "application/octet-stream", row.pair.cpr_file.content),
+    ])
+    last_error: Optional[Exception] = None
+    for base_url in cpp_backend_candidates():
+        url = f"{base_url}{endpoint}"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Accept": accept,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=CPP_BACKEND_TIMEOUT_SECONDS) as res:
+                return res.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise HTTPException(status_code=502, detail=f"C++ backend {endpoint} failed: {detail}")
+        except Exception as exc:
+            last_error = exc
+    raise HTTPException(status_code=502, detail=f"C++ backend unavailable: {last_error}")
+
+
+def cpp_features(row: UserEbsdPair) -> Dict[str, Any]:
+    raw = post_cpp_pair("/features", row, "application/json")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"C++ backend returned invalid feature JSON: {exc}")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="C++ backend returned invalid feature payload")
+    return data
+
+
+def cpp_ipf_map(row: UserEbsdPair) -> bytes:
+    return post_cpp_pair("/ipf_map", row, "image/png")
+
+
+@app.get('/ebsd/pairs/{user_pair_id}/ipf_map')
+def get_ebsd_pair_ipf_map(user_pair_id: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user_from_go_session(request)
+    row = db.execute(
+        select(UserEbsdPair).where(
+            UserEbsdPair.id == user_pair_id,
+            UserEbsdPair.user_id == user["id"],
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="file pair not found")
+
+    return Response(content=cpp_ipf_map(row), media_type="image/png")
+
+
+def version_options_for_rows(entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    options: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for entry in entries:
+        sample = entry["sample"]
+        key = entry["version_key"]
+        options.setdefault(sample, {})[key] = {
+            "key": key,
+            "label": entry["version_label"],
+            "num": entry["version_num"],
+        }
+    return {
+        sample: sorted(sample_options.values(), key=lambda item: (item["num"], item["label"]))
+        for sample, sample_options in options.items()
+    }
+
+
+def collect_report_data(
+    req: ReportPptRequest,
+    request: Request,
+    db: Session,
+    *,
+    include_ipf_images: bool = False,
+) -> Dict[str, Any]:
+    selected_sample = req.sample.strip()
+    golden_sample = req.golden.strip()
+    if not selected_sample or not golden_sample:
+        raise HTTPException(status_code=400, detail="sample and golden are required")
+    if selected_sample == golden_sample:
+        raise HTTPException(status_code=400, detail="sample and golden must be different")
+
+    user = current_user_from_go_session(request)
+    rows = db.execute(
+        select(UserEbsdPair)
+        .where(UserEbsdPair.user_id == user["id"])
+        .order_by(UserEbsdPair.created_at.desc())
+    ).scalars().all()
+
+    needed = {selected_sample, golden_sample}
+    entries: List[Dict[str, Any]] = []
+    for row in rows:
+        sample, version_key, version_label, version_num = resolve_retest_version(
+            row.sample,
+            row.version_key,
+            row.version_label,
+            row.version_num,
+        )
+        if sample not in needed:
+            continue
+        entries.append({
+            "row": row,
+            "sample": sample,
+            "position": row.position,
+            "version_key": version_key,
+            "version_label": version_label,
+            "version_num": version_num,
+        })
+
+    if not any(entry["sample"] == selected_sample for entry in entries):
+        raise HTTPException(status_code=404, detail="analysis sample not found in file library")
+    if not any(entry["sample"] == golden_sample for entry in entries):
+        raise HTTPException(status_code=404, detail="golden sample not found in file library")
+
+    version_options = version_options_for_rows(entries)
+    selected_options = version_options.get(selected_sample, [])
+    golden_options = version_options.get(golden_sample, [])
+    selected_key = req.version_key or (selected_options[-1]["key"] if selected_options else "")
+    golden_key = golden_options[-1]["key"] if golden_options else ""
+    selected_option = next((opt for opt in selected_options if opt["key"] == selected_key), None)
+    golden_option = next((opt for opt in golden_options if opt["key"] == golden_key), None)
+    if not selected_option:
+        raise HTTPException(status_code=400, detail="invalid sample version_key")
+    if not golden_option:
+        raise HTTPException(status_code=400, detail="invalid golden sample")
+
+    raw_data: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+    raw_pairs: Dict[str, Dict[str, Dict[str, UserEbsdPair]]] = {}
+    raw_positions: Dict[str, Dict[str, set]] = {}
+    for entry in entries:
+        features = cpp_features(entry["row"])
+        sample = entry["sample"]
+        version_key = entry["version_key"]
+        position = entry["position"]
+        raw_data.setdefault(sample, {}).setdefault(version_key, {})[position] = features
+        raw_pairs.setdefault(sample, {}).setdefault(version_key, {})[position] = entry["row"]
+        raw_positions.setdefault(sample, {}).setdefault(version_key, set()).add(position)
+
+    cumulative: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+    cumulative_pairs: Dict[str, Dict[str, Dict[str, UserEbsdPair]]] = {}
+    for sample, options in version_options.items():
+        acc: Dict[str, Dict[str, Any]] = {}
+        pair_acc: Dict[str, UserEbsdPair] = {}
+        cumulative[sample] = {}
+        cumulative_pairs[sample] = {}
+        for opt in options:
+            patch = raw_data.get(sample, {}).get(opt["key"], {})
+            pair_patch = raw_pairs.get(sample, {}).get(opt["key"], {})
+            acc = {**acc, **patch}
+            pair_acc = {**pair_acc, **pair_patch}
+            cumulative[sample][opt["key"]] = {**acc}
+            cumulative_pairs[sample][opt["key"]] = {**pair_acc}
+
+    merged_latest: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for sample, options in version_options.items():
+        latest_key = options[-1]["key"] if options else ""
+        if latest_key:
+            merged_latest[sample] = cumulative.get(sample, {}).get(latest_key, {})
+
+    raw_version_positions = {
+        sample: {
+            version_key: sorted(pos_set)
+            for version_key, pos_set in versions.items()
+        }
+        for sample, versions in raw_positions.items()
+    }
+
+    ipf_images: Dict[str, bytes] = {}
+    if include_ipf_images:
+        for pos, row in cumulative_pairs.get(selected_sample, {}).get(selected_key, {}).items():
+            try:
+                ipf_images[pos] = cpp_ipf_map(row)
+            except HTTPException:
+                continue
+
+    return {
+        "selected_sample": selected_sample,
+        "golden_sample": golden_sample,
+        "selected_version_key": selected_key,
+        "golden_version_key": golden_key,
+        "selected_version_label": selected_option["label"],
+        "golden_version_label": golden_option["label"],
+        "report_data": merged_latest,
+        "versioned_report_data": cumulative,
+        "raw_version_positions": raw_version_positions,
+        "cumulative_pairs": cumulative_pairs,
+        "ipf_images": ipf_images,
+    }
+
+
+@app.post('/reports/data')
+def generate_report_data(req: ReportPptRequest, request: Request, db: Session = Depends(get_db)):
+    context = collect_report_data(req, request, db)
+    return {
+        "reportData": context["report_data"],
+        "versionedReportData": context["versioned_report_data"],
+        "rawVersionPositions": context["raw_version_positions"],
+    }
+
+
+def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Session) -> Dict[str, Any]:
+    context = collect_report_data(req, request, db, include_ipf_images=True)
+    selected_sample = context["selected_sample"]
+    golden_sample = context["golden_sample"]
+    selected_key = context["selected_version_key"]
+    golden_key = context["golden_version_key"]
+    return {
+        "selected_sample": selected_sample,
+        "golden_sample": golden_sample,
+        "selected_version_label": context["selected_version_label"],
+        "golden_version_label": context["golden_version_label"],
+        "report_data": {
+            selected_sample: context["versioned_report_data"].get(selected_sample, {}).get(selected_key, {}),
+            golden_sample: context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}),
+        },
+        "ipf_images": context["ipf_images"],
+    }
+
+
+@app.post('/reports/pptx')
+def generate_ppt_report(req: ReportPptRequest, request: Request, db: Session = Depends(get_db)):
+    context = build_ppt_report_context(req, request, db)
+    pptx = build_pptx_report(**context)
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    filename = f"EBSD-report-{context['selected_sample']}-{stamp}.pptx"
+    return Response(
+        content=pptx,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": attachment_content_disposition(filename)},
+    )
 
 class AnalysisRequest(BaseModel):
     features: List[str]

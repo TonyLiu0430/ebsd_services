@@ -129,7 +129,12 @@
           <span v-if="exportingPdf">輸出中… {{ pdfExportProgress }}</span>
           <span v-else>輸出 PDF</span>
         </button>
+        <button class="pdf-btn" @click="exportReportPpt" :disabled="exportingPpt">
+          <span v-if="exportingPpt">輸出 PPT 中…</span>
+          <span v-else>輸出 PPT</span>
+        </button>
         <el-text v-if="pdfError" type="danger" class="err-msg">{{ pdfError }}</el-text>
+        <el-text v-if="pptError" type="danger" class="err-msg">{{ pptError }}</el-text>
       </div>
 
       <section v-if="positionStatusCards.length" class="position-status-card" data-pdf-page="position-status">
@@ -631,9 +636,8 @@ definePageMeta({
 })
 
 interface FilePair {
+  id: string
   name: string
-  crc: File
-  cpr: File
   sample: string
   pos: string
   versionKey: string
@@ -649,6 +653,11 @@ type AllDataResult = Record<string, Record<string, CppFeatures>>
 type VersionedDataResult = Record<string, Record<string, Record<string, CppFeatures>>>
 type VersionOption = { key: string; label: string; num: number }
 type OrientDev = '20%' | '15%'
+type ReportDataResponse = {
+  reportData: AllDataResult
+  versionedReportData: VersionedDataResult
+  rawVersionPositions: Record<string, Record<string, string[]>>
+}
 
 type AnalysisResult = Record<string, Record<string, number>>
 type StoredEbsdPair = {
@@ -745,7 +754,9 @@ const doneCount = ref(0)
 const loadingTotal = ref(0)
 const error = ref('')
 const pdfError = ref('')
+const pptError = ref('')
 const exportingPdf = ref(false)
+const exportingPpt = ref(false)
 const pdfExportProgress = ref('')
 const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
@@ -876,6 +887,7 @@ async function refreshLibrary() {
   analysisRes.value = null
   error.value = ''
   pdfError.value = ''
+  pptError.value = ''
   pairs.value = []
 
   try {
@@ -981,6 +993,7 @@ async function generateReport() {
   loading.value = true
   error.value = ''
   pdfError.value = ''
+  pptError.value = ''
   reportData.value = null
   versionedReportData.value = null
   analysisRes.value = null
@@ -995,98 +1008,37 @@ async function generateReport() {
       throw new Error('檔案庫中找不到可用的掃描檔')
     }
 
-    const results = []
-    for (let i = 0; i < filteredPairs.length; i += 2) {
-      const batch = filteredPairs.slice(i, i + 2)
-      results.push(...await Promise.all(batch.map(async (storedPair) => {
-        const p = await hydrateStoredPair(storedPair)
-        const formData = new FormData()
-        formData.append('crc', p.crc)
-        formData.append('cpr', p.cpr)
-        const features = await $fetch<CppFeatures>('/cppapi/features', {
-          method: 'POST',
-          body: formData,
-        })
-        doneCount.value++
-        return { sample: p.sample, versionKey: p.versionKey, versionLabel: p.versionLabel, versionNum: p.versionNum, pos: p.pos, features }
-      })))
-    }
-
-    const rawData: VersionedDataResult = {}
-    const rawPosMap: Record<string, Record<string, Set<string>>> = {}
-
-    for (const r of results) {
-      if (!rawData[r.sample]) rawData[r.sample] = {}
-      if (!rawData[r.sample][r.versionKey]) rawData[r.sample][r.versionKey] = {}
-      rawData[r.sample][r.versionKey][r.pos] = r.features
-
-      if (!rawPosMap[r.sample]) rawPosMap[r.sample] = {}
-      if (!rawPosMap[r.sample][r.versionKey]) rawPosMap[r.sample][r.versionKey] = new Set()
-      rawPosMap[r.sample][r.versionKey].add(r.pos)
-    }
-
-    const mergedLatest: AllDataResult = {}
-    const cumulative: VersionedDataResult = {}
-
-    for (const sample of Object.keys(rawData)) {
-      const opts = getVersionOptions(sample)
-      let acc: Record<string, CppFeatures> = {}
-      cumulative[sample] = {}
-
-      for (const opt of opts) {
-        const patch = rawData[sample]?.[opt.key] ?? {}
-        acc = { ...acc, ...patch }
-        cumulative[sample][opt.key] = { ...acc }
-      }
-
-      const latestKey = opts[opts.length - 1]?.key
-      if (latestKey) mergedLatest[sample] = cumulative[sample][latestKey] ?? {}
-    }
-
-    reportData.value = mergedLatest
-    versionedReportData.value = cumulative
-    rawVersionPositions.value = Object.fromEntries(
-      Object.entries(rawPosMap).map(([sample, versions]) => [
-        sample,
-        Object.fromEntries(
-          Object.entries(versions).map(([versionKey, posSet]) => [versionKey, Array.from(posSet)]),
-        ),
-      ]),
-    )
+    pairs.value = filteredPairs.map(toReportPair)
+    const res = await $fetch<ReportDataResponse>('/api/reports/data', {
+      method: 'POST',
+      credentials: 'include',
+      body: {
+        sample: selectedSample.value,
+        golden: goldenSample.value,
+      },
+    })
+    reportData.value = res.reportData
+    versionedReportData.value = res.versionedReportData
+    rawVersionPositions.value = res.rawVersionPositions
+    doneCount.value = loadingTotal.value
   } catch (e: unknown) {
-    const err = e as { data?: { message?: string }; message?: string }
-    error.value = err.data?.message || err.message || '未知錯誤'
+    const err = e as { data?: { detail?: string; message?: string }; message?: string }
+    error.value = err.data?.detail || err.data?.message || err.message || '未知錯誤'
   } finally {
     loading.value = false
   }
 }
 
-async function hydrateStoredPair(storedPair: StoredEbsdPair): Promise<FilePair> {
-  const [crc, cpr] = await Promise.all([
-    fetchStoredFile(storedPair, 'crc'),
-    fetchStoredFile(storedPair, 'cpr'),
-  ])
-  const hydrated = {
+function toReportPair(storedPair: StoredEbsdPair): FilePair {
+  return {
+    id: storedPair.id,
     name: storedPair.name,
-    crc,
-    cpr,
     sample: storedPair.sample,
     pos: storedPair.position,
     versionKey: storedPair.version_key || `v${storedPair.version_num ?? 1}`,
     versionLabel: storedPair.version_label || `${storedPair.sample}-${storedPair.version_num ?? 1}`,
     versionNum: storedPair.version_num ?? 1,
   }
-  pairs.value.push(hydrated)
-  return hydrated
-}
-
-async function fetchStoredFile(storedPair: StoredEbsdPair, kind: 'crc' | 'cpr'): Promise<File> {
-  const blob = await $fetch<Blob>(`/api/ebsd/pairs/${storedPair.id}/files/${kind}`, {
-    responseType: 'blob',
-    credentials: 'include',
-  })
-  const filename = kind === 'crc' ? storedPair.crc_filename : storedPair.cpr_filename
-  return new File([blob], filename)
 }
 
 function getVersionSnapshot(sample: string, versionKey: string): Record<string, CppFeatures> {
@@ -1405,6 +1357,39 @@ async function exportReportPdf() {
     document.body.classList.remove('report-pdf-exporting')
     exportingPdf.value = false
     pdfExportProgress.value = ''
+  }
+}
+
+async function exportReportPpt() {
+  if (!reportData.value || exportingPpt.value) return
+  pptError.value = ''
+  exportingPpt.value = true
+
+  try {
+    const blob = await $fetch<Blob>('/api/reports/pptx', {
+      method: 'POST',
+      responseType: 'blob',
+      credentials: 'include',
+      body: {
+        sample: selectedSample.value,
+        golden: goldenSample.value,
+        version_key: currentSelectedVersionOption.value?.key,
+      },
+    })
+    const stamp = new Date().toISOString().slice(0, 10)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `EBSD-report-${safeFileName(selectedSample.value)}-${stamp}.pptx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (e: unknown) {
+    const err = e as { data?: { detail?: string; message?: string }; message?: string }
+    pptError.value = err.data?.detail || err.data?.message || err.message || 'PPT 輸出失敗'
+  } finally {
+    exportingPpt.value = false
   }
 }
 

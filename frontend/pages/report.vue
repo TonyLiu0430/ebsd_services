@@ -153,23 +153,24 @@
         <div class="report-version-dock__title">Grain size 設定</div>
         <div class="grain-dock-summary">當前：{{ grainSettings.minGrainSize }} px</div>
 
-        <label class="grain-dock-field">
-          <span>Min-grain size (px)</span>
-          <el-input-number
-            v-model="grainMinGrainSizeDraft"
-            :min="1"
-            :max="1000000"
-            :step="1"
-            step-strictly
-            controls-position="right"
-            size="small"
-            class="grain-dock-number"
-          />
-        </label>
-
-        <button class="grain-dock-apply" type="button" :disabled="grainSettingsApplying" @click="applyGlobalMinGrainSize">
-          {{ grainSettingsApplying ? '更新中…' : '套用 Min-grain' }}
-        </button>
+        <div class="grain-dock-control-row">
+          <label class="grain-dock-field">
+            <span>Min-grain size (px)</span>
+            <el-input-number
+              v-model="grainMinGrainSizeDraft"
+              :min="1"
+              :max="1000000"
+              :step="1"
+              step-strictly
+              controls-position="right"
+              size="small"
+              class="grain-dock-number"
+            />
+          </label>
+          <button class="grain-dock-apply" type="button" :disabled="grainSettingsApplying" @click="applyGlobalMinGrainSize">
+            {{ grainSettingsApplying ? '更新中…' : '套用' }}
+          </button>
+        </div>
         <el-text v-if="grainSettingsError" type="danger" class="grain-settings-error">
           {{ grainSettingsError }}
         </el-text>
@@ -315,6 +316,19 @@
             <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }})</div>
           </div>
           <div class="ipf-head-actions">
+            <div class="ipf-legend-popover" tabindex="0">
+              <button class="ipf-legend-trigger" type="button">IPF 色鍵</button>
+              <div class="ipf-legend-card" role="tooltip">
+                <div class="ipf-legend-title">IPF 色鍵</div>
+                <div class="ipf-legend-figure">
+                  <img :src="'/api/ebsd/ipf_legend'" alt="IPF triangle color key" class="ipf-legend-img" />
+                  <span class="ipf-legend-label label-111">[111]</span>
+                  <span class="ipf-legend-label label-001">[001]</span>
+                  <span class="ipf-legend-label label-101">[101]</span>
+                </div>
+                <small>色鍵用來解讀 IPF map 的晶向顏色。</small>
+              </div>
+            </div>
             <div class="sample-display-toggle" aria-label="IPF 顯示樣本">
               <button
                 type="button"
@@ -2162,9 +2176,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 
 .selected-card {
-  border: 1px solid #dbeafe;
+  border: 1px solid #b3d8ff;
   border-radius: 8px;
-  background: #eff6ff;
+  background: #ecf5ff;
   display: grid;
   gap: .18rem;
   padding: .75rem;
@@ -2280,8 +2294,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 
 .library-target-card:hover,
 .library-target-card.selected {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: #b3d8ff;
+  background: #ecf5ff;
 }
 
 .library-target-card.golden {
@@ -2323,8 +2337,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 
 .role-pill.analysis {
-  background: #dbeafe;
-  color: #1d4ed8;
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
 }
 
 .role-pill.golden {
@@ -2358,18 +2373,21 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 .pdf-btn {
   padding: .52rem 1.25rem;
-  background: #2563EB;
-  color: #fff;
-  border: none;
+  background: #ecf5ff;
+  color: #409eff;
+  border: 1px solid #b3d8ff;
   border-radius: 8px;
   font-size: .9rem;
   font-weight: 700;
   cursor: pointer;
   transition: background .15s;
 }
-.pdf-btn:hover:not(:disabled) { background: #1d4ed8; }
+.pdf-btn:hover:not(:disabled) {
+  background: #d9ecff;
+  border-color: #79bbff;
+}
 .pdf-btn:disabled {
-  background: #93c5fd;
+  background: #ecf5ff;
   cursor: not-allowed;
 }
 
@@ -2460,10 +2478,10 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .grain-settings-btn {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bfdbfe;
+  border: 1px solid #b3d8ff;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #ecf5ff;
+  color: #409eff;
   cursor: pointer;
   font-size: .82rem;
   font-weight: 800;
@@ -2471,8 +2489,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   white-space: nowrap;
 }
 .grain-settings-btn:hover {
-  border-color: #60a5fa;
-  background: #dbeafe;
+  border-color: #79bbff;
+  background: #d9ecff;
 }
 .grain-settings-panel {
   display: grid;
@@ -2531,15 +2549,16 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #475569;
 }
 .grain-dialog-apply {
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #fff;
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
 }
 .grain-dialog-cancel:hover {
   background: #f8fafc;
 }
 .grain-dialog-apply:hover {
-  background: #1d4ed8;
+  background: #d9ecff;
+  border-color: #79bbff;
 }
 .grain-settings-dialog :deep(.el-dialog) {
   border-radius: 18px;
@@ -2578,6 +2597,113 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   flex-wrap: wrap;
 }
 
+.ipf-legend-popover {
+  position: relative;
+}
+
+.ipf-legend-trigger {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #b3e19d;
+  border-radius: 999px;
+  background: #f0f9eb;
+  color: #67c23a;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 850;
+  padding: .42rem .9rem;
+  white-space: nowrap;
+}
+
+.ipf-legend-trigger:hover,
+.ipf-legend-popover:focus-within .ipf-legend-trigger {
+  border-color: #95d475;
+  background: #e1f3d8;
+}
+
+.ipf-legend-card {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  width: 188px;
+  border: 1px solid #dcdfe6;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  opacity: 0;
+  padding: .75rem .7rem .7rem;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity .15s, transform .15s;
+}
+
+.ipf-legend-popover:hover .ipf-legend-card,
+.ipf-legend-popover:focus-within .ipf-legend-card {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ipf-legend-title {
+  color: #374151;
+  font-size: .84rem;
+  font-weight: 850;
+  letter-spacing: .01em;
+  margin-bottom: .45rem;
+  text-align: center;
+}
+
+.ipf-legend-figure {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto .5rem;
+}
+
+.ipf-legend-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ipf-legend-label {
+  position: absolute;
+  color: #111827;
+  font-size: .66rem;
+  font-weight: 900;
+  letter-spacing: -.02em;
+  line-height: 1;
+  text-shadow: 0 1px 2px #fff, 0 -1px 2px #fff, 1px 0 2px #fff, -1px 0 2px #fff;
+}
+
+.label-111 {
+  left: 50%;
+  top: 5px;
+  transform: translateX(-50%);
+}
+
+.label-001 {
+  bottom: 8px;
+  left: 2px;
+}
+
+.label-101 {
+  bottom: 8px;
+  right: 2px;
+}
+
+.ipf-legend-card small {
+  color: #64748b;
+  display: block;
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .01em;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .grid-section-head {
   margin-bottom: 1rem;
 }
@@ -2608,21 +2734,23 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 
 .sample-display-toggle button.active {
-  background: #1d4ed8;
-  color: #fff;
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
 }
 
 .sample-display-toggle button:nth-child(2).active {
-  background: #f59e0b;
-  color: #fff;
+  border: 1px solid #f3d19e;
+  background: #fdf6ec;
+  color: #e6a23c;
 }
 .ipf-settings-btn {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bfdbfe;
+  border: 1px solid #b3d8ff;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #ecf5ff;
+  color: #409eff;
   cursor: pointer;
   font-size: .82rem;
   font-weight: 800;
@@ -2630,8 +2758,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   white-space: nowrap;
 }
 .ipf-settings-btn:hover {
-  border-color: #60a5fa;
-  background: #dbeafe;
+  border-color: #79bbff;
+  background: #d9ecff;
 }
 .ipf-settings-panel {
   display: grid;
@@ -2695,15 +2823,16 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #475569;
 }
 .ipf-dialog-apply {
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #fff;
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
 }
 .ipf-dialog-cancel:hover {
   background: #f8fafc;
 }
 .ipf-dialog-apply:hover {
-  background: #1d4ed8;
+  background: #d9ecff;
+  border-color: #79bbff;
 }
 .ipf-settings-dialog :deep(.el-dialog) {
   border-radius: 18px;
@@ -2740,9 +2869,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   cursor: pointer;
 }
 .grain-mode-btn.active {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
 }
 .grain-mode-note {
   margin: .3rem 0 1rem;
@@ -2757,7 +2886,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   z-index: 40;
   width: min(340px, calc(100vw - 28px));
   padding: .95rem 1.05rem .82rem;
-  border: 1px solid rgba(191, 219, 254, 0.95);
+  border: 1px solid #b3d8ff;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
@@ -2774,7 +2903,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   font-size: .82rem;
   font-weight: 800;
   letter-spacing: .04em;
-  color: #1d4ed8;
+  color: #409eff;
 }
 .report-version-dock__meta {
   display: flex;
@@ -2793,10 +2922,17 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   margin: .7rem 0 .1rem;
 }
 .report-version-dock :deep(.el-slider__runway) {
+  background: #ecf5ff;
   margin: 10px 0 4px;
   height: 6px;
 }
+
+.report-version-dock :deep(.el-slider__bar) {
+  background: #409eff;
+}
+
 .report-version-dock :deep(.el-slider__button) {
+  border-color: #409eff;
   width: 18px;
   height: 18px;
 }
@@ -2816,10 +2952,18 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   line-height: 1.45;
   margin: -.15rem 0 .45rem;
 }
+.grain-dock-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: .6rem;
+  margin-top: .62rem;
+}
+
 .grain-dock-field {
   display: grid;
   gap: .35rem;
-  margin-top: .62rem;
+  margin-top: 0;
 }
 .grain-dock-field > span {
   color: #334155;
@@ -2837,19 +2981,20 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   width: 148px;
 }
 .grain-dock-apply {
-  width: 100%;
-  border: 1px solid #2563eb;
+  border: 1px solid #b3d8ff;
   border-radius: 999px;
-  background: #2563eb;
-  color: #fff;
+  background: #ecf5ff;
+  color: #409eff;
   cursor: pointer;
   font-size: .82rem;
   font-weight: 850;
-  margin-top: .75rem;
-  padding: .48rem .75rem;
+  min-height: 30px;
+  padding: .34rem .85rem;
+  white-space: nowrap;
 }
 .grain-dock-apply:hover {
-  background: #1d4ed8;
+  background: #d9ecff;
+  border-color: #79bbff;
 }
 .grain-dock-apply:disabled {
   cursor: not-allowed;
@@ -2943,8 +3088,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 .ng-corner { min-width: 0; }
 .ng-col-header {
-  background: #1e40af;
-  color: #fff;
+  border: 1px solid #b3e19d;
+  background: #f0f9eb;
+  color: #67c23a;
   border-radius: 6px;
   padding: 8px 10px;
   text-align: center;
@@ -2962,8 +3108,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1e40af;
-  color: #fff;
+  border: 1px solid #b3e19d;
+  background: #f0f9eb;
+  color: #67c23a;
   border-radius: 6px;
   font-weight: 700;
   font-size: .78rem;
@@ -2974,7 +3121,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .ng-cell {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
-  border-left: 5px solid #1e40af;
+  border-left: 5px solid #67c23a;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -3104,9 +3251,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   transition: background .15s, color .15s, border-color .15s;
 }
 .simple-toggle-btn.active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+  background: #ecf5ff;
+  border-color: #b3d8ff;
+  color: #409eff;
 }
 .triangle-row {
   display: grid;
@@ -3128,9 +3275,9 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   align-items: center;
   padding: .24rem .72rem;
   border-radius: 999px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
   font-size: .76rem;
   font-weight: 700;
 }

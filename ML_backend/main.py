@@ -795,6 +795,22 @@ def post_cpp_pair(
     )
 
 
+def get_cpp_bytes(endpoint: str, accept: str = "application/octet-stream") -> bytes:
+    last_error: Optional[Exception] = None
+    for base_url in cpp_backend_candidates():
+        url = f"{base_url}{endpoint}"
+        req = urllib.request.Request(url, headers={"Accept": accept}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=CPP_BACKEND_TIMEOUT_SECONDS) as res:
+                return res.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise HTTPException(status_code=502, detail=f"C++ backend {endpoint} failed: {detail}")
+        except Exception as exc:
+            last_error = exc
+    raise HTTPException(status_code=502, detail=f"C++ backend unavailable: {last_error}")
+
+
 def cpp_material_metadata_from_files(crc_filename: str, crc_content: bytes, cpr_filename: str, cpr_content: bytes) -> Dict[str, Any]:
     raw = post_cpp_files(
         "/material_metadata",
@@ -828,6 +844,10 @@ def cpp_ipf_map(row: UserEbsdPair, ipf_reference_vector: Optional[List[float]] =
     return post_cpp_pair("/ipf_map", row, "image/png", ipf_reference_vector=ipf_reference_vector)
 
 
+def cpp_ipf_legend() -> bytes:
+    return get_cpp_bytes("/ipf_legend", "image/png")
+
+
 @app.get('/ebsd/pairs/{user_pair_id}/ipf_map')
 def get_ebsd_pair_ipf_map(
     user_pair_id: str,
@@ -854,6 +874,12 @@ def get_ebsd_pair_ipf_map(
         reference_vector = normalize_reference_vector([reference_x, reference_y, reference_z])
 
     return Response(content=cpp_ipf_map(row, reference_vector), media_type="image/png")
+
+
+@app.get('/ebsd/ipf_legend')
+def get_ebsd_ipf_legend(request: Request):
+    current_user_from_go_session(request)
+    return Response(content=cpp_ipf_legend(), media_type="image/png")
 
 
 def version_options_for_rows(entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

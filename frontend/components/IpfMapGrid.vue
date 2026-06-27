@@ -142,8 +142,9 @@ onUnmounted(() => {
 }
 
 .ipf-col-header {
-  background: #1e40af;
-  color: #fff;
+  border: 1px solid #b3e19d;
+  background: #f0f9eb;
+  color: #67c23a;
   border-radius: 6px;
   padding: 8px 10px;
   text-align: center;
@@ -163,8 +164,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1e40af;
-  color: #fff;
+  border: 1px solid #b3e19d;
+  background: #f0f9eb;
+  color: #67c23a;
   border-radius: 6px;
   font-weight: 700;
   font-size: .78rem;

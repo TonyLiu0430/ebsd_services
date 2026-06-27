@@ -12,6 +12,7 @@
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include "utils.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <stdexcept>
@@ -105,5 +106,50 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     }
     std::filesystem::create_directories(img_path.parent_path());
     int ok = stbi_write_png(img_path.string().c_str(), w, h, 3, img.data(), w * 3);
+    if(!ok) std::cout << "failed" << std::endl;
+}
+
+void save_ipf_legend(const std::filesystem::path& img_path, int size) {
+    const int dim = std::max(80, size);
+    const double margin = dim * 0.08;
+    const std::array<double, 2> v001 = {margin, dim - margin};
+    const std::array<double, 2> v101 = {dim - margin, dim - margin};
+    const std::array<double, 2> v111 = {dim * 0.5, margin};
+    const double denom =
+        (v101[1] - v111[1]) * (v001[0] - v111[0]) +
+        (v111[0] - v101[0]) * (v001[1] - v111[1]);
+
+    auto ops = LaueOps::GetAllOrientationOps()[1]; // CubicOps
+    std::vector<uint8_t> img(static_cast<size_t>(dim) * dim * 4, 0);
+
+    for(int y = 0; y < dim; ++y) {
+        for(int x = 0; x < dim; ++x) {
+            const double px = x + 0.5;
+            const double py = y + 0.5;
+            const double w001 = ((v101[1] - v111[1]) * (px - v111[0]) + (v111[0] - v101[0]) * (py - v111[1])) / denom;
+            const double w101 = ((v111[1] - v001[1]) * (px - v111[0]) + (v001[0] - v111[0]) * (py - v111[1])) / denom;
+            const double w111 = 1.0 - w001 - w101;
+            if(w001 < -0.002 || w101 < -0.002 || w111 < -0.002) continue;
+
+            const double invSqrt2 = 1.0 / std::sqrt(2.0);
+            const double invSqrt3 = 1.0 / std::sqrt(3.0);
+            std::array<double, 3> dir = {
+                w101 * invSqrt2 + w111 * invSqrt3,
+                w111 * invSqrt3,
+                w001 + w101 * invSqrt2 + w111 * invSqrt3,
+            };
+            dir = normalize_ref_dir(dir);
+
+            EbsdLib::Rgb c = ops->generateIPFColor(0.0, 0.0, 0.0, dir[0], dir[1], dir[2], false);
+            const size_t idx = (static_cast<size_t>(y) * dim + x) * 4;
+            img[idx] = static_cast<uint8_t>((c >> 16) & 0xFF);
+            img[idx + 1] = static_cast<uint8_t>((c >> 8) & 0xFF);
+            img[idx + 2] = static_cast<uint8_t>(c & 0xFF);
+            img[idx + 3] = 255;
+        }
+    }
+
+    std::filesystem::create_directories(img_path.parent_path());
+    int ok = stbi_write_png(img_path.string().c_str(), dim, dim, 4, img.data(), dim * 4);
     if(!ok) std::cout << "failed" << std::endl;
 }

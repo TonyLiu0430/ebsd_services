@@ -498,6 +498,38 @@ int main() {
         res.set_content(buffer, "image/png");
     });
 
+    svr.Get("/ipf_legend", [](const httplib::Request& req, httplib::Response& res) {
+        std::filesystem::path temp_dir = "./temp";
+        std::filesystem::create_directories(temp_dir);
+        std::random_device rd;
+        thread_local std::mt19937 rng(rd());
+        uuids::uuid_random_generator generator(rng);
+        std::string legend_filename = "ipf_legend_" + uuids::to_string(generator()) + ".png";
+        std::filesystem::path legend_path = temp_dir / legend_filename;
+        TempFile legend(legend_path);
+
+        int size = 220;
+        if(req.has_param("size")) {
+            try {
+                size = std::stoi(req.get_param_value("size"));
+            } catch(...) {
+                res.status = 400;
+                res.set_content("size must be an integer", "text/plain");
+                return;
+            }
+        }
+        size = std::max(80, std::min(size, 640));
+
+        save_ipf_legend(legend_path, size);
+        std::ifstream legend_fs(legend_path, std::ios::binary);
+        std::string buffer;
+        auto file_size = std::filesystem::file_size(legend_path);
+        buffer.resize(file_size);
+        legend_fs.read(buffer.data(), file_size);
+
+        res.set_content(buffer, "image/png");
+    });
+
     svr.Get("/", [](const httplib::Request& req, httplib::Response& res) {
         res.set_content("Hello, World!", "text/plain");
     });

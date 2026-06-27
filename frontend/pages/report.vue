@@ -453,7 +453,7 @@
                   <div class="stat-title">Orientation Ratio</div>
                   <table class="orient-table">
                     <thead>
-                      <tr><th></th><th>[001]</th><th>[110]</th><th>[111]</th></tr>
+                      <tr><th></th><th>[001]</th><th>[011]</th><th>[111]</th></tr>
                     </thead>
                     <tbody>
                       <tr>
@@ -562,7 +562,7 @@
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <template v-for="info in COL_LINE_SERIES_INFO" :key="info.colKey">
+            <template v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey">
               <svg width="28" height="12">
                 <line
                   x1="1"
@@ -582,12 +582,12 @@
             <div class="row-toggle-group">
               <span class="toggle-label">線條顯示:</span>
               <button
-                v-for="info in COL_LINE_SERIES_INFO"
-                :key="info.colKey"
+                v-for="info in ORIENT_LINE_SERIES_INFO"
+                :key="info.orientationKey"
                 class="row-toggle-btn"
-                :class="{ active: visibleLineCols.has(info.colKey) }"
-                :style="visibleLineCols.has(info.colKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleLineCol(info.colKey)"
+                :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
+                :style="visibleLineOrientations.has(info.orientationKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleLineOrientation(info.orientationKey)"
               >{{ info.label }}</button>
             </div>
             <div class="label-toggle-group">
@@ -642,11 +642,11 @@
                 :y="rowInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.colKey}`">
+              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.orientationKey}`">
                 <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-20-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :key="`point-20-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -656,7 +656,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-20-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :key="`label-20-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -673,7 +673,7 @@
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <template v-for="info in COL_LINE_SERIES_INFO" :key="info.colKey">
+            <template v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey">
               <svg width="28" height="12">
                 <line
                   x1="1"
@@ -693,12 +693,12 @@
             <div class="row-toggle-group">
               <span class="toggle-label">線條顯示:</span>
               <button
-                v-for="info in COL_LINE_SERIES_INFO"
-                :key="info.colKey"
+                v-for="info in ORIENT_LINE_SERIES_INFO"
+                :key="info.orientationKey"
                 class="row-toggle-btn"
-                :class="{ active: visibleLineCols.has(info.colKey) }"
-                :style="visibleLineCols.has(info.colKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleLineCol(info.colKey)"
+                :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
+                :style="visibleLineOrientations.has(info.orientationKey) ? { background: info.color, borderColor: info.color } : {}"
+                @click="toggleLineOrientation(info.orientationKey)"
               >{{ info.label }}</button>
             </div>
             <div class="label-toggle-group">
@@ -753,11 +753,11 @@
                 :y="rowInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.colKey}`">
+              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.orientationKey}`">
                 <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-15-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :key="`point-15-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -767,7 +767,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-15-${rowInfo.rowKey}-${series.colKey}-${point.x}`"
+                  :key="`label-15-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -887,17 +887,21 @@ const ROW_SERIES_INFO = [
   { rowKey: 'M', color: '#3B82F6', label: '中 (M)' },
   { rowKey: 'B', color: '#10B981', label: '下 (B)' },
 ]
-const COL_LINE_SERIES_INFO = [
-  { colKey: 'C', color: '#2563EB', label: '內(C)' },
-  { colKey: 'M', color: '#10B981', label: '中(M)' },
-  { colKey: 'E', color: '#F59E0B', label: '外(E)' },
+const ORIENT_LINE_SERIES_INFO = [
+  { orientationKey: '001', index: 0, color: '#409EFF', label: '[001]' },
+  { orientationKey: '011', index: 1, color: '#67C23A', label: '[011]' },
+  { orientationKey: '111', index: 2, color: '#E6A23C', label: '[111]' },
 ] as const
 const ORIENT_LINE_ROWS = [
   { rowKey: 'U', title: ROW_LABELS.U },
   { rowKey: 'M', title: ROW_LABELS.M },
   { rowKey: 'B', title: ROW_LABELS.B },
 ] as const
-const ORIENT_LINE_X_LABELS = ['001', '110', '111'] as const
+const ORIENT_LINE_X_TICKS = [
+  { colKey: 'C', label: '內' },
+  { colKey: 'M', label: '中' },
+  { colKey: 'E', label: '外' },
+] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
   width: 320,
@@ -931,18 +935,18 @@ function toggleRow(rowKey: string) {
   }
   visibleRows.value = new Set(visibleRows.value)
 }
-const visibleLineCols = ref(new Set<string>(['C', 'M', 'E']))
+const visibleLineOrientations = ref(new Set<string>(['001', '011', '111']))
 const showOrientLineLabels = ref(true)
 function toggleOrientLineLabels() {
   showOrientLineLabels.value = !showOrientLineLabels.value
 }
-function toggleLineCol(colKey: string) {
-  if (visibleLineCols.value.has(colKey)) {
-    if (visibleLineCols.value.size > 1) visibleLineCols.value.delete(colKey)
+function toggleLineOrientation(orientationKey: string) {
+  if (visibleLineOrientations.value.has(orientationKey)) {
+    if (visibleLineOrientations.value.size > 1) visibleLineOrientations.value.delete(orientationKey)
   } else {
-    visibleLineCols.value.add(colKey)
+    visibleLineOrientations.value.add(orientationKey)
   }
-  visibleLineCols.value = new Set(visibleLineCols.value)
+  visibleLineOrientations.value = new Set(visibleLineOrientations.value)
 }
 
 const pairs = ref<FilePair[]>([])
@@ -1695,15 +1699,17 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   return (arr[idx] * 100).toFixed(1)
 }
 
-function getOrientLineValues(rowKey: string, dev: OrientDev, colKey: string): number[] {
+function getOrientLineValues(rowKey: string, dev: OrientDev, orientationIndex: number): number[] {
   const key = `orientation_ratio(${dev})` as keyof CppFeatures
-  const arr = getGridPosData(`${colKey}-${rowKey}`)?.[key] as number[] | undefined
-  return [0, 1, 2].map((idx) => Number(((arr?.[idx] ?? 0) * 100).toFixed(1)))
+  return ORIENT_LINE_X_TICKS.map((tick) => {
+    const arr = getGridPosData(`${tick.colKey}-${rowKey}`)?.[key] as number[] | undefined
+    return Number(((arr?.[orientationIndex] ?? 0) * 100).toFixed(1))
+  })
 }
 
 function orientLineX(index: number): number {
   const plotWidth = ORIENT_LINE_LAYOUT.width - ORIENT_LINE_LAYOUT.left - ORIENT_LINE_LAYOUT.right
-  const segments = Math.max(1, ORIENT_LINE_X_LABELS.length - 1)
+  const segments = Math.max(1, ORIENT_LINE_X_TICKS.length - 1)
   return ORIENT_LINE_LAYOUT.left + (plotWidth * index) / segments
 }
 
@@ -1727,16 +1733,16 @@ function buildOrientLineChart(rowKey: string, dev: OrientDev) {
   return {
     viewBox: `0 0 ${ORIENT_LINE_LAYOUT.width} ${ORIENT_LINE_LAYOUT.height}`,
     plot,
-    xTicks: ORIENT_LINE_X_LABELS.map((label, index) => ({
-      label,
+    xTicks: ORIENT_LINE_X_TICKS.map((tick, index) => ({
+      label: tick.label,
       x: orientLineX(index),
     })),
     yTicks: ORIENT_LINE_Y_TICKS.map((value) => ({
       label: String(value),
       y: orientLineY(value),
     })),
-    series: COL_LINE_SERIES_INFO.filter((info) => visibleLineCols.value.has(info.colKey)).map((info) => {
-      const points = getOrientLineValues(rowKey, dev, info.colKey).map((value, index) => ({
+    series: ORIENT_LINE_SERIES_INFO.filter((info) => visibleLineOrientations.value.has(info.orientationKey)).map((info) => {
+      const points = getOrientLineValues(rowKey, dev, info.index).map((value, index) => ({
         x: orientLineX(index),
         y: orientLineY(value),
         labelY: orientLineLabelY(orientLineY(value)),

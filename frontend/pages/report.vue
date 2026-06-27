@@ -311,12 +311,26 @@
       <section v-if="pairs.length" class="card" data-pdf-page="ipf-map">
         <div class="ipf-section-head">
           <div>
-            <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
+            <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ ipfDisplayTitle }}</h2>
             <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }})</div>
           </div>
-          <button class="ipf-settings-btn" type="button" @click="openIpfSettings">設定</button>
+          <div class="ipf-head-actions">
+            <div class="sample-display-toggle" aria-label="IPF 顯示樣本">
+              <button
+                type="button"
+                :class="{ active: ipfDisplayTarget === 'analysis' }"
+                @click="ipfDisplayTarget = 'analysis'"
+              >分析樣本</button>
+              <button
+                type="button"
+                :class="{ active: ipfDisplayTarget === 'golden' }"
+                @click="ipfDisplayTarget = 'golden'"
+              >Golden 樣本</button>
+            </div>
+            <button class="ipf-settings-btn" type="button" @click="openIpfSettings">設定</button>
+          </div>
         </div>
-        <IpfMapGrid :pairs="ipfMapPairs" :sample="selectedSample" :referenceVector="ipfReferenceVector" />
+        <IpfMapGrid :pairs="ipfMapPairs" :sample="ipfDisplaySample" :referenceVector="ipfReferenceVector" />
       </section>
 
       <el-dialog
@@ -366,7 +380,21 @@
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card" data-pdf-page="nine-grid-data">
-        <h2 class="section-title">九宮格完整數據 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
+        <div class="grid-section-head">
+          <h2 class="section-title">九宮格完整數據 — {{ gridDisplayTitle }}</h2>
+          <div class="sample-display-toggle" aria-label="九宮格顯示樣本">
+            <button
+              type="button"
+              :class="{ active: gridDisplayTarget === 'analysis' }"
+              @click="gridDisplayTarget = 'analysis'"
+            >分析樣本</button>
+            <button
+              type="button"
+              :class="{ active: gridDisplayTarget === 'golden' }"
+              @click="gridDisplayTarget = 'golden'"
+            >Golden 樣本</button>
+          </div>
+        </div>
 
         <div class="nine-grid-wrapper">
           <div class="ng-header-row">
@@ -383,12 +411,11 @@
               class="ng-cell"
               :class="{
                 'ng-cell-retest': isGridPosRetestedNext(`${colKey}-${rowKey}`),
-                ...positionStatusClass(`${colKey}-${rowKey}`),
+                ...gridPositionStatusClass(`${colKey}-${rowKey}`),
               }"
             >
               <div class="ng-cell-inner">
-                <div v-if="isMissingGoldenPos(`${colKey}-${rowKey}`)" class="cell-status-tag warning">Sample 有資料，Golden 缺少</div>
-                <div v-else-if="isMissingSelectedPos(`${colKey}-${rowKey}`)" class="cell-status-tag muted">Sample 未上傳</div>
+                <div v-if="!getGridPosData(`${colKey}-${rowKey}`)" class="cell-status-tag muted">無數據</div>
                 <div class="stat-block">
                   <div class="stat-title">Grain Size (μm)</div>
                   <div class="stat-row">
@@ -796,6 +823,7 @@ type OrientDev = '20%' | '15%'
 type HistBinStartMode = 'zero' | 'min'
 type HistBinWidthMode = 'ratio' | 'absolute'
 type IpfPreset = 'x' | 'y' | 'z'
+type SampleDisplayTarget = 'analysis' | 'golden'
 type GrainSettings = {
   minGrainSize: number
   histBinStartMode: HistBinStartMode
@@ -951,6 +979,8 @@ const histogramSettingsOpen = ref(false)
 const ipfSettingsOpen = ref(false)
 const grainSettingsApplying = ref(false)
 const grainSettingsError = ref('')
+const ipfDisplayTarget = ref<SampleDisplayTarget>('analysis')
+const gridDisplayTarget = ref<SampleDisplayTarget>('analysis')
 const grainSettings = ref<GrainSettings>({
   minGrainSize: DEFAULT_GRAIN_MIN_SIZE,
   histBinStartMode: 'min',
@@ -1266,9 +1296,28 @@ const currentGoldenVersionOption = computed(() =>
 const currentSelectedVersionLabel = computed(() => currentSelectedVersionOption.value?.label ?? selectedSample.value)
 const currentGoldenVersionLabel = computed(() => currentGoldenVersionOption.value?.label ?? goldenSample.value)
 
-const ipfMapPairs = computed(() => {
-  const versionOpt = currentSelectedVersionOption.value
-  const sample = selectedSample.value
+const ipfDisplaySample = computed(() => displaySampleForTarget(ipfDisplayTarget.value))
+const ipfDisplayVersionOption = computed(() => displayVersionForTarget(ipfDisplayTarget.value))
+const ipfDisplayTitle = computed(() => displayTitleForTarget(ipfDisplayTarget.value))
+const gridDisplaySample = computed(() => displaySampleForTarget(gridDisplayTarget.value))
+const gridDisplayTitle = computed(() => displayTitleForTarget(gridDisplayTarget.value))
+
+const ipfMapPairs = computed(() => resolveDisplayPairs(ipfDisplaySample.value, ipfDisplayVersionOption.value))
+
+function displaySampleForTarget(target: SampleDisplayTarget): string {
+  return target === 'golden' ? goldenSample.value : selectedSample.value
+}
+
+function displayVersionForTarget(target: SampleDisplayTarget): VersionOption | undefined {
+  return target === 'golden' ? currentGoldenVersionOption.value : currentSelectedVersionOption.value
+}
+
+function displayTitleForTarget(target: SampleDisplayTarget): string {
+  if (target === 'golden') return currentGoldenVersionLabel.value || goldenSample.value || 'Golden 樣本未選擇'
+  return currentSelectedVersionLabel.value || selectedSample.value || '分析樣本未選擇'
+}
+
+function resolveDisplayPairs(sample: string, versionOpt: VersionOption | undefined): FilePair[] {
   if (!versionOpt || !sample) return pairs.value.filter(p => p.sample === sample)
 
   const currentNum = versionOpt.num
@@ -1283,7 +1332,7 @@ const ipfMapPairs = computed(() => {
     }
   }
   return Array.from(posMap.values())
-})
+}
 
 const formattedIpfReferenceVector = computed(() =>
   ipfReferenceVector.value.map((v) => formatSettingNumber(v)).join(', '),
@@ -1549,7 +1598,7 @@ function getCompareGoldenGrains(pos: string): number[] {
   return getDisplayedPosData(goldenSample.value, pos)?.grains ?? []
 }
 function getGridPosData(pos: string): CppFeatures | undefined {
-  return getDisplayedPosData(selectedSample.value, pos)
+  return getDisplayedPosData(gridDisplaySample.value, pos)
 }
 
 function sortPositionKeys(a: string, b: string): number {
@@ -1568,6 +1617,12 @@ function positionStatusClass(pos: string): Record<string, boolean> {
   return {
     'pos-missing-golden': isMissingGoldenPos(pos),
     'pos-missing-selected': !isMissingGoldenPos(pos) && isMissingSelectedPos(pos),
+  }
+}
+
+function gridPositionStatusClass(pos: string): Record<string, boolean> {
+  return {
+    'pos-missing-selected': !getGridPosData(pos),
   }
 }
 
@@ -1697,6 +1752,7 @@ const orientLineCharts15 = computed(() =>
 )
 
 function isGridPosRetestedNext(pos: string): boolean {
+  if (gridDisplayTarget.value !== 'analysis') return false
   const opts = selectedSampleVersionOptions.value
   const currentIdx = Math.min(reportVersionIndex.value, Math.max(0, opts.length - 1))
   const nextKey = opts[currentIdx + 1]?.key
@@ -2512,6 +2568,53 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   font-size: .78rem;
   font-weight: 600;
   line-height: 1.45;
+}
+.ipf-head-actions,
+.grid-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.grid-section-head {
+  margin-bottom: 1rem;
+}
+
+.grid-section-head .section-title {
+  margin-bottom: 0;
+}
+
+.sample-display-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  padding: .18rem;
+}
+
+.sample-display-toggle button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font-size: .78rem;
+  font-weight: 850;
+  padding: .32rem .72rem;
+  white-space: nowrap;
+}
+
+.sample-display-toggle button.active {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.sample-display-toggle button:nth-child(2).active {
+  background: #f59e0b;
+  color: #fff;
 }
 .ipf-settings-btn {
   display: inline-flex;

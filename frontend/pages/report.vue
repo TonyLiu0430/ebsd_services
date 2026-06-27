@@ -112,6 +112,15 @@
         <div class="report-version-dock__meta">
           <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
         </div>
+        <el-slider
+          v-model="reportVersionIndex"
+          :min="0"
+          :max="reportVersionSliderMax"
+          :step="1"
+          :show-stops="reportVersionStepCount > 1"
+          :show-tooltip="false"
+          :disabled="reportVersionStepCount <= 1"
+        />
         <div class="dock-divider"></div>
 
         <div class="report-version-dock__title">Grain size 設定</div>
@@ -1034,6 +1043,13 @@ function resolveVersionOption(options: VersionOption[], index: number): VersionO
 function getLatestVersionOption(options: VersionOption[]): VersionOption | undefined {
   return options[options.length - 1]
 }
+
+const reportVersionSliderMax = computed(() =>
+  Math.max(0, selectedSampleVersionOptions.value.length - 1),
+)
+const reportVersionStepCount = computed(() =>
+  selectedSampleVersionOptions.value.length,
+)
 
 watch(selectedSampleVersionOptions, (selectedOpts) => {
   reportVersionIndex.value = Math.max(0, selectedOpts.length - 1)
@@ -2216,7 +2232,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(10px);
   max-height: calc(100vh - 36px);
+  overflow-x: hidden;
   overflow-y: auto;
+}
+.report-version-dock * {
+  box-sizing: border-box;
 }
 .report-version-dock__title {
   margin-bottom: .4rem;
@@ -2237,6 +2257,21 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.report-version-dock :deep(.el-slider) {
+  margin: .7rem 0 .1rem;
+}
+.report-version-dock :deep(.el-slider__runway) {
+  margin: 10px 0 4px;
+  height: 6px;
+}
+.report-version-dock :deep(.el-slider__button) {
+  width: 18px;
+  height: 18px;
+}
+.report-version-dock :deep(.el-slider__stop) {
+  width: 6px;
+  height: 6px;
 }
 .dock-divider {
   height: 1px;
@@ -2267,6 +2302,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   line-height: 1.4;
 }
 .grain-dock-number {
+  max-width: 100%;
   width: 148px;
 }
 .grain-dock-apply {

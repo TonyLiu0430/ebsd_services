@@ -285,6 +285,27 @@ std::array<double, 3> parse_ipf_reference_dir(const httplib::Request& req) {
     }
 }
 
+double parse_ipf_denoindex_threshold(const httplib::Request& req) {
+    if(!req.has_param("denoindex_threshold")) {
+        return 50.0;
+    }
+
+    try {
+        const std::string raw_value = req.get_param_value("denoindex_threshold");
+        std::size_t parsed = 0;
+        const double value = std::stod(raw_value, &parsed);
+        if(parsed != raw_value.size()) {
+            throw std::invalid_argument("invalid trailing characters");
+        }
+        if(!std::isfinite(value) || value < 0.0 || value > 100.0) {
+            throw std::out_of_range("denoindex_threshold out of range");
+        }
+        return value;
+    } catch(...) {
+        throw std::invalid_argument("denoindex_threshold must be a finite number between 0 and 100");
+    }
+}
+
 void test() {
     
     std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
@@ -478,15 +499,17 @@ int main() {
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         std::array<double, 3> reference_dir = {0.0, 0.0, 1.0};
+        double denoindex_threshold = 50.0;
         try {
             reference_dir = parse_ipf_reference_dir(req);
+            denoindex_threshold = parse_ipf_denoindex_threshold(req);
         } catch(const std::exception& exc) {
             res.status = 400;
             res.set_content(exc.what(), "text/plain");
             return;
         }
 
-        save_ipf_map(cpr_path.string(), ipf_path, reference_dir);
+        save_ipf_map(cpr_path.string(), ipf_path, reference_dir, denoindex_threshold);
 
         std::ifstream ipf_fs(ipf_path, std::ios::binary);
         std::string buffer;

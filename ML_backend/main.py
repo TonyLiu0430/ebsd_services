@@ -679,6 +679,7 @@ class ReportPptRequest(BaseModel):
     version_key: Optional[str] = None
     min_grain_size: Optional[int] = None
     ipf_reference_vector: Optional[List[float]] = None
+    ipf_denoindex_threshold: Optional[float] = None
 
 
 def validate_min_grain_size(value: Optional[int]) -> Optional[int]:
@@ -702,6 +703,18 @@ def normalize_reference_vector(value: Optional[List[float]]) -> Optional[List[fl
     if not math.isfinite(norm) or norm <= 1e-12:
         raise HTTPException(status_code=400, detail="ipf_reference_vector must not be zero")
     return [x / norm, y / norm, z / norm]
+
+
+def validate_ipf_denoindex_threshold(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ipf_denoindex_threshold must be a number")
+    if not math.isfinite(parsed) or parsed < 0 or parsed > 100:
+        raise HTTPException(status_code=400, detail="ipf_denoindex_threshold must be between 0 and 100")
+    return parsed
 
 
 def cpp_backend_candidates() -> List[str]:
@@ -737,6 +750,7 @@ def post_cpp_files(
     accept: str,
     min_grain_size: Optional[int] = None,
     ipf_reference_vector: Optional[List[float]] = None,
+    ipf_denoindex_threshold: Optional[float] = None,
 ) -> bytes:
     body, boundary = multipart_body([
         ("crc", crc_filename, "application/octet-stream", crc_content),
@@ -754,6 +768,8 @@ def post_cpp_files(
                 "reference_y": ipf_reference_vector[1],
                 "reference_z": ipf_reference_vector[2],
             })
+        if ipf_denoindex_threshold is not None:
+            query_params["denoindex_threshold"] = ipf_denoindex_threshold
         if query_params:
             url = f"{url}?{urlencode(query_params)}"
         req = urllib.request.Request(
@@ -782,6 +798,7 @@ def post_cpp_pair(
     accept: str,
     min_grain_size: Optional[int] = None,
     ipf_reference_vector: Optional[List[float]] = None,
+    ipf_denoindex_threshold: Optional[float] = None,
 ) -> bytes:
     return post_cpp_files(
         endpoint,
@@ -792,6 +809,7 @@ def post_cpp_pair(
         accept=accept,
         min_grain_size=min_grain_size,
         ipf_reference_vector=ipf_reference_vector,
+        ipf_denoindex_threshold=ipf_denoindex_threshold,
     )
 
 
@@ -840,8 +858,18 @@ def cpp_features(row: UserEbsdPair, min_grain_size: Optional[int] = None) -> Dic
     return data
 
 
-def cpp_ipf_map(row: UserEbsdPair, ipf_reference_vector: Optional[List[float]] = None) -> bytes:
-    return post_cpp_pair("/ipf_map", row, "image/png", ipf_reference_vector=ipf_reference_vector)
+def cpp_ipf_map(
+    row: UserEbsdPair,
+    ipf_reference_vector: Optional[List[float]] = None,
+    ipf_denoindex_threshold: Optional[float] = None,
+) -> bytes:
+    return post_cpp_pair(
+        "/ipf_map",
+        row,
+        "image/png",
+        ipf_reference_vector=ipf_reference_vector,
+        ipf_denoindex_threshold=ipf_denoindex_threshold,
+    )
 
 
 def cpp_ipf_legend() -> bytes:
@@ -855,6 +883,7 @@ def get_ebsd_pair_ipf_map(
     reference_x: Optional[float] = None,
     reference_y: Optional[float] = None,
     reference_z: Optional[float] = None,
+    denoindex_threshold: Optional[float] = None,
     db: Session = Depends(get_db),
 ):
     user = current_user_from_go_session(request)
@@ -872,8 +901,9 @@ def get_ebsd_pair_ipf_map(
         if reference_x is None or reference_y is None or reference_z is None:
             raise HTTPException(status_code=400, detail="reference_x, reference_y, and reference_z are required together")
         reference_vector = normalize_reference_vector([reference_x, reference_y, reference_z])
+    threshold = validate_ipf_denoindex_threshold(denoindex_threshold)
 
-    return Response(content=cpp_ipf_map(row, reference_vector), media_type="image/png")
+    return Response(content=cpp_ipf_map(row, reference_vector, threshold), media_type="image/png")
 
 
 @app.get('/ebsd/ipf_legend')
@@ -909,6 +939,7 @@ def collect_report_data(
     golden_sample = req.golden.strip()
     min_grain_size = validate_min_grain_size(req.min_grain_size)
     ipf_reference_vector = normalize_reference_vector(req.ipf_reference_vector)
+    ipf_denoindex_threshold = validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold)
     if not selected_sample or not golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden are required")
     if selected_sample == golden_sample:
@@ -1003,7 +1034,7 @@ def collect_report_data(
     if include_ipf_images:
         for pos, row in cumulative_pairs.get(selected_sample, {}).get(selected_key, {}).items():
             try:
-                ipf_images[pos] = cpp_ipf_map(row, ipf_reference_vector)
+                ipf_images[pos] = cpp_ipf_map(row, ipf_reference_vector, ipf_denoindex_threshold)
             except HTTPException:
                 continue
 

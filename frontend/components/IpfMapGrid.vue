@@ -15,6 +15,7 @@ const props = defineProps<{
   pairs: FilePair[]
   sample: string
   referenceVector?: [number, number, number]
+  denoindexThreshold?: number
 }>()
 
 type CellState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -41,6 +42,7 @@ async function loadCell(pos: string, pairId: string, generation: number) {
       reference_x: String(vector[0]),
       reference_y: String(vector[1]),
       reference_z: String(vector[2]),
+      denoindex_threshold: String(props.denoindexThreshold ?? 50),
     })
     const response = await fetch(`/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map?${query.toString()}`, {
       credentials: 'include',
@@ -83,6 +85,7 @@ async function loadAllCells() {
 
 watch(samplePairs, loadAllCells, { immediate: true })
 watch(() => props.referenceVector, loadAllCells)
+watch(() => props.denoindexThreshold, loadAllCells)
 
 onUnmounted(() => {
   for (const url of blobUrls) {

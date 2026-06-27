@@ -313,7 +313,7 @@
         <div class="ipf-section-head">
           <div>
             <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ ipfDisplayTitle }}</h2>
-            <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }})</div>
+            <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }}) / De-noindex：{{ formattedIpfDenoindexThreshold }}%</div>
           </div>
           <div class="ipf-head-actions">
             <div class="ipf-legend-popover" tabindex="0">
@@ -344,7 +344,12 @@
             <button class="ipf-settings-btn" type="button" @click="openIpfSettings">設定</button>
           </div>
         </div>
-        <IpfMapGrid :pairs="ipfMapPairs" :sample="ipfDisplaySample" :referenceVector="ipfReferenceVector" />
+        <IpfMapGrid
+          :pairs="ipfMapPairs"
+          :sample="ipfDisplaySample"
+          :referenceVector="ipfReferenceVector"
+          :denoindexThreshold="ipfDenoindexThreshold"
+        />
       </section>
 
       <el-dialog
@@ -381,6 +386,23 @@
               </label>
             </div>
             <div class="ipf-setting-desc">套用時會自動歸一化；零向量不可使用。</div>
+          </div>
+
+          <div class="ipf-setting-block">
+            <div class="ipf-setting-title">De-noindex 參數</div>
+            <div class="ipf-threshold-input">
+              <label>
+                <span>Threshold (%)</span>
+                <el-input-number
+                  v-model="ipfDenoindexThresholdDraft"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  controls-position="right"
+                />
+              </label>
+            </div>
+            <div class="ipf-setting-desc">控制 IPF map 產生前填補 no-index 點的門檻；預設 50%。</div>
           </div>
         </div>
 
@@ -1011,8 +1033,10 @@ const histBinStartModeDraft = ref<HistBinStartMode>('min')
 const histBinWidthModeDraft = ref<HistBinWidthMode>('ratio')
 const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_RATIO)
 const ipfReferenceVector = ref<[number, number, number]>([0, 0, 1])
+const ipfDenoindexThreshold = ref(50)
 const ipfPresetDraft = ref<IpfPreset | ''>('z')
 const ipfVectorDraft = ref({ x: 0, y: 0, z: 1 })
+const ipfDenoindexThresholdDraft = ref(50)
 
 watch(histBinWidthModeDraft, (mode) => {
   if (!histogramSettingsOpen.value) return
@@ -1355,6 +1379,7 @@ function resolveDisplayPairs(sample: string, versionOpt: VersionOption | undefin
 const formattedIpfReferenceVector = computed(() =>
   ipfReferenceVector.value.map((v) => formatSettingNumber(v)).join(', '),
 )
+const formattedIpfDenoindexThreshold = computed(() => formatSettingNumber(ipfDenoindexThreshold.value))
 
 function detectIpfPreset(vector: [number, number, number]): IpfPreset | '' {
   const eps = 1e-9
@@ -1373,6 +1398,7 @@ function openIpfSettings() {
   const [x, y, z] = ipfReferenceVector.value
   ipfVectorDraft.value = { x, y, z }
   ipfPresetDraft.value = detectIpfPreset(ipfReferenceVector.value)
+  ipfDenoindexThresholdDraft.value = ipfDenoindexThreshold.value
   ipfSettingsOpen.value = true
 }
 
@@ -1398,7 +1424,13 @@ function applyIpfSettings() {
     ElMessage.error('參考方向向量不能是零向量')
     return
   }
+  const threshold = Number(ipfDenoindexThresholdDraft.value)
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+    ElMessage.error('De-noindex threshold 必須介於 0 到 100')
+    return
+  }
   ipfReferenceVector.value = normalized
+  ipfDenoindexThreshold.value = threshold
   ipfSettingsOpen.value = false
 }
 
@@ -1909,6 +1941,7 @@ async function exportReportPpt() {
         version_key: currentSelectedVersionOption.value?.key,
         min_grain_size: grainSettings.value.minGrainSize,
         ipf_reference_vector: ipfReferenceVector.value,
+        ipf_denoindex_threshold: ipfDenoindexThreshold.value,
       },
     })
     const stamp = new Date().toISOString().slice(0, 10)
@@ -2798,16 +2831,19 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: .75rem;
 }
-.ipf-vector-inputs label {
+.ipf-vector-inputs label,
+.ipf-threshold-input label {
   display: grid;
   gap: .35rem;
 }
-.ipf-vector-inputs span {
+.ipf-vector-inputs span,
+.ipf-threshold-input span {
   color: #334155;
   font-size: .78rem;
   font-weight: 800;
 }
-.ipf-vector-inputs :deep(.el-input-number) {
+.ipf-vector-inputs :deep(.el-input-number),
+.ipf-threshold-input :deep(.el-input-number) {
   width: 100%;
 }
 .ipf-settings-footer {

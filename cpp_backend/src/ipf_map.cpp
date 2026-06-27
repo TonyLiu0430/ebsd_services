@@ -61,7 +61,7 @@ vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<v
     return img;
 }
 
-void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir) {
+void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir, double denoindex_threshold) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_path);
     if(reader->readFile() < 0) {
@@ -74,7 +74,7 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     auto euler1 = reader->getEuler1Pointer();
     auto euler2 = reader->getEuler2Pointer();
     auto euler3 = reader->getEuler3Pointer();
-    denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
+    denoindex(euler1, euler2, euler3, phase, xDim, yDim, denoindex_threshold);
     
     vector<vector<QuatF>> orientations(yDim, vector<QuatF>(xDim));
     for (int y = 0; y < yDim; ++y) {

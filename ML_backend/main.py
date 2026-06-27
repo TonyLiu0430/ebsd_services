@@ -124,6 +124,138 @@ ORIENTATION_FEATURES: Dict[str, Callable[[float, float], float]] = {
     "[111] (deviation 15%)": numeric_compare
 }
 
+ELEMENT_ALIASES = {
+    "cu": "Cu", "copper": "Cu", "cupper": "Cu",
+    "al": "Al", "aluminum": "Al", "aluminium": "Al",
+    "ni": "Ni", "nickel": "Ni",
+    "fe": "Fe", "iron": "Fe", "ferrite": "Fe", "austenite": "Fe",
+    "ti": "Ti", "titanium": "Ti",
+    "mg": "Mg", "magnesium": "Mg",
+    "zn": "Zn", "zinc": "Zn",
+    "ag": "Ag", "silver": "Ag",
+    "au": "Au", "gold": "Au",
+    "pt": "Pt", "platinum": "Pt",
+    "pd": "Pd", "palladium": "Pd",
+    "w": "W", "tungsten": "W",
+    "mo": "Mo", "molybdenum": "Mo",
+    "cr": "Cr", "chromium": "Cr",
+    "ta": "Ta", "tantalum": "Ta",
+    "nb": "Nb", "niobium": "Nb",
+    "si": "Si", "silicon": "Si",
+}
+
+MATERIAL_PHASES = [
+    {"key": "Cu-FCC", "element": "Cu", "phase": "FCC", "space_group": 225, "a": 3.615},
+    {"key": "Al-FCC", "element": "Al", "phase": "FCC", "space_group": 225, "a": 4.050},
+    {"key": "Ni-FCC", "element": "Ni", "phase": "FCC", "space_group": 225, "a": 3.524},
+    {"key": "Ag-FCC", "element": "Ag", "phase": "FCC", "space_group": 225, "a": 4.086},
+    {"key": "Au-FCC", "element": "Au", "phase": "FCC", "space_group": 225, "a": 4.078},
+    {"key": "Pt-FCC", "element": "Pt", "phase": "FCC", "space_group": 225, "a": 3.924},
+    {"key": "Pd-FCC", "element": "Pd", "phase": "FCC", "space_group": 225, "a": 3.889},
+    {"key": "Fe-BCC", "element": "Fe", "phase": "BCC", "space_group": 229, "a": 2.866},
+    {"key": "Fe-FCC", "element": "Fe", "phase": "FCC", "space_group": 225, "a": 3.646},
+    {"key": "W-BCC", "element": "W", "phase": "BCC", "space_group": 229, "a": 3.165},
+    {"key": "Mo-BCC", "element": "Mo", "phase": "BCC", "space_group": 229, "a": 3.147},
+    {"key": "Cr-BCC", "element": "Cr", "phase": "BCC", "space_group": 229, "a": 2.884},
+    {"key": "Ta-BCC", "element": "Ta", "phase": "BCC", "space_group": 229, "a": 3.305},
+    {"key": "Nb-BCC", "element": "Nb", "phase": "BCC", "space_group": 229, "a": 3.300},
+    {"key": "Ti-HCP", "element": "Ti", "phase": "HCP", "space_group": 194, "a": 2.951, "c": 4.684},
+    {"key": "Mg-HCP", "element": "Mg", "phase": "HCP", "space_group": 194, "a": 3.209, "c": 5.211},
+    {"key": "Zn-HCP", "element": "Zn", "phase": "HCP", "space_group": 194, "a": 2.665, "c": 4.947},
+    {"key": "Co-HCP", "element": "Co", "phase": "HCP", "space_group": 194, "a": 2.507, "c": 4.069},
+    {"key": "Si-Diamond", "element": "Si", "phase": "Diamond", "space_group": 227, "a": 5.431},
+]
+
+
+def normalize_material_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def alias_element(value: str) -> Optional[str]:
+    normalized = normalize_material_name(value)
+    return ELEMENT_ALIASES.get(normalized)
+
+
+def lattice_distance(phase: Dict[str, Any], candidate: Dict[str, Any]) -> Optional[float]:
+    if phase.get("space_group") and int(phase.get("space_group") or 0) != int(candidate["space_group"]):
+        return None
+    constants = phase.get("lattice_constants") or []
+    if len(constants) < 6:
+        return None
+    a, b, c, alpha, beta, gamma = [float(v) for v in constants[:6]]
+    if any(not math.isfinite(v) for v in (a, b, c, alpha, beta, gamma)):
+        return None
+    if max(abs(alpha - 90), abs(beta - 90), abs(gamma - 90)) > 1.5:
+        return None
+    if candidate["phase"] in {"FCC", "BCC", "Diamond"}:
+        measured = (a + b + c) / 3
+        cubic_spread = max(abs(a - measured), abs(b - measured), abs(c - measured)) / max(measured, 1e-9)
+        if cubic_spread > 0.015:
+            return None
+        return abs(measured - float(candidate["a"])) / float(candidate["a"])
+    if candidate["phase"] == "HCP":
+        if abs(gamma - 120) > 2.0 and abs(gamma - 90) > 1.5:
+            return None
+        da = abs(a - float(candidate["a"])) / float(candidate["a"])
+        dc = abs(c - float(candidate["c"])) / float(candidate["c"])
+        return math.sqrt((da * da + dc * dc) / 2)
+    return None
+
+
+def detect_material_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    phases = metadata.get("phases") if isinstance(metadata, dict) else []
+    phase = phases[0] if phases else {}
+    names = [str(phase.get("structure_name") or ""), str(phase.get("material_name") or "")]
+    name_element = next((element for element in (alias_element(name) for name in names) if element), None)
+    candidates = []
+    for candidate in MATERIAL_PHASES:
+        distance = lattice_distance(phase, candidate)
+        if distance is None or distance > 0.025:
+            continue
+        score = distance - (0.01 if name_element == candidate["element"] else 0)
+        candidates.append({**candidate, "distance": distance, "score": score})
+    candidates.sort(key=lambda item: item["score"])
+    best = candidates[0] if candidates else None
+    matched_by: List[str] = []
+    confidence = "unknown"
+    ambiguous = False
+    if best:
+        matched_by.append("lattice")
+        if name_element == best["element"]:
+            matched_by.append("structure_name_alias")
+            confidence = "high" if best["distance"] <= 0.018 else "medium"
+        elif best["distance"] <= 0.010:
+            confidence = "high"
+        elif best["distance"] <= 0.020:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        if len(candidates) > 1 and abs(candidates[1]["score"] - best["score"]) < 0.006:
+            ambiguous = True
+            confidence = "ambiguous"
+    elif name_element:
+        matched_by.append("structure_name_alias")
+        confidence = "low"
+
+    element = best["element"] if best else name_element
+    phase_label = best["phase"] if best else None
+    material_key = best["key"] if best else (f"{element}-Unknown" if element else "unknown")
+    display_name = f"{element} ({phase_label})" if element and phase_label else (element or "Unknown")
+    return {
+        "material_key": material_key,
+        "display_name": display_name,
+        "element": element,
+        "phase": phase_label,
+        "confidence": confidence,
+        "matched_by": matched_by or ["unknown"],
+        "ambiguous": ambiguous,
+        "raw": metadata,
+        "candidates": [
+            {"material_key": item["key"], "distance": item["distance"], "score": item["score"]}
+            for item in candidates[:5]
+        ],
+    }
+
 @app.get('/ebsd_features')
 def ebsd_features():
     return [*GRAIN_FEATURES.keys(), *ORIENTATION_FEATURES.keys()]
@@ -181,6 +313,12 @@ def _user_pair_metadata_query(user_id: str):
                 UserEbsdPair.version_key,
                 UserEbsdPair.version_label,
                 UserEbsdPair.version_num,
+                UserEbsdPair.material_key,
+                UserEbsdPair.material_display_name,
+                UserEbsdPair.material_element,
+                UserEbsdPair.material_phase,
+                UserEbsdPair.material_confidence,
+                UserEbsdPair.material_source,
                 UserEbsdPair.created_at,
                 UserEbsdPair.updated_at,
             ),
@@ -231,6 +369,12 @@ def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
         "version_key": version_key,
         "version_label": version_label,
         "version_num": version_num,
+        "material_key": row.material_key,
+        "material_display_name": row.material_display_name,
+        "material_element": row.material_element,
+        "material_phase": row.material_phase,
+        "material_confidence": row.material_confidence,
+        "material_source": row.material_source,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -255,6 +399,9 @@ def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
                 UserEbsdPair.version_key,
                 UserEbsdPair.version_label,
                 UserEbsdPair.version_num,
+                UserEbsdPair.material_key,
+                UserEbsdPair.material_display_name,
+                UserEbsdPair.material_confidence,
                 UserEbsdPair.created_at,
                 UserEbsdPair.updated_at,
             )
@@ -271,6 +418,7 @@ def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
             "position_count": 0,
             "version_count": 0,
             "latest_version_label": "",
+            "materials": {},
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "positions": set(),
@@ -291,6 +439,7 @@ def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
             "position_count": 0,
             "version_count": 0,
             "latest_version_label": "",
+            "materials": {},
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "positions": set(),
@@ -299,16 +448,23 @@ def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
         target["pair_count"] += 1
         target["positions"].add(row.position)
         target["versions"][version_key] = {"label": version_label, "num": version_num}
+        target["materials"][row.material_key or "unknown"] = {
+            "key": row.material_key or "unknown",
+            "display_name": row.material_display_name or "Unknown",
+            "confidence": row.material_confidence or "unknown",
+        }
         if row.updated_at and row.updated_at > target["updated_at"]:
             target["updated_at"] = row.updated_at
 
     normalized_targets = []
     for target in targets.values():
         versions = sorted(target.pop("versions").values(), key=lambda item: (item["num"], item["label"]))
+        materials = sorted(target.pop("materials").values(), key=lambda item: item["display_name"])
         positions = target.pop("positions")
         target["position_count"] = len(positions)
         target["version_count"] = len(versions)
         target["latest_version_label"] = versions[-1]["label"] if versions else ""
+        target["materials"] = materials
         normalized_targets.append(target)
 
     normalized_targets.sort(key=lambda item: item["name"].lower())
@@ -369,6 +525,9 @@ async def save_ebsd_pair(
     crc_file, crc_created = get_or_create_ebsd_file(db, crc_content, crc_filename, ".crc")
     cpr_file, cpr_created = get_or_create_ebsd_file(db, cpr_content, cpr_filename, ".cpr")
     pair, pair_created = get_or_create_pair(db, crc_file, cpr_file)
+    material = detect_material_from_metadata(
+        cpp_material_metadata_from_files(crc_filename, crc_content, cpr_filename, cpr_content)
+    )
     user_pair, user_pair_created = upsert_user_pair(
         db,
         user["id"],
@@ -380,6 +539,7 @@ async def save_ebsd_pair(
         version_key=resolved_version_key,
         version_label=resolved_version_label,
         version_num=resolved_version_num,
+        material=material,
     )
     db.commit()
 
@@ -389,6 +549,7 @@ async def save_ebsd_pair(
         "pair_hash": pair.pair_hash,
         "crc_hash": crc_file.content_hash,
         "cpr_hash": cpr_file.content_hash,
+        "material": material,
         "created": {
             "crc_file": crc_created,
             "cpr_file": cpr_created,
@@ -566,16 +727,20 @@ def multipart_body(parts: List[Tuple[str, str, str, bytes]]) -> Tuple[bytes, str
     return bytes(body), boundary
 
 
-def post_cpp_pair(
+def post_cpp_files(
     endpoint: str,
-    row: UserEbsdPair,
+    *,
+    crc_filename: str,
+    crc_content: bytes,
+    cpr_filename: str,
+    cpr_content: bytes,
     accept: str,
     min_grain_size: Optional[int] = None,
     ipf_reference_vector: Optional[List[float]] = None,
 ) -> bytes:
     body, boundary = multipart_body([
-        ("crc", row.pair.crc_file.original_filename, "application/octet-stream", row.pair.crc_file.content),
-        ("cpr", row.pair.cpr_file.original_filename, "application/octet-stream", row.pair.cpr_file.content),
+        ("crc", crc_filename, "application/octet-stream", crc_content),
+        ("cpr", cpr_filename, "application/octet-stream", cpr_content),
     ])
     last_error: Optional[Exception] = None
     for base_url in cpp_backend_candidates():
@@ -609,6 +774,43 @@ def post_cpp_pair(
         except Exception as exc:
             last_error = exc
     raise HTTPException(status_code=502, detail=f"C++ backend unavailable: {last_error}")
+
+
+def post_cpp_pair(
+    endpoint: str,
+    row: UserEbsdPair,
+    accept: str,
+    min_grain_size: Optional[int] = None,
+    ipf_reference_vector: Optional[List[float]] = None,
+) -> bytes:
+    return post_cpp_files(
+        endpoint,
+        crc_filename=row.pair.crc_file.original_filename,
+        crc_content=row.pair.crc_file.content,
+        cpr_filename=row.pair.cpr_file.original_filename,
+        cpr_content=row.pair.cpr_file.content,
+        accept=accept,
+        min_grain_size=min_grain_size,
+        ipf_reference_vector=ipf_reference_vector,
+    )
+
+
+def cpp_material_metadata_from_files(crc_filename: str, crc_content: bytes, cpr_filename: str, cpr_content: bytes) -> Dict[str, Any]:
+    raw = post_cpp_files(
+        "/material_metadata",
+        crc_filename=crc_filename,
+        crc_content=crc_content,
+        cpr_filename=cpr_filename,
+        cpr_content=cpr_content,
+        accept="application/json",
+    )
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"C++ backend returned invalid material metadata JSON: {exc}")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="C++ backend returned invalid material metadata payload")
+    return data
 
 
 def cpp_features(row: UserEbsdPair, min_grain_size: Optional[int] = None) -> Dict[str, Any]:

@@ -31,18 +31,32 @@
         <el-text v-if="targetError" type="danger">{{ targetError }}</el-text>
 
         <div v-if="targetOptions.length === 0 && !loading" class="empty-state">尚未新增靶材</div>
-        <div v-else class="target-list">
-          <button
-            v-for="target in targetOptions"
-            :key="target.name"
-            type="button"
-            class="target-item"
-            :class="{ active: selectedTarget === target.name }"
-            @click="selectedTarget = target.name"
+        <div v-else class="target-material-list">
+          <details
+            v-for="group in targetMaterialGroups"
+            :key="group.key"
+            class="target-material-section"
+            :style="materialStyle(group.element)"
+            open
           >
-            <span>{{ target.name }}</span>
-            <small>{{ target.scanCount }} 組掃描檔</small>
-          </button>
+            <summary class="target-material-head">
+              <strong>{{ group.displayName }}</strong>
+              <small>{{ group.targets.length }} 筆</small>
+            </summary>
+            <div class="target-list">
+              <button
+                v-for="target in group.targets"
+                :key="target.name"
+                type="button"
+                class="target-item"
+                :class="{ active: selectedTarget === target.name }"
+                @click="selectedTarget = target.name"
+              >
+                <span>{{ target.name }}</span>
+                <small>{{ target.scanCount }} 組掃描檔</small>
+              </button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -58,9 +72,11 @@
           <span>選擇靶材</span>
           <select v-model="selectedTarget">
             <option value="">請先選擇或新增靶材</option>
-            <option v-for="target in targetOptions" :key="target.name" :value="target.name">
-              {{ target.name }}
-            </option>
+            <optgroup v-for="group in targetMaterialGroups" :key="group.key" :label="group.displayName">
+              <option v-for="target in group.targets" :key="target.name" :value="target.name">
+                {{ target.name }}
+              </option>
+            </optgroup>
           </select>
         </label>
 
@@ -204,9 +220,11 @@
           <span>靶材篩選</span>
           <select v-model="listTargetFilter">
             <option value="">全部靶材</option>
-            <option v-for="target in targetOptions" :key="target.name" :value="target.name">
-              {{ target.name }}
-            </option>
+            <optgroup v-for="group in targetMaterialGroups" :key="group.key" :label="group.displayName">
+              <option v-for="target in group.targets" :key="target.name" :value="target.name">
+                {{ target.name }}
+              </option>
+            </optgroup>
           </select>
         </label>
       </div>
@@ -215,8 +233,14 @@
       <div v-else-if="loading" class="empty-state">讀取中</div>
       <div v-else-if="storedPairs.length === 0" class="empty-state">尚未保存 EBSD 檔案</div>
       <div v-else-if="filteredPairs.length === 0" class="empty-state">這個靶材尚未新增掃描檔</div>
-      <div v-else class="target-groups">
-        <section v-for="group in groupedPairs" :key="group.sample" class="target-group">
+      <div v-else class="material-tree">
+        <details v-for="material in materialGroups" :key="material.key" class="material-group" open>
+          <summary class="material-group-head" :style="materialStyle(material.element)">
+            <h3>{{ material.displayName }}</h3>
+            <span>{{ material.targets.length }} 筆靶材 · {{ material.pairCount }} 組掃描檔</span>
+          </summary>
+          <div class="target-groups">
+        <section v-for="group in material.targets" :key="group.sample" class="target-group">
           <div class="target-card-head">
             <div>
               <h3>{{ group.sample }}</h3>
@@ -303,14 +327,15 @@
             </div>
           </div>
 
-          <details class="details-panel">
-            <summary>檔案明細</summary>
+          <div class="details-panel open-panel">
+            <div class="details-title">檔案明細</div>
             <div class="scan-list">
               <article v-for="pair in group.items" :key="pair.id" class="scan-item">
                 <div>
                   <span class="pos-chip present">{{ pair.position }}</span>
                   <strong>{{ pair.name }}</strong>
                   <small>{{ pair.version_label || pair.sample }}</small>
+                  <small class="material-chip">{{ pair.material_display_name || 'Unknown' }}</small>
                   <button
                     class="inline-danger-btn"
                     type="button"
@@ -332,8 +357,10 @@
                 </dl>
               </article>
             </div>
-          </details>
+          </div>
         </section>
+          </div>
+        </details>
       </div>
     </section>
   </div>
@@ -368,6 +395,12 @@ type StoredEbsdPair = {
   version_key?: string | null
   version_label?: string | null
   version_num?: number | null
+  material_key?: string | null
+  material_display_name?: string | null
+  material_element?: string | null
+  material_phase?: string | null
+  material_confidence?: string | null
+  material_source?: string | null
   created_at: string
   updated_at: string
 }
@@ -392,8 +425,21 @@ type LocalFolderPair = {
   versionNum: number
 }
 
+type TargetOption = {
+  name: string
+  scanCount: number
+  materialKey: string
+  materialDisplayName: string
+  materialElement: string
+}
+
 const STANDARD_POSITIONS = ['C-U', 'C-M', 'C-B', 'M-U', 'M-M', 'M-B', 'E-U', 'E-M', 'E-B'] as const
 type StandardPosition = typeof STANDARD_POSITIONS[number]
+const UNKNOWN_MATERIAL = {
+  key: 'unknown',
+  displayName: 'Unknown',
+  element: '',
+}
 const POSITION_ROWS = [
   { label: '上', positions: ['C-U', 'M-U', 'E-U'] },
   { label: '中', positions: ['C-M', 'M-M', 'E-M'] },
@@ -433,18 +479,56 @@ const singleForm = reactive({
   newVersionNum: 1,
 })
 
-const targetOptions = computed(() => {
-  const map = new Map<string, { name: string; scanCount: number }>()
+const targetOptions = computed<TargetOption[]>(() => {
+  const map = new Map<string, TargetOption>()
   for (const target of storedTargets.value) {
-    map.set(target.name, { name: target.name, scanCount: 0 })
+    map.set(target.name, {
+      name: target.name,
+      scanCount: 0,
+      materialKey: UNKNOWN_MATERIAL.key,
+      materialDisplayName: UNKNOWN_MATERIAL.displayName,
+      materialElement: UNKNOWN_MATERIAL.element,
+    })
   }
   for (const pair of storedPairs.value) {
     const existing = map.get(pair.sample)
-    if (existing) existing.scanCount += 1
-    else map.set(pair.sample, { name: pair.sample, scanCount: 1 })
+    const material = primaryMaterialForSample(pair.sample)
+    if (existing) {
+      existing.scanCount += 1
+      existing.materialKey = material.key
+      existing.materialDisplayName = material.displayName
+      existing.materialElement = material.element
+    } else {
+      map.set(pair.sample, {
+        name: pair.sample,
+        scanCount: 1,
+        materialKey: material.key,
+        materialDisplayName: material.displayName,
+        materialElement: material.element,
+      })
+    }
   }
   return Array.from(map.values()).sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+})
+
+const targetMaterialGroups = computed(() => {
+  const map = new Map<string, { key: string; displayName: string; element: string; targets: TargetOption[] }>()
+  for (const target of targetOptions.value) {
+    const key = target.materialKey || UNKNOWN_MATERIAL.key
+    const group = map.get(key) ?? {
+      key,
+      displayName: target.materialDisplayName || UNKNOWN_MATERIAL.displayName,
+      element: target.materialElement || UNKNOWN_MATERIAL.element,
+      targets: [],
+    }
+    group.targets.push(target)
+    map.set(key, group)
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    materialSortRank(a.element) - materialSortRank(b.element) ||
+    a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }),
   )
 })
 
@@ -503,14 +587,28 @@ const selectedSingleVersion = computed(() => {
 const normalizedSinglePosition = computed(() => normalizeStandardPosition(singleForm.position))
 const folderVersionCount = computed(() => new Set(folderPairs.value.map((pair) => `${pair.sample}::${pair.versionKey}`)).size)
 const groupedPairs = computed(() => {
-  const map = new Map<string, StoredEbsdPair[]>()
+  const map = new Map<string, {
+    sample: string
+    materialKey: string
+    materialDisplayName: string
+    materialConfidence: string
+    items: StoredEbsdPair[]
+  }>()
   for (const pair of filteredPairs.value) {
-    const items = map.get(pair.sample) ?? []
-    items.push(pair)
-    map.set(pair.sample, items)
+    const materialKey = pair.material_key || 'unknown'
+    const key = `${materialKey}\u0000${pair.sample}`
+    const group = map.get(key) ?? {
+      sample: pair.sample,
+      materialKey,
+      materialDisplayName: pair.material_display_name || 'Unknown',
+      materialConfidence: pair.material_confidence || 'unknown',
+      items: [],
+    }
+    group.items.push(pair)
+    map.set(key, group)
   }
-  return Array.from(map.entries())
-    .map(([sample, items]) => {
+  return Array.from(map.values())
+    .map(({ sample, materialKey, materialDisplayName, materialConfidence, items }) => {
       const sortedItems = [...items].sort((a, b) =>
         versionNum(a) - versionNum(b) ||
         a.position.localeCompare(b.position, undefined, { numeric: true, sensitivity: 'base' }),
@@ -559,6 +657,9 @@ const groupedPairs = computed(() => {
 
       return {
         sample,
+        materialKey,
+        materialDisplayName,
+        materialConfidence,
         items: sortedItems,
         positions,
         standardCount,
@@ -581,6 +682,29 @@ const groupedPairs = computed(() => {
       }
     })
     .sort((a, b) => a.sample.localeCompare(b.sample, undefined, { numeric: true, sensitivity: 'base' }))
+})
+
+const materialGroups = computed(() => {
+  const map = new Map<string, typeof groupedPairs.value>()
+  for (const group of groupedPairs.value) {
+    const key = group.materialKey || 'unknown'
+    const items = map.get(key) ?? []
+    items.push(group)
+    map.set(key, items)
+  }
+  return Array.from(map.entries())
+    .map(([key, targets]) => ({
+      key,
+      displayName: targets[0]?.materialDisplayName || 'Unknown',
+      element: targets[0]?.items[0]?.material_element || '',
+      confidence: targets[0]?.materialConfidence || 'unknown',
+      pairCount: targets.reduce((sum, target) => sum + target.items.length, 0),
+      targets,
+    }))
+    .sort((a, b) =>
+      materialSortRank(a.element) - materialSortRank(b.element) ||
+      a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }),
+    )
 })
 
 watch(targetOptions, (targets) => {
@@ -1029,6 +1153,44 @@ function shortHash(value: string): string {
   return value ? `${value.slice(0, 8)}...${value.slice(-6)}` : ''
 }
 
+function primaryMaterialForSample(sample: string) {
+  const counts = new Map<string, { key: string; displayName: string; element: string; count: number }>()
+  for (const pair of storedPairs.value) {
+    if (pair.sample !== sample) continue
+    const key = pair.material_key || UNKNOWN_MATERIAL.key
+    const item = counts.get(key) ?? {
+      key,
+      displayName: pair.material_display_name || UNKNOWN_MATERIAL.displayName,
+      element: pair.material_element || UNKNOWN_MATERIAL.element,
+      count: 0,
+    }
+    item.count += 1
+    counts.set(key, item)
+  }
+  return Array.from(counts.values()).sort((a, b) => b.count - a.count || sortText(a.displayName, b.displayName))[0] ?? UNKNOWN_MATERIAL
+}
+
+function materialSortRank(element: string): number {
+  if (element === 'Cu') return 0
+  if (!element) return 2
+  return 1
+}
+
+function materialStyle(element: string): Record<string, string> {
+  if (element === 'Cu') {
+    return {
+      '--material-bg': '#fff7d6',
+      '--material-border': '#d99a17',
+      '--material-text': '#8a5a00',
+    }
+  }
+  return {
+    '--material-bg': '#e5e7eb',
+    '--material-border': '#9ca3af',
+    '--material-text': '#374151',
+  }
+}
+
 function sortText(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
 }
@@ -1126,10 +1288,66 @@ function formatDate(value: string): string {
   margin-top: 1rem;
 }
 
+.target-material-list {
+  display: grid;
+  gap: .8rem;
+  margin-top: 1rem;
+}
+
+.target-material-section {
+  border: 1px solid var(--material-border, #9ca3af);
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.target-material-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  background: var(--material-bg, #e5e7eb);
+  border-bottom: 1px solid var(--material-border, #9ca3af);
+  color: var(--material-text, #374151);
+  cursor: pointer;
+  list-style: none;
+  padding: .55rem .7rem;
+}
+
+.target-material-head::-webkit-details-marker,
+.material-group-head::-webkit-details-marker {
+  display: none;
+}
+
+.target-material-head::before,
+.material-group-head::before {
+  content: '+';
+  flex: 0 0 auto;
+  font-weight: 900;
+  width: .8rem;
+}
+
+.target-material-section[open] > .target-material-head::before,
+.material-group[open] > .material-group-head::before {
+  content: '-';
+}
+
+.target-material-head strong {
+  flex: 1;
+  font-size: .92rem;
+  overflow-wrap: anywhere;
+}
+
+.target-material-head small {
+  color: var(--material-text, #374151);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .target-list {
   display: grid;
   gap: 0.5rem;
-  margin-top: 1rem;
+  padding: .65rem;
 }
 
 .folder-drop {
@@ -1469,6 +1687,46 @@ function formatDate(value: string): string {
   margin-top: 1rem;
 }
 
+.material-tree {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.material-group {
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: .9rem;
+}
+
+.material-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--material-bg, #e5e7eb);
+  border: 1px solid var(--material-border, #9ca3af);
+  border-radius: 8px;
+  color: var(--material-text, #374151);
+  cursor: pointer;
+  list-style: none;
+  padding: .65rem .75rem;
+}
+
+.material-group-head h3 {
+  color: var(--material-text, #374151);
+  flex: 1;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.material-group-head span {
+  color: var(--material-text, #374151);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
 .target-group {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -1725,6 +1983,11 @@ function formatDate(value: string): string {
   font-weight: 700;
 }
 
+.details-title {
+  color: #4b5563;
+  font-weight: 800;
+}
+
 .scan-list {
   display: grid;
   gap: .65rem;
@@ -1752,6 +2015,14 @@ function formatDate(value: string): string {
 .scan-item small {
   color: #64748b;
   font-weight: 700;
+}
+
+.material-chip {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8 !important;
+  padding: .12rem .45rem;
 }
 
 .scan-item dl {

@@ -107,6 +107,32 @@ nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
     return j;
 }
 
+nlohmann::json material_metadata(const std::string &cpr_file_path) {
+    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
+    reader->setFileName(cpr_file_path);
+    int err_code = reader->readHeaderOnly();
+    if(err_code < 0) {
+        throw std::runtime_error("Failed to read CPR header: " + reader->getErrorMessage());
+    }
+
+    nlohmann::json phases = nlohmann::json::array();
+    for(const auto& phase : reader->getPhaseVector()) {
+        if(!phase) {
+            continue;
+        }
+        phases.push_back({
+            {"phase_index", phase->getPhaseIndex()},
+            {"structure_name", phase->getPhaseName()},
+            {"material_name", phase->getMaterialName()},
+            {"lattice_constants", phase->getLatticeConstants()},
+            {"laue_group", static_cast<int>(phase->getLaueGroup())},
+            {"space_group", phase->getSpaceGroup()}
+        });
+    }
+
+    return {{"phases", phases}};
+}
+
 int noindexed(uint8_t* phase, int xDim, int yDim) {
     int count = 0;
     for(int i = 0; i < xDim * yDim; i++) {

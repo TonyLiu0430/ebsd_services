@@ -35,14 +35,22 @@
               <span>分析樣本</span>
               <select v-model="selectedSample">
                 <option value="">請選擇</option>
-                <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
+                <optgroup v-for="group in libraryMaterialGroups" :key="group.key" :label="group.displayName">
+                  <option v-for="card in group.samples" :key="card.sample" :value="card.sample">
+                    {{ card.sample }}
+                  </option>
+                </optgroup>
               </select>
             </label>
             <label class="field">
               <span>Golden 樣本</span>
               <select v-model="goldenSample">
                 <option value="">請選擇</option>
-                <option v-for="s in sampleOptions" :key="s" :value="s">{{ s }}</option>
+                <optgroup v-for="group in goldenMaterialGroups" :key="group.key" :label="group.displayName">
+                  <option v-for="card in group.samples" :key="card.sample" :value="card.sample">
+                    {{ card.sample }}
+                  </option>
+                </optgroup>
               </select>
             </label>
           </div>
@@ -51,11 +59,13 @@
             <article class="selected-card">
               <span>分析</span>
               <strong>{{ selectedSample || '未選擇' }}</strong>
+              <em v-if="selectedSampleCard" class="selected-material">{{ selectedSampleCard.materialDisplayName }}</em>
               <small>{{ selectedSampleSummary }}</small>
             </article>
             <article class="selected-card golden">
               <span>Golden</span>
               <strong>{{ goldenSample || '未選擇' }}</strong>
+              <em v-if="goldenSampleCard" class="selected-material">{{ goldenSampleCard.materialDisplayName }}</em>
               <small>{{ goldenSampleSummary }}</small>
             </article>
           </div>
@@ -65,6 +75,7 @@
               <span v-if="loading">處理中 {{ doneCount }}/{{ loadingTotal || selectedLibraryPairs.length }}</span>
               <span v-else>產生報表</span>
             </button>
+            <el-text v-if="materialMismatchMessage" type="danger" class="err-msg">{{ materialMismatchMessage }}</el-text>
             <el-text v-if="error" type="danger" class="err-msg">{{ error }}</el-text>
           </div>
         </div>
@@ -76,26 +87,42 @@
           </div>
           <p class="interaction-hint">左鍵選分析樣本，右鍵指定 Golden。</p>
           <div class="library-card-list">
-            <button
-              v-for="card in librarySampleCards"
-              :key="card.sample"
-              type="button"
-              class="library-target-card"
-              :class="{ selected: card.sample === selectedSample, golden: card.sample === goldenSample }"
-              title="左鍵選分析，右鍵指定 Golden"
-              @click="selectAnalysisSample(card.sample)"
-              @contextmenu.prevent="selectGoldenSample(card.sample)"
+            <details
+              v-for="group in libraryMaterialGroups"
+              :key="group.key"
+              class="library-material-section"
+              :style="materialStyle(group.element)"
+              open
             >
-              <div>
-                <strong>
-                  {{ card.sample }}
-                  <em v-if="card.sample === selectedSample" class="role-pill analysis">分析</em>
-                  <em v-if="card.sample === goldenSample" class="role-pill golden">Golden</em>
-                </strong>
-                <span>{{ card.positions.size }} 個位置 · {{ card.versions.length }} 個版本</span>
-              </div>
-              <small>{{ card.latestLabel }}</small>
-            </button>
+              <summary class="library-material-head">
+                <strong>{{ group.displayName }}</strong>
+                <small>{{ group.samples.length }} 筆靶材</small>
+              </summary>
+              <button
+                v-for="card in group.samples"
+                :key="card.sample"
+                type="button"
+                class="library-target-card"
+                :class="{
+                  selected: card.sample === selectedSample,
+                  golden: card.sample === goldenSample,
+                  incompatible: !isCompatibleGoldenCard(card),
+                }"
+                :title="isCompatibleGoldenCard(card) ? '左鍵選分析，右鍵指定 Golden' : 'Golden 必須與分析樣本是相同金屬'"
+                @click="selectAnalysisSample(card.sample)"
+                @contextmenu.prevent="selectGoldenSample(card.sample)"
+              >
+                <div>
+                  <strong>
+                    {{ card.sample }}
+                    <em v-if="card.sample === selectedSample" class="role-pill analysis">分析</em>
+                    <em v-if="card.sample === goldenSample" class="role-pill golden">Golden</em>
+                  </strong>
+                  <span>{{ card.positions.size }} 個位置 · {{ card.versions.length }} 個版本</span>
+                </div>
+                <small>{{ card.latestLabel }}</small>
+              </button>
+            </details>
           </div>
         </div>
       </div>
@@ -800,6 +827,12 @@ type StoredEbsdPair = {
   version_key?: string | null
   version_label?: string | null
   version_num?: number | null
+  material_key?: string | null
+  material_display_name?: string | null
+  material_element?: string | null
+  material_phase?: string | null
+  material_confidence?: string | null
+  material_source?: string | null
   created_at: string
   updated_at: string
 }
@@ -837,6 +870,11 @@ const HIST_BIN_COUNT = 20
 const DEFAULT_GRAIN_MIN_SIZE = 10
 const DEFAULT_HIST_BIN_RATIO = Number((100 / HIST_BIN_COUNT).toFixed(2))
 const DEFAULT_HIST_BIN_ABSOLUTE = 10
+const UNKNOWN_MATERIAL = {
+  key: 'unknown',
+  displayName: 'Unknown',
+  element: '',
+}
 
 const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
 const showTriangleLabels = ref(true)
@@ -952,7 +990,8 @@ const canGenerate = computed(
   () =>
     selectedSample.value !== '' &&
     goldenSample.value !== '' &&
-    selectedSample.value !== goldenSample.value,
+    selectedSample.value !== goldenSample.value &&
+    selectedAndGoldenSameMetal.value,
 )
 const selectedLibraryPairs = computed(() => {
   const needed = new Set([selectedSample.value, goldenSample.value])
@@ -982,8 +1021,12 @@ const librarySampleCards = computed(() => {
       const versions = Array.from(versionMap.values()).sort((a, b) =>
         a.num - b.num || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }),
       )
+      const material = primaryMaterialFromPairs(items)
       return {
         sample,
+        materialKey: material.key,
+        materialDisplayName: material.displayName,
+        materialElement: material.element,
         positions,
         versions,
         latestLabel: versions[versions.length - 1]?.label ?? `${sample}-1`,
@@ -994,12 +1037,32 @@ const librarySampleCards = computed(() => {
     })
     .sort((a, b) => a.sample.localeCompare(b.sample, undefined, { numeric: true, sensitivity: 'base' }))
 })
+const libraryMaterialGroups = computed(() => groupLibraryCardsByMaterial(librarySampleCards.value))
+const goldenMaterialGroups = computed(() => {
+  if (!selectedSampleCard.value?.materialElement) return libraryMaterialGroups.value
+  return groupLibraryCardsByMaterial(
+    librarySampleCards.value.filter((card) => card.materialElement === selectedSampleCard.value?.materialElement),
+  )
+})
 const selectedSampleCard = computed(() =>
   librarySampleCards.value.find((card) => card.sample === selectedSample.value),
 )
 const goldenSampleCard = computed(() =>
   librarySampleCards.value.find((card) => card.sample === goldenSample.value),
 )
+const selectedAndGoldenSameMetal = computed(() => {
+  if (!selectedSampleCard.value || !goldenSampleCard.value) return false
+  const selectedElement = selectedSampleCard.value.materialElement
+  const goldenElement = goldenSampleCard.value.materialElement
+  return !!selectedElement && selectedElement === goldenElement
+})
+const materialMismatchMessage = computed(() => {
+  if (!selectedSample.value || !goldenSample.value || selectedSample.value === goldenSample.value) return ''
+  if (selectedAndGoldenSameMetal.value) return ''
+  const selectedName = selectedSampleCard.value?.materialDisplayName || 'Unknown'
+  const goldenName = goldenSampleCard.value?.materialDisplayName || 'Unknown'
+  return `分析樣本與 Golden 樣本必須是相同金屬，目前為 ${selectedName} / ${goldenName}`
+})
 const selectedSampleSummary = computed(() => formatSampleSummary(selectedSampleCard.value))
 const goldenSampleSummary = computed(() => formatSampleSummary(goldenSampleCard.value))
 const comparablePositionCount = computed(() => {
@@ -1010,10 +1073,12 @@ const comparablePositionCount = computed(() => {
 
 watch(selectedSample, (sample) => {
   if (sample && sample === goldenSample.value) goldenSample.value = ''
+  if (sample && goldenSample.value && !selectedAndGoldenSameMetal.value) goldenSample.value = ''
 })
 
 watch(goldenSample, (sample) => {
   if (sample && sample === selectedSample.value) selectedSample.value = ''
+  if (sample && selectedSample.value && !selectedAndGoldenSameMetal.value) goldenSample.value = ''
 })
 
 function formatSampleSummary(card: typeof librarySampleCards.value[number] | undefined): string {
@@ -1021,12 +1086,87 @@ function formatSampleSummary(card: typeof librarySampleCards.value[number] | und
   return `${card.positions.size} 個位置 / ${card.versions.length} 個版本 / 最新 ${card.latestLabel}`
 }
 
+function primaryMaterialFromPairs(items: StoredEbsdPair[]) {
+  const counts = new Map<string, { key: string; displayName: string; element: string; count: number }>()
+  for (const item of items) {
+    const key = item.material_key || UNKNOWN_MATERIAL.key
+    const material = counts.get(key) ?? {
+      key,
+      displayName: item.material_display_name || UNKNOWN_MATERIAL.displayName,
+      element: item.material_element || UNKNOWN_MATERIAL.element,
+      count: 0,
+    }
+    material.count += 1
+    counts.set(key, material)
+  }
+  return Array.from(counts.values()).sort((a, b) =>
+    b.count - a.count || a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }),
+  )[0] ?? UNKNOWN_MATERIAL
+}
+
+function groupLibraryCardsByMaterial(cards: Array<typeof librarySampleCards.value[number]>) {
+  const map = new Map<string, {
+    key: string
+    displayName: string
+    element: string
+    samples: Array<typeof librarySampleCards.value[number]>
+  }>()
+  for (const card of cards) {
+    const key = card.materialKey || UNKNOWN_MATERIAL.key
+    const group = map.get(key) ?? {
+      key,
+      displayName: card.materialDisplayName || UNKNOWN_MATERIAL.displayName,
+      element: card.materialElement || UNKNOWN_MATERIAL.element,
+      samples: [],
+    }
+    group.samples.push(card)
+    map.set(key, group)
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    materialSortRank(a.element) - materialSortRank(b.element) ||
+    a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+}
+
+function materialSortRank(element: string): number {
+  if (element === 'Cu') return 0
+  if (!element) return 2
+  return 1
+}
+
+function materialStyle(element: string): Record<string, string> {
+  if (element === 'Cu') {
+    return {
+      '--material-bg': '#fff7d6',
+      '--material-border': '#d99a17',
+      '--material-text': '#8a5a00',
+    }
+  }
+  return {
+    '--material-bg': '#e5e7eb',
+    '--material-border': '#9ca3af',
+    '--material-text': '#374151',
+  }
+}
+
+function isCompatibleGoldenCard(card: typeof librarySampleCards.value[number]): boolean {
+  if (!selectedSampleCard.value || card.sample === selectedSample.value) return true
+  return !!selectedSampleCard.value.materialElement && card.materialElement === selectedSampleCard.value.materialElement
+}
+
 function selectAnalysisSample(sample: string) {
   selectedSample.value = sample
   if (goldenSample.value === sample) goldenSample.value = ''
+  if (goldenSample.value && !selectedAndGoldenSameMetal.value) goldenSample.value = ''
 }
 
 function selectGoldenSample(sample: string) {
+  const card = librarySampleCards.value.find((item) => item.sample === sample)
+  if (card && !isCompatibleGoldenCard(card)) {
+    error.value = 'Golden 樣本必須與分析樣本是相同金屬'
+    return
+  }
+  error.value = ''
   goldenSample.value = sample
   if (selectedSample.value === sample) selectedSample.value = ''
 }
@@ -1994,6 +2134,13 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   font-weight: 700;
 }
 
+.selected-material {
+  color: #475569;
+  font-size: .78rem;
+  font-style: normal;
+  font-weight: 850;
+}
+
 .action-row {
   justify-content: flex-start;
   margin-top: 1rem;
@@ -2005,6 +2152,53 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   gap: .55rem;
   max-height: 320px;
   overflow: auto;
+}
+
+.library-material-section {
+  border: 1px solid var(--material-border, #9ca3af);
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.library-material-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  background: var(--material-bg, #e5e7eb);
+  border-bottom: 1px solid var(--material-border, #9ca3af);
+  color: var(--material-text, #374151);
+  cursor: pointer;
+  list-style: none;
+  padding: .55rem .7rem;
+}
+
+.library-material-head::-webkit-details-marker {
+  display: none;
+}
+
+.library-material-head::before {
+  content: '+';
+  flex: 0 0 auto;
+  font-weight: 900;
+  width: .8rem;
+}
+
+.library-material-section[open] > .library-material-head::before {
+  content: '-';
+}
+
+.library-material-head strong {
+  flex: 1;
+  font-size: .9rem;
+  overflow-wrap: anywhere;
+}
+
+.library-material-head small {
+  color: var(--material-text, #374151);
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .interaction-hint {
@@ -2025,6 +2219,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   gap: .75rem;
   padding: .75rem;
   text-align: left;
+  margin: .55rem;
 }
 
 .library-target-card:hover,
@@ -2036,6 +2231,10 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .library-target-card.golden {
   border-color: #f59e0b;
   background: #fff7ed;
+}
+
+.library-target-card.incompatible {
+  opacity: .45;
 }
 
 .library-target-card div {

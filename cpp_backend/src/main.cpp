@@ -405,6 +405,48 @@ int main() {
         res.set_content(j.dump(4), "application/json");
     });
 
+    svr.Post("/material_metadata", [](const httplib::Request& req, httplib::Response& res) {
+        if (!req.is_multipart_form_data()) {
+            res.status = 400;
+            res.set_content("Content-Type must be multipart/form-data", "text/plain");
+            return;
+        }
+
+        const auto& cpr_file = req.get_file_value("cpr");
+        const auto& crc_file = req.get_file_value("crc");
+
+        if(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc")) {
+            // ok
+        } else {
+            res.status = 400;
+            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
+            return;
+        }
+
+        std::filesystem::path temp_dir = "./temp";
+        std::filesystem::create_directories(temp_dir);
+        std::random_device rd;
+        thread_local std::mt19937 rng(rd());
+        uuids::uuid_random_generator generator(rng);
+        std::string rand_name = uuids::to_string(generator());
+        std::string cpr_filename = "upload_" + rand_name + ".cpr";
+        std::string crc_filename = "upload_" + rand_name + ".crc";
+        std::filesystem::path cpr_path = temp_dir / cpr_filename;
+        std::filesystem::path crc_path = temp_dir / crc_filename;
+        TempFile cpr(cpr_path);
+        TempFile crc(crc_path);
+        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
+        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
+
+        try {
+            nlohmann::json j = material_metadata(cpr_path.string());
+            res.set_content(j.dump(4), "application/json");
+        } catch(const std::exception& exc) {
+            res.status = 500;
+            res.set_content(exc.what(), "text/plain");
+        }
+    });
+
     svr.Post("/ipf_map", [](const httplib::Request& req, httplib::Response& res) {
         const auto& cpr_file = req.get_file_value("cpr");
         const auto& crc_file = req.get_file_value("crc");

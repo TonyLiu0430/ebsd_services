@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     create_engine,
     func,
@@ -111,6 +112,13 @@ class UserEbsdPair(Base):
     version_key = Column(String(64), nullable=True)
     version_label = Column(String(255), nullable=True)
     version_num = Column(Integer, nullable=True)
+    material_key = Column(String(64), nullable=False, default="unknown")
+    material_display_name = Column(String(255), nullable=False, default="Unknown")
+    material_element = Column(String(32), nullable=True)
+    material_phase = Column(String(32), nullable=True)
+    material_confidence = Column(String(32), nullable=False, default="unknown")
+    material_source = Column(String(255), nullable=False, default="unknown")
+    material_metadata = Column(Text, nullable=True)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -259,7 +267,9 @@ def upsert_user_pair(
     version_key: Optional[str],
     version_label: Optional[str],
     version_num: Optional[int],
+    material: Optional[Dict[str, Any]] = None,
 ) -> Tuple[UserEbsdPair, bool]:
+    material = material or {}
     metadata = {
         "display_name": display_name[:255],
         "sample": sample[:255],
@@ -268,6 +278,13 @@ def upsert_user_pair(
         "version_key": version_key[:64] if version_key else None,
         "version_label": version_label[:255] if version_label else None,
         "version_num": version_num,
+        "material_key": str(material.get("material_key") or "unknown")[:64],
+        "material_display_name": str(material.get("display_name") or "Unknown")[:255],
+        "material_element": str(material.get("element"))[:32] if material.get("element") else None,
+        "material_phase": str(material.get("phase"))[:32] if material.get("phase") else None,
+        "material_confidence": str(material.get("confidence") or "unknown")[:32],
+        "material_source": ",".join(material.get("matched_by") or ["unknown"])[:255],
+        "material_metadata": json.dumps(material, ensure_ascii=False) if material else None,
         "updated_at": datetime.now(timezone.utc),
     }
     found = db.execute(

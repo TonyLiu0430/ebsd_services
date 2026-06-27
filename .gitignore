@@ -27,3 +27,6 @@ temp_data/
 
 # chore
 .codex
+
+# Generated PPT render images
+ML_backend/ppt_render/

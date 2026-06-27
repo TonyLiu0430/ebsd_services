@@ -1048,6 +1048,7 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
             golden_sample: context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}),
         },
         "ipf_images": context["ipf_images"],
+        "ipf_legend": cpp_ipf_legend(),
     }
 
 

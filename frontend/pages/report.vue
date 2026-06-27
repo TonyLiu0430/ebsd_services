@@ -282,9 +282,60 @@
 
       <!-- ── Section 1b: IPF Map grid ────────── -->
       <section v-if="pairs.length" class="card" data-pdf-page="ipf-map">
-        <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
-        <IpfMapGrid :pairs="ipfMapPairs" :sample="selectedSample" />
+        <div class="ipf-section-head">
+          <div>
+            <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ currentSelectedVersionLabel || selectedSample }}</h2>
+            <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }})</div>
+          </div>
+          <button class="ipf-settings-btn" type="button" @click="openIpfSettings">設定</button>
+        </div>
+        <IpfMapGrid :pairs="ipfMapPairs" :sample="selectedSample" :referenceVector="ipfReferenceVector" />
       </section>
+
+      <el-dialog
+        v-model="ipfSettingsOpen"
+        title="IPF 參考方向向量設定"
+        width="520px"
+        class="ipf-settings-dialog"
+        append-to-body
+      >
+        <div class="ipf-settings-panel">
+          <div class="ipf-setting-block">
+            <div class="ipf-setting-title">快速選擇</div>
+            <el-radio-group v-model="ipfPresetDraft" class="ipf-preset-row" @change="applyIpfPresetDraft">
+              <el-radio-button label="x" value="x">X</el-radio-button>
+              <el-radio-button label="y" value="y">Y</el-radio-button>
+              <el-radio-button label="z" value="z">Z</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="ipf-setting-block">
+            <div class="ipf-setting-title">具體向量</div>
+            <div class="ipf-vector-inputs">
+              <label>
+                <span>X</span>
+                <el-input-number v-model="ipfVectorDraft.x" :step="0.1" controls-position="right" />
+              </label>
+              <label>
+                <span>Y</span>
+                <el-input-number v-model="ipfVectorDraft.y" :step="0.1" controls-position="right" />
+              </label>
+              <label>
+                <span>Z</span>
+                <el-input-number v-model="ipfVectorDraft.z" :step="0.1" controls-position="right" />
+              </label>
+            </div>
+            <div class="ipf-setting-desc">套用時會自動歸一化；零向量不可使用。</div>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="ipf-settings-footer">
+            <button class="ipf-dialog-cancel" type="button" @click="ipfSettingsOpen = false">取消</button>
+            <button class="ipf-dialog-apply" type="button" @click="applyIpfSettings">套用設定</button>
+          </div>
+        </template>
+      </el-dialog>
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
       <section class="card" data-pdf-page="nine-grid-data">
@@ -717,6 +768,7 @@ type VersionOption = { key: string; label: string; num: number }
 type OrientDev = '20%' | '15%'
 type HistBinStartMode = 'zero' | 'min'
 type HistBinWidthMode = 'ratio' | 'absolute'
+type IpfPreset = 'x' | 'y' | 'z'
 type GrainSettings = {
   minGrainSize: number
   histBinStartMode: HistBinStartMode
@@ -858,6 +910,7 @@ const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
 const histogramSettingsOpen = ref(false)
+const ipfSettingsOpen = ref(false)
 const grainSettingsApplying = ref(false)
 const grainSettingsError = ref('')
 const grainSettings = ref<GrainSettings>({
@@ -871,6 +924,9 @@ const grainMinGrainSizeDraft = ref(DEFAULT_GRAIN_MIN_SIZE)
 const histBinStartModeDraft = ref<HistBinStartMode>('min')
 const histBinWidthModeDraft = ref<HistBinWidthMode>('ratio')
 const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_RATIO)
+const ipfReferenceVector = ref<[number, number, number]>([0, 0, 1])
+const ipfPresetDraft = ref<IpfPreset | ''>('z')
+const ipfVectorDraft = ref({ x: 0, y: 0, z: 1 })
 
 watch(histBinWidthModeDraft, (mode) => {
   if (!histogramSettingsOpen.value) return
@@ -878,6 +934,11 @@ watch(histBinWidthModeDraft, (mode) => {
     ? grainSettings.value.histBinWidthRatio
     : grainSettings.value.histBinWidthAbsolute
 })
+
+watch(ipfVectorDraft, () => {
+  if (!ipfSettingsOpen.value) return
+  ipfPresetDraft.value = detectIpfPresetFromDraft()
+}, { deep: true })
 
 const reportVersionIndex = ref(0)
 const PDF_CAPTURE_WIDTH = 1120
@@ -1083,6 +1144,56 @@ const ipfMapPairs = computed(() => {
   }
   return Array.from(posMap.values())
 })
+
+const formattedIpfReferenceVector = computed(() =>
+  ipfReferenceVector.value.map((v) => formatSettingNumber(v)).join(', '),
+)
+
+function detectIpfPreset(vector: [number, number, number]): IpfPreset | '' {
+  const eps = 1e-9
+  if (vector[0] > 0 && Math.abs(vector[1]) < eps && Math.abs(vector[2]) < eps) return 'x'
+  if (Math.abs(vector[0]) < eps && vector[1] > 0 && Math.abs(vector[2]) < eps) return 'y'
+  if (Math.abs(vector[0]) < eps && Math.abs(vector[1]) < eps && vector[2] > 0) return 'z'
+  return ''
+}
+
+function detectIpfPresetFromDraft(): IpfPreset | '' {
+  const normalized = normalizeIpfVectorDraft()
+  return normalized ? detectIpfPreset(normalized) : ''
+}
+
+function openIpfSettings() {
+  const [x, y, z] = ipfReferenceVector.value
+  ipfVectorDraft.value = { x, y, z }
+  ipfPresetDraft.value = detectIpfPreset(ipfReferenceVector.value)
+  ipfSettingsOpen.value = true
+}
+
+function applyIpfPresetDraft() {
+  if (!ipfPresetDraft.value) return
+  if (ipfPresetDraft.value === 'x') ipfVectorDraft.value = { x: 1, y: 0, z: 0 }
+  if (ipfPresetDraft.value === 'y') ipfVectorDraft.value = { x: 0, y: 1, z: 0 }
+  if (ipfPresetDraft.value === 'z') ipfVectorDraft.value = { x: 0, y: 0, z: 1 }
+}
+
+function normalizeIpfVectorDraft(): [number, number, number] | null {
+  const x = Number(ipfVectorDraft.value.x)
+  const y = Number(ipfVectorDraft.value.y)
+  const z = Number(ipfVectorDraft.value.z)
+  const norm = Math.sqrt(x * x + y * y + z * z)
+  if (!Number.isFinite(norm) || norm <= 1e-12) return null
+  return [x / norm, y / norm, z / norm]
+}
+
+function applyIpfSettings() {
+  const normalized = normalizeIpfVectorDraft()
+  if (!normalized) {
+    ElMessage.error('參考方向向量不能是零向量')
+    return
+  }
+  ipfReferenceVector.value = normalized
+  ipfSettingsOpen.value = false
+}
 
 async function generateReport() {
   if (!canGenerate.value) return
@@ -1581,6 +1692,7 @@ async function exportReportPpt() {
         golden: goldenSample.value,
         version_key: currentSelectedVersionOption.value?.key,
         min_grain_size: grainSettings.value.minGrainSize,
+        ipf_reference_vector: ipfReferenceVector.value,
       },
     })
     const stamp = new Date().toISOString().slice(0, 10)
@@ -2186,6 +2298,123 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #0f172a;
   font-weight: 900;
 }
+.ipf-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .75rem;
+}
+.ipf-section-head .section-title {
+  margin-bottom: .2rem;
+}
+.ipf-settings-summary {
+  color: #64748b;
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.ipf-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 800;
+  padding: .42rem .9rem;
+  white-space: nowrap;
+}
+.ipf-settings-btn:hover {
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+.ipf-settings-panel {
+  display: grid;
+  gap: .9rem;
+}
+.ipf-setting-block {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: .95rem;
+}
+.ipf-setting-title {
+  color: #0f172a;
+  font-size: .92rem;
+  font-weight: 850;
+  margin-bottom: .55rem;
+}
+.ipf-setting-desc {
+  color: #64748b;
+  font-size: .8rem;
+  line-height: 1.5;
+  margin-top: .65rem;
+}
+.ipf-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+.ipf-vector-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+}
+.ipf-vector-inputs label {
+  display: grid;
+  gap: .35rem;
+}
+.ipf-vector-inputs span {
+  color: #334155;
+  font-size: .78rem;
+  font-weight: 800;
+}
+.ipf-vector-inputs :deep(.el-input-number) {
+  width: 100%;
+}
+.ipf-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+}
+.ipf-dialog-cancel,
+.ipf-dialog-apply {
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: .84rem;
+  font-weight: 800;
+  padding: .48rem 1rem;
+}
+.ipf-dialog-cancel {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #475569;
+}
+.ipf-dialog-apply {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+.ipf-dialog-cancel:hover {
+  background: #f8fafc;
+}
+.ipf-dialog-apply:hover {
+  background: #1d4ed8;
+}
+.ipf-settings-dialog :deep(.el-dialog) {
+  border-radius: 18px;
+}
+.ipf-settings-dialog :deep(.el-dialog__header) {
+  border-bottom: 1px solid #e5e7eb;
+  margin-right: 0;
+  padding-bottom: .85rem;
+}
+.ipf-settings-dialog :deep(.el-dialog__title) {
+  color: #0f172a;
+  font-weight: 900;
+}
 .grain-mode-switch {
   display: flex;
   align-items: center;
@@ -2756,6 +2985,21 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .grain-settings-btn {
     justify-content: center;
     width: 100%;
+  }
+  .ipf-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .ipf-settings-btn {
+    justify-content: center;
+    width: 100%;
+  }
+  .ipf-vector-inputs {
+    grid-template-columns: 1fr;
+  }
+  .ipf-settings-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
   .grain-setting-input-row,
   .grain-settings-footer {

@@ -14,6 +14,7 @@ interface FilePair {
 const props = defineProps<{
   pairs: FilePair[]
   sample: string
+  referenceVector?: [number, number, number]
 }>()
 
 type CellState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -35,7 +36,13 @@ async function loadCell(pos: string, pairId: string, generation: number) {
   if (generation !== loadGeneration) return
   states.value[pos] = 'loading'
   try {
-    const response = await fetch(`/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map`, {
+    const vector = props.referenceVector ?? [0, 0, 1]
+    const query = new URLSearchParams({
+      reference_x: String(vector[0]),
+      reference_y: String(vector[1]),
+      reference_z: String(vector[2]),
+    })
+    const response = await fetch(`/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map?${query.toString()}`, {
       credentials: 'include',
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -75,6 +82,7 @@ async function loadAllCells() {
 }
 
 watch(samplePairs, loadAllCells, { immediate: true })
+watch(() => props.referenceVector, loadAllCells)
 
 onUnmounted(() => {
   for (const url of blobUrls) {

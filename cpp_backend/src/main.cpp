@@ -1,11 +1,13 @@
 #include <EbsdLib/IO/EbsdImporter.h>
 #include <EbsdLib/IO/HKL/CprReader.h>
 #include <vector>
+#include <array>
 #include <memory>
 #include <string>
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 #include <map>
 #include <stdexcept>
@@ -261,6 +263,28 @@ int parse_min_grain_size(const httplib::Request& req) {
     }
 }
 
+std::array<double, 3> parse_ipf_reference_dir(const httplib::Request& req) {
+    if(!req.has_param("reference_x") && !req.has_param("reference_y") && !req.has_param("reference_z")) {
+        return {0.0, 0.0, 1.0};
+    }
+    if(!req.has_param("reference_x") || !req.has_param("reference_y") || !req.has_param("reference_z")) {
+        throw std::invalid_argument("reference_x, reference_y, and reference_z are required together");
+    }
+
+    try {
+        const double x = std::stod(req.get_param_value("reference_x"));
+        const double y = std::stod(req.get_param_value("reference_y"));
+        const double z = std::stod(req.get_param_value("reference_z"));
+        const double norm = std::sqrt(x * x + y * y + z * z);
+        if(!std::isfinite(norm) || norm <= 1e-12) {
+            throw std::invalid_argument("zero vector");
+        }
+        return {x / norm, y / norm, z / norm};
+    } catch(...) {
+        throw std::invalid_argument("reference direction vector must be finite numbers and not zero");
+    }
+}
+
 void test() {
     
     std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
@@ -411,7 +435,16 @@ int main() {
         std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
-        save_ipf_map(cpr_path.string(), ipf_path);
+        std::array<double, 3> reference_dir = {0.0, 0.0, 1.0};
+        try {
+            reference_dir = parse_ipf_reference_dir(req);
+        } catch(const std::exception& exc) {
+            res.status = 400;
+            res.set_content(exc.what(), "text/plain");
+            return;
+        }
+
+        save_ipf_map(cpr_path.string(), ipf_path, reference_dir);
 
         std::ifstream ipf_fs(ipf_path, std::ios::binary);
         std::string buffer;

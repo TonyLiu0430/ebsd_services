@@ -12,6 +12,9 @@
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include "utils.h"
+#include <array>
+#include <cmath>
+#include <stdexcept>
 #include <vector>
 #ifndef STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -22,14 +25,26 @@ using std::vector;
 using std::pair;
 using std::swap;
 
-vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<vector<QuatF>> &orientations) {
+namespace {
+
+std::array<double, 3> normalize_ref_dir(std::array<double, 3> ref_dir) {
+    const double norm = std::sqrt(ref_dir[0] * ref_dir[0] + ref_dir[1] * ref_dir[1] + ref_dir[2] * ref_dir[2]);
+    if(!std::isfinite(norm) || norm <= 1e-12) {
+        throw std::invalid_argument("IPF reference direction vector must not be zero");
+    }
+    return {ref_dir[0] / norm, ref_dir[1] / norm, ref_dir[2] / norm};
+}
+
+} // namespace
+
+vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<vector<QuatF>> &orientations, std::array<double, 3> ref_dir) {
     int x = orientations.size();
     if(x == 0) return {};
     int y = orientations[0].size();
     
     vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> img(x, vector<std::tuple<uint8_t, uint8_t, uint8_t>>(y));
     auto ops = LaueOps::GetAllOrientationOps()[1]; // CubicOps
-    double refDir[3] = {0.0, 0.0, 1.0}; // z
+    const std::array<double, 3> refDir = normalize_ref_dir(ref_dir);
 
     for(int i = 0; i < x; i++ ) {
         for(int j = 0; j < y; j++ ) {
@@ -45,7 +60,7 @@ vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<v
     return img;
 }
 
-void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path) {
+void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_path);
     if(reader->readFile() < 0) {
@@ -74,7 +89,7 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     }
 
 
-    auto pixels = gen_ipf_map(orientations);
+    auto pixels = gen_ipf_map(orientations, ref_dir);
     std::vector<uint8_t> img;
     int w = xDim, h = yDim;
     img.reserve((size_t)w * h * 3);

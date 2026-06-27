@@ -1,5 +1,6 @@
 import inspect
 import json
+import math
 import os
 import pathlib
 import re
@@ -516,6 +517,7 @@ class ReportPptRequest(BaseModel):
     golden: str
     version_key: Optional[str] = None
     min_grain_size: Optional[int] = None
+    ipf_reference_vector: Optional[List[float]] = None
 
 
 def validate_min_grain_size(value: Optional[int]) -> Optional[int]:
@@ -524,6 +526,21 @@ def validate_min_grain_size(value: Optional[int]) -> Optional[int]:
     if value < 1 or value > 1000000:
         raise HTTPException(status_code=400, detail="min_grain_size must be between 1 and 1000000")
     return value
+
+
+def normalize_reference_vector(value: Optional[List[float]]) -> Optional[List[float]]:
+    if value is None:
+        return None
+    if len(value) != 3:
+        raise HTTPException(status_code=400, detail="ipf_reference_vector must contain exactly 3 numbers")
+    try:
+        x, y, z = [float(v) for v in value]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ipf_reference_vector must contain finite numbers")
+    norm = math.sqrt(x * x + y * y + z * z)
+    if not math.isfinite(norm) or norm <= 1e-12:
+        raise HTTPException(status_code=400, detail="ipf_reference_vector must not be zero")
+    return [x / norm, y / norm, z / norm]
 
 
 def cpp_backend_candidates() -> List[str]:
@@ -549,7 +566,13 @@ def multipart_body(parts: List[Tuple[str, str, str, bytes]]) -> Tuple[bytes, str
     return bytes(body), boundary
 
 
-def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str, min_grain_size: Optional[int] = None) -> bytes:
+def post_cpp_pair(
+    endpoint: str,
+    row: UserEbsdPair,
+    accept: str,
+    min_grain_size: Optional[int] = None,
+    ipf_reference_vector: Optional[List[float]] = None,
+) -> bytes:
     body, boundary = multipart_body([
         ("crc", row.pair.crc_file.original_filename, "application/octet-stream", row.pair.crc_file.content),
         ("cpr", row.pair.cpr_file.original_filename, "application/octet-stream", row.pair.cpr_file.content),
@@ -557,8 +580,17 @@ def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str, min_grain_size:
     last_error: Optional[Exception] = None
     for base_url in cpp_backend_candidates():
         url = f"{base_url}{endpoint}"
+        query_params: Dict[str, Any] = {}
         if min_grain_size is not None:
-            url = f"{url}?{urlencode({'min_grain_size': min_grain_size})}"
+            query_params["min_grain_size"] = min_grain_size
+        if ipf_reference_vector is not None:
+            query_params.update({
+                "reference_x": ipf_reference_vector[0],
+                "reference_y": ipf_reference_vector[1],
+                "reference_z": ipf_reference_vector[2],
+            })
+        if query_params:
+            url = f"{url}?{urlencode(query_params)}"
         req = urllib.request.Request(
             url,
             data=body,
@@ -590,12 +622,19 @@ def cpp_features(row: UserEbsdPair, min_grain_size: Optional[int] = None) -> Dic
     return data
 
 
-def cpp_ipf_map(row: UserEbsdPair) -> bytes:
-    return post_cpp_pair("/ipf_map", row, "image/png")
+def cpp_ipf_map(row: UserEbsdPair, ipf_reference_vector: Optional[List[float]] = None) -> bytes:
+    return post_cpp_pair("/ipf_map", row, "image/png", ipf_reference_vector=ipf_reference_vector)
 
 
 @app.get('/ebsd/pairs/{user_pair_id}/ipf_map')
-def get_ebsd_pair_ipf_map(user_pair_id: str, request: Request, db: Session = Depends(get_db)):
+def get_ebsd_pair_ipf_map(
+    user_pair_id: str,
+    request: Request,
+    reference_x: Optional[float] = None,
+    reference_y: Optional[float] = None,
+    reference_z: Optional[float] = None,
+    db: Session = Depends(get_db),
+):
     user = current_user_from_go_session(request)
     row = db.execute(
         select(UserEbsdPair).where(
@@ -606,7 +645,13 @@ def get_ebsd_pair_ipf_map(user_pair_id: str, request: Request, db: Session = Dep
     if not row:
         raise HTTPException(status_code=404, detail="file pair not found")
 
-    return Response(content=cpp_ipf_map(row), media_type="image/png")
+    reference_vector = None
+    if reference_x is not None or reference_y is not None or reference_z is not None:
+        if reference_x is None or reference_y is None or reference_z is None:
+            raise HTTPException(status_code=400, detail="reference_x, reference_y, and reference_z are required together")
+        reference_vector = normalize_reference_vector([reference_x, reference_y, reference_z])
+
+    return Response(content=cpp_ipf_map(row, reference_vector), media_type="image/png")
 
 
 def version_options_for_rows(entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -635,6 +680,7 @@ def collect_report_data(
     selected_sample = req.sample.strip()
     golden_sample = req.golden.strip()
     min_grain_size = validate_min_grain_size(req.min_grain_size)
+    ipf_reference_vector = normalize_reference_vector(req.ipf_reference_vector)
     if not selected_sample or not golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden are required")
     if selected_sample == golden_sample:
@@ -729,7 +775,7 @@ def collect_report_data(
     if include_ipf_images:
         for pos, row in cumulative_pairs.get(selected_sample, {}).get(selected_key, {}).items():
             try:
-                ipf_images[pos] = cpp_ipf_map(row)
+                ipf_images[pos] = cpp_ipf_map(row, ipf_reference_vector)
             except HTTPException:
                 continue
 

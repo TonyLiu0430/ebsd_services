@@ -22,7 +22,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, deferred, relationship, sessionmaker
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -53,7 +53,7 @@ class EbsdFile(Base):
     extension = Column(String(8), nullable=False)
     original_filename = Column(String(255), nullable=False)
     size_bytes = Column(Integer, nullable=False)
-    content = Column(LargeBinary, nullable=False)
+    content = deferred(Column(LargeBinary, nullable=False))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (

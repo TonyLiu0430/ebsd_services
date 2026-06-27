@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 import defdap.ebsd as ebsd # type: ignore
@@ -18,7 +18,7 @@ import joblib
 from pydantic import BaseModel, TypeAdapter, ValidationError # type: ignore
 from ebsd_utils import *
 from typing import Callable, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, selectinload
 from ebsd_store import (
     EbsdFile,
     EbsdPair,
@@ -164,6 +164,160 @@ def list_ebsd_targets(request: Request, db: Session = Depends(get_db)):
     return sorted(merged.values(), key=lambda item: item["name"].lower())
 
 
+def _user_pair_metadata_query(user_id: str):
+    return (
+        select(UserEbsdPair)
+        .where(UserEbsdPair.user_id == user_id)
+        .options(
+            load_only(
+                UserEbsdPair.id,
+                UserEbsdPair.user_id,
+                UserEbsdPair.pair_id,
+                UserEbsdPair.display_name,
+                UserEbsdPair.sample,
+                UserEbsdPair.position,
+                UserEbsdPair.folder,
+                UserEbsdPair.version_key,
+                UserEbsdPair.version_label,
+                UserEbsdPair.version_num,
+                UserEbsdPair.created_at,
+                UserEbsdPair.updated_at,
+            ),
+            selectinload(UserEbsdPair.pair).options(
+                load_only(EbsdPair.id, EbsdPair.pair_hash, EbsdPair.crc_file_id, EbsdPair.cpr_file_id, EbsdPair.created_at),
+                selectinload(EbsdPair.crc_file).load_only(
+                    EbsdFile.id,
+                    EbsdFile.original_filename,
+                    EbsdFile.size_bytes,
+                    EbsdFile.content_hash,
+                    EbsdFile.extension,
+                    EbsdFile.created_at,
+                ),
+                selectinload(EbsdPair.cpr_file).load_only(
+                    EbsdFile.id,
+                    EbsdFile.original_filename,
+                    EbsdFile.size_bytes,
+                    EbsdFile.content_hash,
+                    EbsdFile.extension,
+                    EbsdFile.created_at,
+                ),
+            ),
+        )
+    )
+
+
+def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
+    sample, version_key, version_label, version_num = resolve_retest_version(
+        row.sample,
+        row.version_key,
+        row.version_label,
+        row.version_num,
+    )
+    return {
+        "id": row.id,
+        "pair_id": row.pair_id,
+        "pair_hash": row.pair.pair_hash,
+        "crc_filename": row.pair.crc_file.original_filename,
+        "crc_size_bytes": row.pair.crc_file.size_bytes,
+        "crc_hash": row.pair.crc_file.content_hash,
+        "cpr_filename": row.pair.cpr_file.original_filename,
+        "cpr_size_bytes": row.pair.cpr_file.size_bytes,
+        "cpr_hash": row.pair.cpr_file.content_hash,
+        "sample": sample,
+        "position": row.position,
+        "name": row.display_name,
+        "folder": row.folder,
+        "version_key": version_key,
+        "version_label": version_label,
+        "version_num": version_num,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+@app.get('/ebsd/library/summary')
+def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
+    user = current_user_from_go_session(request)
+    target_rows = db.execute(
+        select(UserEbsdTarget)
+        .where(UserEbsdTarget.user_id == user["id"])
+        .order_by(UserEbsdTarget.name.asc())
+    ).scalars().all()
+    pair_rows = db.execute(
+        select(UserEbsdPair)
+        .where(UserEbsdPair.user_id == user["id"])
+        .options(
+            load_only(
+                UserEbsdPair.id,
+                UserEbsdPair.sample,
+                UserEbsdPair.position,
+                UserEbsdPair.version_key,
+                UserEbsdPair.version_label,
+                UserEbsdPair.version_num,
+                UserEbsdPair.created_at,
+                UserEbsdPair.updated_at,
+            )
+        )
+    ).scalars().all()
+
+    targets: Dict[str, Dict[str, Any]] = {}
+    for row in target_rows:
+        name, _, _, _ = resolve_retest_version(row.name)
+        targets[name] = {
+            "id": row.id,
+            "name": name,
+            "pair_count": 0,
+            "position_count": 0,
+            "version_count": 0,
+            "latest_version_label": "",
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "positions": set(),
+            "versions": {},
+        }
+
+    for row in pair_rows:
+        sample, version_key, version_label, version_num = resolve_retest_version(
+            row.sample,
+            row.version_key,
+            row.version_label,
+            row.version_num,
+        )
+        target = targets.setdefault(sample, {
+            "id": row.id,
+            "name": sample,
+            "pair_count": 0,
+            "position_count": 0,
+            "version_count": 0,
+            "latest_version_label": "",
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "positions": set(),
+            "versions": {},
+        })
+        target["pair_count"] += 1
+        target["positions"].add(row.position)
+        target["versions"][version_key] = {"label": version_label, "num": version_num}
+        if row.updated_at and row.updated_at > target["updated_at"]:
+            target["updated_at"] = row.updated_at
+
+    normalized_targets = []
+    for target in targets.values():
+        versions = sorted(target.pop("versions").values(), key=lambda item: (item["num"], item["label"]))
+        positions = target.pop("positions")
+        target["position_count"] = len(positions)
+        target["version_count"] = len(versions)
+        target["latest_version_label"] = versions[-1]["label"] if versions else ""
+        normalized_targets.append(target)
+
+    normalized_targets.sort(key=lambda item: item["name"].lower())
+    return {
+        "target_count": len(normalized_targets),
+        "pair_count": len(pair_rows),
+        "targets": normalized_targets,
+    }
+
+
 @app.post('/ebsd/targets')
 async def create_ebsd_target(
     request: Request,
@@ -245,36 +399,18 @@ async def save_ebsd_pair(
 
 @app.get('/ebsd/pairs')
 def list_ebsd_pairs(request: Request, db: Session = Depends(get_db)):
+    return list_ebsd_pair_metadata(request, db)
+
+
+@app.get('/ebsd/pairs/metadata')
+def list_ebsd_pair_metadata(request: Request, db: Session = Depends(get_db)):
     user = current_user_from_go_session(request)
     rows = db.execute(
-        select(UserEbsdPair)
-        .where(UserEbsdPair.user_id == user["id"])
+        _user_pair_metadata_query(user["id"])
         .order_by(UserEbsdPair.created_at.desc())
     ).scalars().all()
 
-    return [
-        {
-            "id": row.id,
-            "pair_id": row.pair_id,
-            "pair_hash": row.pair.pair_hash,
-            "crc_filename": row.pair.crc_file.original_filename,
-            "crc_size_bytes": row.pair.crc_file.size_bytes,
-            "crc_hash": row.pair.crc_file.content_hash,
-            "cpr_filename": row.pair.cpr_file.original_filename,
-            "cpr_size_bytes": row.pair.cpr_file.size_bytes,
-            "cpr_hash": row.pair.cpr_file.content_hash,
-            "sample": resolve_retest_version(row.sample, row.version_key, row.version_label, row.version_num)[0],
-            "position": row.position,
-            "name": row.display_name,
-            "folder": row.folder,
-            "version_key": resolve_retest_version(row.sample, row.version_key, row.version_label, row.version_num)[1],
-            "version_label": resolve_retest_version(row.sample, row.version_key, row.version_label, row.version_num)[2],
-            "version_num": resolve_retest_version(row.sample, row.version_key, row.version_label, row.version_num)[3],
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
-        }
-        for row in rows
-    ]
+    return [serialize_user_pair_metadata(row) for row in rows]
 
 
 @app.get('/ebsd/pairs/{user_pair_id}/files/{kind}')
@@ -379,6 +515,15 @@ class ReportPptRequest(BaseModel):
     sample: str
     golden: str
     version_key: Optional[str] = None
+    min_grain_size: Optional[int] = None
+
+
+def validate_min_grain_size(value: Optional[int]) -> Optional[int]:
+    if value is None:
+        return None
+    if value < 1 or value > 1000000:
+        raise HTTPException(status_code=400, detail="min_grain_size must be between 1 and 1000000")
+    return value
 
 
 def cpp_backend_candidates() -> List[str]:
@@ -404,7 +549,7 @@ def multipart_body(parts: List[Tuple[str, str, str, bytes]]) -> Tuple[bytes, str
     return bytes(body), boundary
 
 
-def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str) -> bytes:
+def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str, min_grain_size: Optional[int] = None) -> bytes:
     body, boundary = multipart_body([
         ("crc", row.pair.crc_file.original_filename, "application/octet-stream", row.pair.crc_file.content),
         ("cpr", row.pair.cpr_file.original_filename, "application/octet-stream", row.pair.cpr_file.content),
@@ -412,6 +557,8 @@ def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str) -> bytes:
     last_error: Optional[Exception] = None
     for base_url in cpp_backend_candidates():
         url = f"{base_url}{endpoint}"
+        if min_grain_size is not None:
+            url = f"{url}?{urlencode({'min_grain_size': min_grain_size})}"
         req = urllib.request.Request(
             url,
             data=body,
@@ -432,8 +579,8 @@ def post_cpp_pair(endpoint: str, row: UserEbsdPair, accept: str) -> bytes:
     raise HTTPException(status_code=502, detail=f"C++ backend unavailable: {last_error}")
 
 
-def cpp_features(row: UserEbsdPair) -> Dict[str, Any]:
-    raw = post_cpp_pair("/features", row, "application/json")
+def cpp_features(row: UserEbsdPair, min_grain_size: Optional[int] = None) -> Dict[str, Any]:
+    raw = post_cpp_pair("/features", row, "application/json", min_grain_size)
     try:
         data = json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as exc:
@@ -487,6 +634,7 @@ def collect_report_data(
 ) -> Dict[str, Any]:
     selected_sample = req.sample.strip()
     golden_sample = req.golden.strip()
+    min_grain_size = validate_min_grain_size(req.min_grain_size)
     if not selected_sample or not golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden are required")
     if selected_sample == golden_sample:
@@ -540,7 +688,7 @@ def collect_report_data(
     raw_pairs: Dict[str, Dict[str, Dict[str, UserEbsdPair]]] = {}
     raw_positions: Dict[str, Dict[str, set]] = {}
     for entry in entries:
-        features = cpp_features(entry["row"])
+        features = cpp_features(entry["row"], min_grain_size)
         sample = entry["sample"]
         version_key = entry["version_key"]
         position = entry["position"]

@@ -133,7 +133,7 @@ const passwordError = computed(() => {
   if (!touched.password) return ''
   if (!password.value) return '請輸入密碼'
   if (/\s/.test(password.value)) return '密碼不能包含空白'
-  if (password.value.length < 8) return '密碼至少需要 8 個字元'
+  if (password.value.length < 4) return '密碼至少需要 4 個字元'
   if (password.value.length > 100) return '密碼不能超過 100 個字元'
   return ''
 })

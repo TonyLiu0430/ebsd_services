@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <ranges>
 #include <map>
+#include <stdexcept>
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include "utils.h"
@@ -239,6 +240,27 @@ public:
     }
 };
 
+int parse_min_grain_size(const httplib::Request& req) {
+    if(!req.has_param("min_grain_size")) {
+        return 10;
+    }
+
+    try {
+        const std::string raw_value = req.get_param_value("min_grain_size");
+        std::size_t parsed = 0;
+        int value = std::stoi(raw_value, &parsed);
+        if(parsed != raw_value.size()) {
+            throw std::invalid_argument("invalid trailing characters");
+        }
+        if(value < 1 || value > 1000000) {
+            throw std::out_of_range("min_grain_size out of range");
+        }
+        return value;
+    } catch(...) {
+        throw std::invalid_argument("min_grain_size must be an integer between 1 and 1000000");
+    }
+}
+
 void test() {
     
     std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
@@ -345,7 +367,16 @@ int main() {
         std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
-        nlohmann::json j = features(cpr_path.string());
+        int min_grain_size = 10;
+        try {
+            min_grain_size = parse_min_grain_size(req);
+        } catch(const std::exception& exc) {
+            res.status = 400;
+            res.set_content(exc.what(), "text/plain");
+            return;
+        }
+
+        nlohmann::json j = features(cpr_path.string(), min_grain_size);
 
         res.set_content(j.dump(4), "application/json");
     });

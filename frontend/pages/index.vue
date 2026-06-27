@@ -611,7 +611,7 @@ async function refreshAll() {
   try {
     const [targets, pairs] = await Promise.all([
       $fetch<StoredTarget[]>('/api/ebsd/targets', { credentials: 'include' }),
-      $fetch<StoredEbsdPair[]>('/api/ebsd/pairs', { credentials: 'include' }),
+      $fetch<StoredEbsdPair[]>('/api/ebsd/pairs/metadata', { credentials: 'include' }),
     ])
     storedTargets.value = targets
     storedPairs.value = pairs

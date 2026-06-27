@@ -111,17 +111,32 @@
         <div class="report-version-dock__title">Report 版本</div>
         <div class="report-version-dock__meta">
           <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
-          <span>可拉動下方拉桿調整版本</span>
         </div>
-        <el-slider
-          v-model="reportVersionIndex"
-          :min="0"
-          :max="reportVersionSliderMax"
-          :step="1"
-          :show-stops="reportVersionStepCount > 1"
-          :show-tooltip="false"
-          :disabled="reportVersionStepCount <= 1"
-        />
+        <div class="dock-divider"></div>
+
+        <div class="report-version-dock__title">Grain size 設定</div>
+        <div class="grain-dock-summary">當前：{{ grainSettings.minGrainSize }} px</div>
+
+        <label class="grain-dock-field">
+          <span>Min-grain size (px)</span>
+          <el-input-number
+            v-model="grainMinGrainSizeDraft"
+            :min="1"
+            :max="1000000"
+            :step="1"
+            step-strictly
+            controls-position="right"
+            size="small"
+            class="grain-dock-number"
+          />
+        </label>
+
+        <button class="grain-dock-apply" type="button" :disabled="grainSettingsApplying" @click="applyGlobalMinGrainSize">
+          {{ grainSettingsApplying ? '更新中…' : '套用 Min-grain' }}
+        </button>
+        <el-text v-if="grainSettingsError" type="danger" class="grain-settings-error">
+          {{ grainSettingsError }}
+        </el-text>
       </div>
 
       <div class="report-action-bar pdf-exclude" data-html2canvas-ignore="true">
@@ -137,23 +152,15 @@
         <el-text v-if="pptError" type="danger" class="err-msg">{{ pptError }}</el-text>
       </div>
 
-      <section v-if="positionStatusCards.length" class="position-status-card" data-pdf-page="position-status">
-        <h2 class="section-title">位置對位狀態</h2>
-        <div class="status-grid">
-          <div v-for="card in positionStatusCards" :key="card.kind" class="status-block" :class="`status-${card.kind}`">
-            <div class="status-title">{{ card.title }}</div>
-            <div class="status-meta">{{ card.items.length }} 個位置</div>
-            <div class="status-tags">
-              <span v-for="pos in card.items" :key="pos">{{ pos }}</span>
-              <span v-if="card.items.length === 0" class="empty-tag">無</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- ── Section 1: Grain distribution curves ──────────── -->
       <section class="card" data-pdf-page="grain-distribution">
-        <h2 class="section-title">Grain 粒徑分布比對</h2>
+        <div class="grain-card-head">
+          <div>
+            <h2 class="section-title">Grain 粒徑分布比對</h2>
+            <div class="grain-settings-summary">{{ grainSettingsSummary }}</div>
+          </div>
+          <button class="grain-settings-btn" type="button" @click="openHistogramSettings">設定</button>
+        </div>
         <div class="grain-mode-switch">
           <span class="grain-mode-label">圖形模式</span>
           <button
@@ -211,12 +218,58 @@
                   :fixedXMin="sharedGrainBins.min"
                   :fixedXMax="sharedGrainBins.max"
                   :binCount="sharedGrainBins.binCount"
+                  :binWidth="sharedGrainBins.binWidth"
                 />
               </div>
             </template>
           </template>
         </div>
       </section>
+
+      <el-dialog
+        v-model="histogramSettingsOpen"
+        title="直方圖設定"
+        width="520px"
+        class="grain-settings-dialog"
+        append-to-body
+      >
+        <div class="grain-settings-panel">
+          <div class="grain-setting-block">
+            <div class="grain-setting-title">直方圖分箱起點</div>
+            <el-radio-group v-model="histBinStartModeDraft" class="grain-radio-row">
+              <el-radio-button label="zero" value="zero">從 0 開始</el-radio-button>
+              <el-radio-button label="min" value="min">從最小值開始</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="grain-setting-block">
+            <div class="grain-setting-title">直方圖間距大小</div>
+            <el-radio-group v-model="histBinWidthModeDraft" class="grain-radio-row">
+              <el-radio-button label="ratio" value="ratio">比例</el-radio-button>
+              <el-radio-button label="absolute" value="absolute">絕對數值</el-radio-button>
+            </el-radio-group>
+            <div class="grain-setting-input-row">
+              <el-input-number
+                v-model="histBinWidthValueDraft"
+                :min="histBinWidthModeDraft === 'ratio' ? 0.5 : 0.1"
+                :max="histBinWidthModeDraft === 'ratio' ? 100 : 200"
+                :step="histBinWidthModeDraft === 'ratio' ? 0.5 : 0.5"
+                controls-position="right"
+                class="grain-number-input"
+              />
+              <span class="grain-input-unit">{{ histBinWidthModeDraft === 'ratio' ? '% of range' : 'μm' }}</span>
+            </div>
+            <div class="grain-setting-desc">{{ grainBinPreviewText }}</div>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="grain-settings-footer">
+            <button class="grain-dialog-cancel" type="button" @click="histogramSettingsOpen = false">取消</button>
+            <button class="grain-dialog-apply" type="button" @click="applyHistogramSettings">套用設定</button>
+          </div>
+        </template>
+      </el-dialog>
 
       <!-- ── Section 1b: IPF Map grid ────────── -->
       <section v-if="pairs.length" class="card" data-pdf-page="ipf-map">
@@ -653,6 +706,15 @@ type AllDataResult = Record<string, Record<string, CppFeatures>>
 type VersionedDataResult = Record<string, Record<string, Record<string, CppFeatures>>>
 type VersionOption = { key: string; label: string; num: number }
 type OrientDev = '20%' | '15%'
+type HistBinStartMode = 'zero' | 'min'
+type HistBinWidthMode = 'ratio' | 'absolute'
+type GrainSettings = {
+  minGrainSize: number
+  histBinStartMode: HistBinStartMode
+  histBinWidthMode: HistBinWidthMode
+  histBinWidthRatio: number
+  histBinWidthAbsolute: number
+}
 type ReportDataResponse = {
   reportData: AllDataResult
   versionedReportData: VersionedDataResult
@@ -710,7 +772,10 @@ const ORIENT_LINE_LAYOUT = {
   bottom: 36,
   maxValue: 100,
 } as const
-const HIST_BIN_COUNT = 16
+const HIST_BIN_COUNT = 20
+const DEFAULT_GRAIN_MIN_SIZE = 10
+const DEFAULT_HIST_BIN_RATIO = Number((100 / HIST_BIN_COUNT).toFixed(2))
+const DEFAULT_HIST_BIN_ABSOLUTE = 10
 
 const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
 const showTriangleLabels = ref(true)
@@ -783,6 +848,27 @@ const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
+const histogramSettingsOpen = ref(false)
+const grainSettingsApplying = ref(false)
+const grainSettingsError = ref('')
+const grainSettings = ref<GrainSettings>({
+  minGrainSize: DEFAULT_GRAIN_MIN_SIZE,
+  histBinStartMode: 'min',
+  histBinWidthMode: 'ratio',
+  histBinWidthRatio: DEFAULT_HIST_BIN_RATIO,
+  histBinWidthAbsolute: DEFAULT_HIST_BIN_ABSOLUTE,
+})
+const grainMinGrainSizeDraft = ref(DEFAULT_GRAIN_MIN_SIZE)
+const histBinStartModeDraft = ref<HistBinStartMode>('min')
+const histBinWidthModeDraft = ref<HistBinWidthMode>('ratio')
+const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_RATIO)
+
+watch(histBinWidthModeDraft, (mode) => {
+  if (!histogramSettingsOpen.value) return
+  histBinWidthValueDraft.value = mode === 'ratio'
+    ? grainSettings.value.histBinWidthRatio
+    : grainSettings.value.histBinWidthAbsolute
+})
 
 const reportVersionIndex = ref(0)
 const PDF_CAPTURE_WIDTH = 1120
@@ -888,10 +974,11 @@ async function refreshLibrary() {
   error.value = ''
   pdfError.value = ''
   pptError.value = ''
+  grainSettingsError.value = ''
   pairs.value = []
 
   try {
-    const rows = await $fetch<StoredEbsdPair[]>('/api/ebsd/pairs', {
+    const rows = await $fetch<StoredEbsdPair[]>('/api/ebsd/pairs/metadata', {
       credentials: 'include',
     })
     libraryPairs.value = rows
@@ -948,13 +1035,6 @@ function getLatestVersionOption(options: VersionOption[]): VersionOption | undef
   return options[options.length - 1]
 }
 
-const reportVersionSliderMax = computed(() =>
-  Math.max(0, selectedSampleVersionOptions.value.length - 1),
-)
-const reportVersionStepCount = computed(() =>
-  selectedSampleVersionOptions.value.length,
-)
-
 watch(selectedSampleVersionOptions, (selectedOpts) => {
   reportVersionIndex.value = Math.max(0, selectedOpts.length - 1)
 }, { immediate: true })
@@ -994,6 +1074,7 @@ async function generateReport() {
   error.value = ''
   pdfError.value = ''
   pptError.value = ''
+  grainSettingsError.value = ''
   reportData.value = null
   versionedReportData.value = null
   analysisRes.value = null
@@ -1015,6 +1096,7 @@ async function generateReport() {
       body: {
         sample: selectedSample.value,
         golden: goldenSample.value,
+        min_grain_size: grainSettings.value.minGrainSize,
       },
     })
     reportData.value = res.reportData
@@ -1063,6 +1145,99 @@ function getDisplayedSampleSnapshot(sample: string): Record<string, CppFeatures>
 
 function getDisplayedPosData(sample: string, pos: string): CppFeatures | undefined {
   return getDisplayedSampleSnapshot(sample)?.[pos]
+}
+
+async function loadReportDataWithMinGrainSize(minGrainSize: number) {
+  const res = await $fetch<ReportDataResponse>('/api/reports/data', {
+    method: 'POST',
+    credentials: 'include',
+    body: {
+      sample: selectedSample.value,
+      golden: goldenSample.value,
+      min_grain_size: minGrainSize,
+    },
+  })
+  reportData.value = res.reportData
+  versionedReportData.value = res.versionedReportData
+  rawVersionPositions.value = res.rawVersionPositions
+}
+
+async function applyGlobalMinGrainSize() {
+  const nextMinGrainSize = Math.max(1, Math.floor(Number(grainMinGrainSizeDraft.value) || DEFAULT_GRAIN_MIN_SIZE))
+  grainSettingsError.value = ''
+  const minSizeChanged = nextMinGrainSize !== grainSettings.value.minGrainSize
+  if (minSizeChanged && reportData.value) {
+    grainSettingsApplying.value = true
+    try {
+      await loadReportDataWithMinGrainSize(nextMinGrainSize)
+      analysisRes.value = null
+    } catch (e: unknown) {
+      const err = e as { data?: { detail?: string; message?: string }; message?: string }
+      grainSettingsError.value = err.data?.detail || err.data?.message || err.message || 'Grain 設定資料更新失敗'
+      return
+    } finally {
+      grainSettingsApplying.value = false
+    }
+  }
+
+  grainSettings.value = {
+    ...grainSettings.value,
+    minGrainSize: nextMinGrainSize,
+  }
+}
+
+function openHistogramSettings() {
+  histBinStartModeDraft.value = grainSettings.value.histBinStartMode
+  histBinWidthModeDraft.value = grainSettings.value.histBinWidthMode
+  histBinWidthValueDraft.value = grainSettings.value.histBinWidthMode === 'ratio'
+    ? grainSettings.value.histBinWidthRatio
+    : grainSettings.value.histBinWidthAbsolute
+  histogramSettingsOpen.value = true
+}
+
+function applyHistogramSettings() {
+  const value = Math.max(histBinWidthModeDraft.value === 'ratio' ? 0.5 : 0.1, Number(histBinWidthValueDraft.value) || 0)
+  grainSettings.value = {
+    ...grainSettings.value,
+    histBinStartMode: histBinStartModeDraft.value,
+    histBinWidthMode: histBinWidthModeDraft.value,
+    histBinWidthRatio: histBinWidthModeDraft.value === 'ratio' ? value : grainSettings.value.histBinWidthRatio,
+    histBinWidthAbsolute: histBinWidthModeDraft.value === 'absolute' ? value : grainSettings.value.histBinWidthAbsolute,
+  }
+  histogramSettingsOpen.value = false
+}
+
+const grainSettingsSummary = computed(() => {
+  const startLabel = grainSettings.value.histBinStartMode === 'zero' ? '0' : '最小值'
+  const widthLabel = grainSettings.value.histBinWidthMode === 'ratio'
+    ? `${formatSettingNumber(grainSettings.value.histBinWidthRatio)}% range`
+    : `${formatSettingNumber(grainSettings.value.histBinWidthAbsolute)} μm`
+  return `分箱起點 ${startLabel} / 間距 ${widthLabel}`
+})
+
+const grainBinPreviewText = computed(() => {
+  const start = previewHistBinStart.value
+  const width = previewHistBinWidth.value
+  const bins = Math.max(1, Math.min(80, Math.ceil((sharedGrainBins.value.max - start) / Math.max(width, 1e-6))))
+  return `預估分箱：${bins} 格，每格約 ${formatSettingNumber(width)} μm`
+})
+
+const previewHistBinStart = computed(() => {
+  if (histBinStartModeDraft.value === 'zero') return 0
+  return sharedGrainDataMin.value
+})
+
+const previewHistBinWidth = computed(() => {
+  const start = previewHistBinStart.value
+  const range = Math.max(sharedGrainBins.value.max - start, 0.1)
+  const value = Math.max(Number(histBinWidthValueDraft.value) || 0, histBinWidthModeDraft.value === 'ratio' ? 0.5 : 0.1)
+  if (histBinWidthModeDraft.value === 'ratio') return Math.max(0.1, range * value / 100)
+  return value
+})
+
+function formatSettingNumber(value: number): string {
+  if (Math.abs(value) >= 100 || Number.isInteger(value)) return String(Math.round(value))
+  return value.toFixed(2).replace(/\.00$/, '').replace(/0$/, '')
 }
 
 const selectedDisplayedPositions = computed(() =>
@@ -1129,7 +1304,7 @@ function positionStatusClass(pos: string): Record<string, boolean> {
   }
 }
 
-const sharedGrainBins = computed(() => {
+const sharedGrainValues = computed(() => {
   const values: number[] = []
   const selectedSnapshot = getDisplayedSampleSnapshot(selectedSample.value)
   const goldenSnapshot = getDisplayedSampleSnapshot(goldenSample.value)
@@ -1141,13 +1316,28 @@ const sharedGrainBins = computed(() => {
     values.push(...(goldenSnapshot[pos]?.grains ?? []))
   }
 
-  const finitePositive = values.filter((v) => Number.isFinite(v) && v > 0)
+  return values.filter((v) => Number.isFinite(v) && v > 0)
+})
+
+const sharedGrainDataMin = computed(() => {
+  const finitePositive = sharedGrainValues.value
   if (!finitePositive.length) {
-    return { min: 7.1, max: 200, binCount: HIST_BIN_COUNT }
+    return 7.1
   }
 
-  const min = Math.floor(Math.min(...finitePositive) * 10) / 10
-  return { min, max: 200, binCount: HIST_BIN_COUNT }
+  return Math.floor(Math.min(...finitePositive) * 10) / 10
+})
+
+const sharedGrainBins = computed(() => {
+  const min = grainSettings.value.histBinStartMode === 'zero' ? 0 : sharedGrainDataMin.value
+  const max = 200
+  const range = Math.max(max - min, 0.1)
+  const rawWidth = grainSettings.value.histBinWidthMode === 'ratio'
+    ? range * Math.max(grainSettings.value.histBinWidthRatio, 0.5) / 100
+    : Math.max(grainSettings.value.histBinWidthAbsolute, 0.1)
+  const binWidth = Math.max(rawWidth, 0.1)
+  const binCount = Math.max(1, Math.min(80, Math.ceil(range / binWidth)))
+  return { min, max, binCount, binWidth }
 })
 
 
@@ -1374,6 +1564,7 @@ async function exportReportPpt() {
         sample: selectedSample.value,
         golden: goldenSample.value,
         version_key: currentSelectedVersionOption.value?.key,
+        min_grain_size: grainSettings.value.minGrainSize,
       },
     })
     const stamp = new Date().toISOString().slice(0, 10)
@@ -1867,6 +2058,118 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   flex-wrap: wrap;
 }
 .legend-lbl { font-size: .82rem; color: #374151; margin-right: .5rem; }
+.grain-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .65rem;
+}
+.grain-card-head .section-title {
+  margin-bottom: .2rem;
+}
+.grain-settings-summary {
+  color: #64748b;
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.grain-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 800;
+  padding: .42rem .9rem;
+  white-space: nowrap;
+}
+.grain-settings-btn:hover {
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+.grain-settings-panel {
+  display: grid;
+  gap: .9rem;
+}
+.grain-setting-block {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: .95rem;
+}
+.grain-setting-title {
+  color: #0f172a;
+  font-size: .92rem;
+  font-weight: 850;
+  margin-bottom: .22rem;
+}
+.grain-setting-desc {
+  color: #64748b;
+  font-size: .8rem;
+  line-height: 1.5;
+}
+.grain-radio-row {
+  margin-top: .55rem;
+}
+.grain-setting-input-row {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin: .7rem 0 .35rem;
+}
+.grain-number-input {
+  width: 180px;
+}
+.grain-input-unit {
+  color: #475569;
+  font-size: .82rem;
+  font-weight: 800;
+}
+.grain-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+}
+.grain-dialog-cancel,
+.grain-dialog-apply {
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: .84rem;
+  font-weight: 800;
+  padding: .48rem 1rem;
+}
+.grain-dialog-cancel {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #475569;
+}
+.grain-dialog-apply {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+.grain-dialog-cancel:hover {
+  background: #f8fafc;
+}
+.grain-dialog-apply:hover {
+  background: #1d4ed8;
+}
+.grain-settings-dialog :deep(.el-dialog) {
+  border-radius: 18px;
+}
+.grain-settings-dialog :deep(.el-dialog__header) {
+  border-bottom: 1px solid #e5e7eb;
+  margin-right: 0;
+  padding-bottom: .85rem;
+}
+.grain-settings-dialog :deep(.el-dialog__title) {
+  color: #0f172a;
+  font-weight: 900;
+}
 .grain-mode-switch {
   display: flex;
   align-items: center;
@@ -1905,13 +2208,15 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   left: 18px;
   bottom: 18px;
   z-index: 40;
-  width: min(290px, calc(100vw - 28px));
+  width: min(340px, calc(100vw - 28px));
   padding: .95rem 1.05rem .82rem;
   border: 1px solid rgba(191, 219, 254, 0.95);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(10px);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
 }
 .report-version-dock__title {
   margin-bottom: .4rem;
@@ -1933,20 +2238,61 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.report-version-dock :deep(.el-slider) {
-  margin: .7rem 0 .1rem;
+.dock-divider {
+  height: 1px;
+  margin: .9rem 0 .75rem;
+  background: #cbd5e1;
 }
-.report-version-dock :deep(.el-slider__runway) {
-  margin: 10px 0 4px;
-  height: 6px;
+.grain-dock-summary {
+  color: #475569;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: -.15rem 0 .45rem;
 }
-.report-version-dock :deep(.el-slider__button) {
-  width: 18px;
-  height: 18px;
+.grain-dock-field {
+  display: grid;
+  gap: .35rem;
+  margin-top: .62rem;
 }
-.report-version-dock :deep(.el-slider__stop) {
-  width: 6px;
-  height: 6px;
+.grain-dock-field > span {
+  color: #334155;
+  font-size: .76rem;
+  font-weight: 850;
+}
+.grain-dock-field small {
+  color: #64748b;
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.grain-dock-number {
+  width: 148px;
+}
+.grain-dock-apply {
+  width: 100%;
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 850;
+  margin-top: .75rem;
+  padding: .48rem .75rem;
+}
+.grain-dock-apply:hover {
+  background: #1d4ed8;
+}
+.grain-dock-apply:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+}
+.grain-settings-error {
+  display: block;
+  font-size: .76rem;
+  line-height: 1.4;
+  margin-top: .45rem;
 }
 .version-slider-grid {
   display: grid;
@@ -2353,7 +2699,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
-  .page-shell { padding-bottom: 8rem; }
+  .page-shell { padding-bottom: 13rem; }
   .page-head,
   .panel-title-row,
   .section-subhead {
@@ -2365,7 +2711,25 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     right: 12px;
     bottom: 12px;
     width: auto;
+    max-height: min(70vh, 520px);
   }
+  .grain-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .grain-settings-btn {
+    justify-content: center;
+    width: 100%;
+  }
+  .grain-setting-input-row,
+  .grain-settings-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .grain-number-input {
+    width: 100%;
+  }
+  .grain-dock-number { width: 100%; }
   .nine-cdf-grid { grid-template-columns: repeat(2, 1fr); }
   .triangle-row { grid-template-columns: 1fr; }
   .orient-line-grid { grid-template-columns: 1fr; }

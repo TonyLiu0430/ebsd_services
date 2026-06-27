@@ -21,7 +21,7 @@ var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 var passwordRe = regexp.MustCompile(`^[^\s]+$`)
 
 func vaildate(username string, password string) bool {
-	return usernameRe.MatchString(username) && passwordRe.MatchString(password) && len(username) >= 3 && len(username) <= 30 && len(password) >= 8 && len(password) <= 100
+	return usernameRe.MatchString(username) && passwordRe.MatchString(password) && len(username) >= 3 && len(username) <= 30 && len(password) >= 4 && len(password) <= 100
 }
 
 func hashPassword(password string) (string, error) {

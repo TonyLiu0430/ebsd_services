@@ -143,4 +143,3 @@ inline void GrainSegmenter::save_grains_map(int min_grain_size, const std::files
     int ok = stbi_write_png(img_path.string().c_str(), w, h, 3, img.data(), w * 3);
     if(!ok) std::cout << "failed" << std::endl;
 };
-

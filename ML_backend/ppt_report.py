@@ -59,7 +59,6 @@ def build_pptx_report(
     golden_snapshot = report_data.get(golden_sample, {})
     selected_positions = sorted(selected_snapshot.keys(), key=_sort_position_key)
     golden_positions = sorted(golden_snapshot.keys(), key=_sort_position_key)
-    comparable = [pos for pos in selected_positions if pos in golden_snapshot]
     missing_golden = [pos for pos in selected_positions if pos not in golden_snapshot]
     missing_selected = [pos for pos in golden_positions if pos not in selected_snapshot]
 
@@ -174,27 +173,6 @@ def _add_cover_slide(prs: Presentation, selected_sample: str, golden_sample: str
     _add_text(slide, f"Golden 樣本：{golden_sample} · {golden_version_label}", 0.8, 2.65, 8.5, 0.35, size=18)
     _add_text(slide, "報告內容：Grain 粒徑分布、IPF 晶粒取向分佈圖、九宮格完整數據、晶粒取向比例與折線圖。", 0.8, 3.35, 11.7, 0.7, size=15)
     _add_text(slide, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}", 0.82, 6.65, 5.8, 0.25, size=10, color=RGBColor(107, 114, 128))
-
-
-def _add_position_status_slide(prs: Presentation, comparable: List[str], missing_golden: List[str], missing_selected: List[str]):
-    slide = _blank_slide(prs)
-    _add_section_title(slide, "位置對位狀態")
-    cards = [
-        ("可比較", comparable, RGBColor(16, 185, 129)),
-        ("Sample 有資料但 Golden 缺少", missing_golden, RGBColor(245, 158, 11)),
-        ("Golden 有資料但 Sample 未上傳", missing_selected, RGBColor(107, 114, 128)),
-    ]
-    for idx, (title, items, color) in enumerate(cards):
-        x = 0.65 + idx * 4.15
-        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(1.25), Inches(3.65), Inches(4.9))
-        rect.fill.solid()
-        rect.fill.fore_color.rgb = RGBColor(249, 250, 251)
-        rect.line.color.rgb = color
-        rect.line.width = Pt(1.2)
-        _add_text(slide, title, x + 0.18, 1.45, 3.28, 0.55, size=15, bold=True, color=color)
-        _add_text(slide, f"{len(items)} 個位置", x + 0.18, 2.05, 3.25, 0.3, size=12, color=RGBColor(75, 85, 99))
-        labels = "、".join(items) if items else "無"
-        _add_text(slide, labels, x + 0.18, 2.55, 3.25, 2.6, size=14)
 
 
 def _add_grain_distribution_slide(

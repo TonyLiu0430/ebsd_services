@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{
   fixedXMin?: number | null
   fixedXMax?: number | null
   binCount?: number
+  binWidth?: number | null
 }>(), {
   sample: () => [],
   golden: () => [],
@@ -16,7 +17,8 @@ const props = withDefaults(defineProps<{
   mode: 'cdf',
   fixedXMin: null,
   fixedXMax: null,
-  binCount: 16,
+  binCount: 20,
+  binWidth: null,
 })
 
 const W = 185
@@ -59,24 +61,43 @@ const cdfXMax = computed(() => {
 })
 
 const histBinXMin = computed(() => props.fixedXMin != null ? props.fixedXMin : dataXMin.value)
-const histDisplayXMin = computed(() => 0)
-
-const histXMax = computed(() => {
+const histBaseXMax = computed(() => {
   if (props.fixedXMax != null) return props.fixedXMax
   if (!finiteValues.value.length) return 10
   const maxVal = Math.max(...finiteValues.value)
   return Math.max(histBinXMin.value + 0.1, Math.ceil(maxVal * 10) / 10)
 })
 
+const requestedBinWidth = computed(() => {
+  if (props.binWidth == null || !Number.isFinite(props.binWidth) || props.binWidth <= 0) return null
+  return props.binWidth
+})
+
+const HIST_BINS = computed(() => {
+  if (!requestedBinWidth.value) return Math.max(1, Math.floor(props.binCount || 16))
+  const span = Math.max(histBaseXMax.value - histBinXMin.value, 1e-6)
+  return Math.max(1, Math.min(80, Math.ceil(span / requestedBinWidth.value)))
+})
+
+const histXMax = computed(() => {
+  return histBaseXMax.value
+})
+
+const histDisplayXMin = computed(() => 0)
 const chartXMin = computed(() => (props.mode === 'cdf' ? cdfXMin.value : histDisplayXMin.value))
 const chartXMax = computed(() => (props.mode === 'cdf' ? cdfXMax.value : histXMax.value))
 const samplePoints = computed(() => makeCdf(props.sample, cdfXMin.value, cdfXMax.value))
 const goldenPoints = computed(() => makeCdf(props.golden, cdfXMin.value, cdfXMax.value))
 
-const HIST_BINS = computed(() => Math.max(1, Math.floor(props.binCount || 16)))
 const histBinWidth = computed(() =>
-  Math.max(histXMax.value - histBinXMin.value, 1e-6) / HIST_BINS.value,
+  requestedBinWidth.value ?? Math.max(histXMax.value - histBinXMin.value, 1e-6) / HIST_BINS.value,
 )
+
+function histBoundary(index: number): number {
+  if (index <= 0) return histBinXMin.value
+  if (index >= HIST_BINS.value) return histXMax.value
+  return Math.min(histXMax.value, histBinXMin.value + histBinWidth.value * index)
+}
 
 function scaleX(v: number): number {
   const span = Math.max(chartXMax.value - chartXMin.value, 1e-6)
@@ -87,11 +108,10 @@ function makeHistogram(arr: number[], bins: number, minV: number, maxV: number):
   const safeBins = Math.max(1, bins)
   const counts = Array.from({ length: safeBins }, () => 0)
   if (!arr.length) return counts
-  const span = Math.max(maxV - minV, 1e-6)
+  const width = requestedBinWidth.value ?? Math.max(maxV - minV, 1e-6) / safeBins
   for (const raw of arr) {
     const v = Number.isFinite(raw) ? raw : 0
-    const pct = (v - minV) / span
-    const idx = Math.min(safeBins - 1, Math.max(0, Math.floor(pct * safeBins)))
+    const idx = Math.min(safeBins - 1, Math.max(0, Math.floor((v - minV) / Math.max(width, 1e-6))))
     counts[idx]++
   }
   return counts
@@ -101,12 +121,11 @@ function makeAreaWeightedHistogram(arr: number[], bins: number, minV: number, ma
   const safeBins = Math.max(1, bins)
   const weights = Array.from({ length: safeBins }, () => 0)
   if (!arr.length) return weights
-  const span = Math.max(maxV - minV, 1e-6)
+  const width = requestedBinWidth.value ?? Math.max(maxV - minV, 1e-6) / safeBins
   let totalWeight = 0
   for (const raw of arr) {
     if (!Number.isFinite(raw) || raw <= 0) continue
-    const pct = (raw - minV) / span
-    const idx = Math.min(safeBins - 1, Math.max(0, Math.floor(pct * safeBins)))
+    const idx = Math.min(safeBins - 1, Math.max(0, Math.floor((raw - minV) / Math.max(width, 1e-6))))
     const weight = Math.PI * (raw / 2) * (raw / 2)
     weights[idx] += weight
     totalWeight += weight
@@ -143,18 +162,18 @@ const yTicks = computed(() => {
 
 const sampleBars = computed(() => {
   return sampleSeries.value.map((count, i) => ({
-    x: scaleX(histBinXMin.value + histBinWidth.value * i) + 0.5,
+    x: scaleX(histBoundary(i)) + 0.5,
     y: H - (count / yAxisMax.value) * H,
-    w: Math.max(1, scaleX(histBinXMin.value + histBinWidth.value * (i + 1)) - scaleX(histBinXMin.value + histBinWidth.value * i) - 1),
+    w: Math.max(1, scaleX(histBoundary(i + 1)) - scaleX(histBoundary(i)) - 1),
     h: (count / yAxisMax.value) * H,
   }))
 })
 
 const goldenBars = computed(() => {
   return goldenSeries.value.map((count, i) => ({
-    x: scaleX(histBinXMin.value + histBinWidth.value * i) + 0.5,
+    x: scaleX(histBoundary(i)) + 0.5,
     y: H - (count / yAxisMax.value) * H,
-    w: Math.max(1, scaleX(histBinXMin.value + histBinWidth.value * (i + 1)) - scaleX(histBinXMin.value + histBinWidth.value * i) - 1),
+    w: Math.max(1, scaleX(histBoundary(i + 1)) - scaleX(histBoundary(i)) - 1),
     h: (count / yAxisMax.value) * H,
   }))
 })
@@ -169,7 +188,7 @@ const xTicks = computed(() => {
       },
     ]
     for (let i = 0; i <= HIST_BINS.value; i++) {
-      const v = histBinXMin.value + histBinWidth.value * i
+      const v = histBoundary(i)
       if (Math.abs(v) < 1e-6) continue
       ticks.push({
         x: scaleX(v),

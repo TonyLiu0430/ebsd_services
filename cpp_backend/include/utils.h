@@ -6,7 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 
-nlohmann::json features(const std::string &cpr_file_path);
+nlohmann::json features(const std::string &cpr_file_path, int min_grain_size = 10);
 
 std::vector<std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const std::vector<std::vector<QuatF>> &orientations);
 

@@ -66,7 +66,7 @@ int select_cluster_medoid(const std::vector<NeighborSample>& samples, const std:
 
 } // namespace
 
-nlohmann::json features(const std::string &cpr_file_path) {
+nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
     std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
     reader->setFileName(cpr_file_path);
     int err_code = reader->readFile();
@@ -82,7 +82,7 @@ nlohmann::json features(const std::string &cpr_file_path) {
     auto euler3 = reader->getEuler3Pointer();
     denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
     GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
-    std::vector<Grain> grains = grainSegmenter.find_grains(10);
+    std::vector<Grain> grains = grainSegmenter.find_grains(min_grain_size);
     if(reader->getXStep() != reader->getYStep()) {
         throw std::invalid_argument("X and Y step sizes are not equal");
     }

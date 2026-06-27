@@ -91,8 +91,8 @@ def build_pptx_report(
     _add_nine_grid_slide(prs, selected_sample, selected_version_label, selected_snapshot, missing_golden, missing_selected)
     _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "20%")
     _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "15%")
-    _add_orientation_line_slide(prs, selected_sample, selected_version_label, selected_snapshot, "20%")
-    _add_orientation_line_slide(prs, selected_sample, selected_version_label, selected_snapshot, "15%")
+    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "20%")
+    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "15%")
 
     output = io.BytesIO()
     prs.save(output)
@@ -423,10 +423,20 @@ def _add_orientation_triangle_slide(
         _draw_triangle_panel(slide, x0 + c * 4.25, y0, panel_w, panel_h, col_key, dev, selected_snapshot, golden_snapshot)
 
 
-def _add_orientation_line_slide(prs: Presentation, selected_sample: str, selected_version_label: str, selected_snapshot: Snapshot, dev: str):
+def _add_orientation_line_slide(
+    prs: Presentation,
+    selected_sample: str,
+    golden_sample: str,
+    selected_version_label: str,
+    golden_version_label: str,
+    selected_snapshot: Snapshot,
+    golden_snapshot: Snapshot,
+    dev: str,
+):
     slide = _blank_slide(prs)
     _add_section_title(slide, f"晶粒取向折線圖 - Misorientation {dev}")
-    _add_text(slide, f"{selected_sample} · {selected_version_label}", 0.65, 0.9, 6.5, 0.25, size=11, color=RGBColor(75, 85, 99))
+    _add_text(slide, f"{selected_sample} · {selected_version_label} / {golden_sample} · {golden_version_label}", 0.65, 0.9, 6.5, 0.25, size=11, color=RGBColor(75, 85, 99))
+    _add_line_chart_legend(slide, 7.25, 0.9, selected_version_label, golden_version_label)
     chart_w = 3.42
     chart_h = 1.48
     x0 = 0.65
@@ -436,7 +446,7 @@ def _add_orientation_line_slide(prs: Presentation, selected_sample: str, selecte
             pos = f"{col_key}-{row_key}"
             x = x0 + c * 4.18
             y = y0 + r * 1.82
-            _draw_position_orientation_line_chart(slide, x, y, chart_w, chart_h, pos, selected_snapshot.get(pos), dev)
+            _draw_position_orientation_line_chart(slide, x, y, chart_w, chart_h, pos, selected_snapshot.get(pos), golden_snapshot.get(pos), dev)
 
 
 def _draw_grain_chart(
@@ -458,10 +468,25 @@ def _draw_grain_chart(
     _add_picture_contain(slide, chart_png, x + 0.05, y + 0.22, w - 0.1, h - 0.25)
 
 
-def _draw_position_orientation_line_chart(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], dev: str):
+def _draw_position_orientation_line_chart(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], golden_features: Optional[FeatureMap], dev: str):
     _add_text(slide, pos, x, y, w, 0.18, size=9, bold=True, align=PP_ALIGN.CENTER)
-    chart_png = _render_position_orientation_chart_png(_orient_values(features, dev) or [0.0, 0.0, 0.0])
+    chart_png = _render_position_orientation_chart_png(
+        _orient_values(features, dev) or [0.0, 0.0, 0.0],
+        _orient_values(golden_features, dev) or [0.0, 0.0, 0.0],
+    )
     _add_picture_contain(slide, chart_png, x + 0.03, y + 0.2, w - 0.06, h - 0.22)
+
+
+def _add_line_chart_legend(slide, x: float, y: float, selected_version_label: str, golden_version_label: str):
+    sample_line = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x), Inches(y + 0.12), Inches(x + 0.3), Inches(y + 0.12))
+    sample_line.line.color.rgb = PRIMARY_TEXT
+    sample_line.line.width = Pt(2)
+    _add_text(slide, f"分析 {selected_version_label}", x + 0.36, y, 1.6, 0.2, size=8, color=RGBColor(75, 85, 99))
+    golden_line = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x + 2.05), Inches(y + 0.12), Inches(x + 2.35), Inches(y + 0.12))
+    golden_line.line.color.rgb = WARNING_TEXT
+    golden_line.line.width = Pt(2)
+    golden_line.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+    _add_text(slide, f"Golden {golden_version_label}", x + 2.41, y, 1.65, 0.2, size=8, color=RGBColor(75, 85, 99))
 
 
 def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str, x_display_min: float, x_max: float, hist_bin_min: float) -> io.BytesIO:
@@ -539,12 +564,14 @@ def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str,
     return output
 
 
-def _render_position_orientation_chart_png(values: List[float]) -> io.BytesIO:
+def _render_position_orientation_chart_png(values: List[float], golden_values: List[float]) -> io.BytesIO:
     fig = Figure(figsize=(3.15, 1.25), dpi=220)
     canvas = FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
     xs = [0, 1, 2]
     safe_values = [min(100.0, max(0.0, float(v))) for v in values]
+    safe_golden_values = [min(100.0, max(0.0, float(v))) for v in golden_values]
+    ax.plot(xs, safe_golden_values, color="#e6a23c", linewidth=1.8, marker="o", markersize=3.2, linestyle="--")
     ax.plot(xs, safe_values, color="#409eff", linewidth=1.8, marker="o", markersize=3.5)
     ax.set_xlim(-0.15, 2.15)
     ax.set_ylim(0, 100)

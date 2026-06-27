@@ -584,21 +584,26 @@
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <template v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey">
-              <svg width="28" height="12">
-                <line
-                  x1="1"
-                  y1="6"
-                  x2="27"
-                  y2="6"
-                  :stroke="info.color"
-                  stroke-width="2.75"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <span class="legend-lbl">{{ info.label }}</span>
-            </template>
-            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
+            <div class="orient-line-legend-group">
+              <span class="orient-line-legend-title">方向</span>
+              <span v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey" class="orient-line-legend-item">
+                <svg width="28" height="12">
+                  <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
+                </svg>
+                <span class="legend-lbl">{{ info.label }}</span>
+              </span>
+            </div>
+            <div class="orient-line-legend-group sample-style">
+              <span class="orient-line-legend-title">樣本</span>
+              <span class="orient-line-style-chip analysis">
+                <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#409eff" stroke-width="2.75" stroke-linecap="round" /></svg>
+                <span>分析樣本 · {{ currentSelectedVersionLabel || selectedSample }}</span>
+              </span>
+              <span class="orient-line-style-chip golden">
+                <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#e6a23c" stroke-width="2.75" stroke-linecap="round" stroke-dasharray="5 4" /></svg>
+                <span>Golden 樣本 · {{ currentGoldenVersionLabel || goldenSample }}</span>
+              </span>
+            </div>
           </div>
           <div class="orient-toggle-bar">
             <div class="row-toggle-group">
@@ -664,11 +669,11 @@
                 :y="rowInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.orientationKey}`">
-                <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
+              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.key}`">
+                <polyline :points="series.polyline" :stroke="series.color" :stroke-dasharray="series.dashed ? '5 4' : undefined" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-20-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
+                  :key="`point-20-${rowInfo.rowKey}-${series.key}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -678,7 +683,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-20-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
+                  :key="`label-20-${rowInfo.rowKey}-${series.key}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -695,21 +700,26 @@
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <template v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey">
-              <svg width="28" height="12">
-                <line
-                  x1="1"
-                  y1="6"
-                  x2="27"
-                  y2="6"
-                  :stroke="info.color"
-                  stroke-width="2.75"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <span class="legend-lbl">{{ info.label }}</span>
-            </template>
-            <span class="orient-line-version">{{ currentSelectedVersionLabel || selectedSample }}</span>
+            <div class="orient-line-legend-group">
+              <span class="orient-line-legend-title">方向</span>
+              <span v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey" class="orient-line-legend-item">
+                <svg width="28" height="12">
+                  <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
+                </svg>
+                <span class="legend-lbl">{{ info.label }}</span>
+              </span>
+            </div>
+            <div class="orient-line-legend-group sample-style">
+              <span class="orient-line-legend-title">樣本</span>
+              <span class="orient-line-style-chip analysis">
+                <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#409eff" stroke-width="2.75" stroke-linecap="round" /></svg>
+                <span>分析樣本 · {{ currentSelectedVersionLabel || selectedSample }}</span>
+              </span>
+              <span class="orient-line-style-chip golden">
+                <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#e6a23c" stroke-width="2.75" stroke-linecap="round" stroke-dasharray="5 4" /></svg>
+                <span>Golden 樣本 · {{ currentGoldenVersionLabel || goldenSample }}</span>
+              </span>
+            </div>
           </div>
           <div class="orient-toggle-bar">
             <div class="row-toggle-group">
@@ -775,11 +785,11 @@
                 :y="rowInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.orientationKey}`">
-                <polyline :points="series.polyline" :stroke="series.color" class="orient-line-path" />
+              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.key}`">
+                <polyline :points="series.polyline" :stroke="series.color" :stroke-dasharray="series.dashed ? '5 4' : undefined" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-15-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
+                  :key="`point-15-${rowInfo.rowKey}-${series.key}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -789,7 +799,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-15-${rowInfo.rowKey}-${series.orientationKey}-${point.x}`"
+                  :key="`label-15-${rowInfo.rowKey}-${series.key}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -1731,10 +1741,10 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   return (arr[idx] * 100).toFixed(1)
 }
 
-function getOrientLineValues(rowKey: string, dev: OrientDev, orientationIndex: number): number[] {
+function getOrientLineValues(sample: string, rowKey: string, dev: OrientDev, orientationIndex: number): number[] {
   const key = `orientation_ratio(${dev})` as keyof CppFeatures
   return ORIENT_LINE_X_TICKS.map((tick) => {
-    const arr = getGridPosData(`${tick.colKey}-${rowKey}`)?.[key] as number[] | undefined
+    const arr = getDisplayedPosData(sample, `${tick.colKey}-${rowKey}`)?.[key] as number[] | undefined
     return Number(((arr?.[orientationIndex] ?? 0) * 100).toFixed(1))
   })
 }
@@ -1773,19 +1783,30 @@ function buildOrientLineChart(rowKey: string, dev: OrientDev) {
       label: String(value),
       y: orientLineY(value),
     })),
-    series: ORIENT_LINE_SERIES_INFO.filter((info) => visibleLineOrientations.value.has(info.orientationKey)).map((info) => {
-      const points = getOrientLineValues(rowKey, dev, info.index).map((value, index) => ({
-        x: orientLineX(index),
-        y: orientLineY(value),
-        labelY: orientLineLabelY(orientLineY(value)),
-        label: `${value.toFixed(1)}%`,
-      }))
-      return {
-        ...info,
-        points,
-        polyline: points.map((point) => `${point.x},${point.y}`).join(' '),
-      }
-    }),
+    series: ORIENT_LINE_SERIES_INFO
+      .filter((info) => visibleLineOrientations.value.has(info.orientationKey))
+      .flatMap((info) => [
+        { source: 'analysis' as const, sample: selectedSample.value, dashed: false, labelOffset: -8 },
+        { source: 'golden' as const, sample: goldenSample.value, dashed: true, labelOffset: 10 },
+      ].filter((spec) => spec.sample).map((spec) => {
+        const points = getOrientLineValues(spec.sample, rowKey, dev, info.index).map((value, index) => {
+          const y = orientLineY(value)
+          return {
+            x: orientLineX(index),
+            y,
+            labelY: Math.min(ORIENT_LINE_LAYOUT.height - 6, Math.max(ORIENT_LINE_LAYOUT.top + 11, y + spec.labelOffset)),
+            label: `${value.toFixed(1)}%`,
+          }
+        })
+        return {
+          ...info,
+          key: `${info.orientationKey}-${spec.source}`,
+          source: spec.source,
+          dashed: spec.dashed,
+          points,
+          polyline: points.map((point) => `${point.x},${point.y}`).join(' '),
+        }
+      })),
   }
 }
 
@@ -3311,8 +3332,58 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .orient-line-controls {
   margin-bottom: .85rem;
 }
+.orient-line-controls .orient-legend-row {
+  align-items: flex-start;
+  gap: .75rem;
+}
+.orient-line-legend-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .42rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #f8fafc;
+  padding: .28rem .45rem;
+}
+.orient-line-legend-group.sample-style {
+  border-color: #dbeafe;
+  background: #fff;
+}
+.orient-line-legend-title {
+  color: #64748b;
+  font-size: .74rem;
+  font-weight: 850;
+  padding: 0 .2rem;
+}
+.orient-line-legend-item,
+.orient-line-style-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  color: #374151;
+  font-size: .8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.orient-line-legend-item .legend-lbl {
+  margin-right: 0;
+}
+.orient-line-style-chip {
+  border-radius: 999px;
+  padding: .18rem .52rem .18rem .28rem;
+}
+.orient-line-style-chip.analysis {
+  border: 1px solid #b3d8ff;
+  background: #ecf5ff;
+  color: #409eff;
+}
+.orient-line-style-chip.golden {
+  border: 1px solid #f3d19e;
+  background: #fdf6ec;
+  color: #e6a23c;
+}
 .orient-line-version {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   padding: .24rem .72rem;

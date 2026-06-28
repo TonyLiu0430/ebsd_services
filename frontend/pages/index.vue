@@ -327,8 +327,8 @@
             </div>
           </div>
 
-          <div class="details-panel open-panel">
-            <div class="details-title">檔案明細</div>
+          <details class="details-panel">
+            <summary class="details-title">檔案明細 · {{ group.items.length }} 組</summary>
             <div class="scan-list">
               <article v-for="pair in group.items" :key="pair.id" class="scan-item">
                 <div>
@@ -357,7 +357,7 @@
                 </dl>
               </article>
             </div>
-          </div>
+          </details>
         </section>
           </div>
         </details>
@@ -846,8 +846,7 @@ function processFolderFiles(fileList: FileList | null | undefined) {
 
 function resolveTargetFolder(parts: string[]): string {
   if (parts.length <= 1) return ''
-  if (parts.length === 2) return parts[0]
-  return parts[1] || parts[0]
+  return parts[parts.length - 2] || ''
 }
 
 function parseTargetVersion(folder: string) {
@@ -1065,6 +1064,19 @@ function resetUploadForm(clearMessage = true) {
 
 function standardPos(pos: string): string {
   const trimmed = pos.trim()
+  const numericMap: Record<string, string> = {
+    1: 'C-U',
+    2: 'M-U',
+    3: 'E-U',
+    4: 'C-M',
+    5: 'M-M',
+    6: 'E-M',
+    7: 'C-B',
+    8: 'M-B',
+    9: 'E-B',
+  }
+  if (numericMap[trimmed]) return numericMap[trimmed]
+
   const dashMatch = trimmed.match(/^([CME])-([UMB])$/i)
   if (dashMatch) return `${dashMatch[1].toUpperCase()}-${dashMatch[2].toUpperCase()}`
 
@@ -1182,6 +1194,27 @@ function materialStyle(element: string): Record<string, string> {
       '--material-bg': '#fff7d6',
       '--material-border': '#d99a17',
       '--material-text': '#8a5a00',
+    }
+  }
+  if (element === 'Al') {
+    return {
+      '--material-bg': '#f3f4f6',
+      '--material-border': '#b8c0cc',
+      '--material-text': '#4b5563',
+    }
+  }
+  if (element === 'Ta') {
+    return {
+      '--material-bg': '#dce4ef',
+      '--material-border': '#66758a',
+      '--material-text': '#2f3a4a',
+    }
+  }
+  if (element === 'Ti') {
+    return {
+      '--material-bg': '#eef2f7',
+      '--material-border': '#8a95a6',
+      '--material-text': '#3f4a5a',
     }
   }
   return {

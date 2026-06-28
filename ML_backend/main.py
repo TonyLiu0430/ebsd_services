@@ -185,18 +185,22 @@ def lattice_distance(phase: Dict[str, Any], candidate: Dict[str, Any]) -> Option
     a, b, c, alpha, beta, gamma = [float(v) for v in constants[:6]]
     if any(not math.isfinite(v) for v in (a, b, c, alpha, beta, gamma)):
         return None
-    if max(abs(alpha - 90), abs(beta - 90), abs(gamma - 90)) > 1.5:
-        return None
     if candidate["phase"] in {"FCC", "BCC", "Diamond"}:
+        if max(abs(alpha - 90), abs(beta - 90), abs(gamma - 90)) > 1.5:
+            return None
         measured = (a + b + c) / 3
         cubic_spread = max(abs(a - measured), abs(b - measured), abs(c - measured)) / max(measured, 1e-9)
         if cubic_spread > 0.015:
             return None
         return abs(measured - float(candidate["a"])) / float(candidate["a"])
     if candidate["phase"] == "HCP":
-        if abs(gamma - 120) > 2.0 and abs(gamma - 90) > 1.5:
+        if abs(alpha - 90) > 1.5 or abs(beta - 90) > 1.5 or abs(gamma - 120) > 2.0:
             return None
-        da = abs(a - float(candidate["a"])) / float(candidate["a"])
+        measured_a = (a + b) / 2
+        hex_spread = abs(a - b) / max(measured_a, 1e-9)
+        if hex_spread > 0.015:
+            return None
+        da = abs(measured_a - float(candidate["a"])) / float(candidate["a"])
         dc = abs(c - float(candidate["c"])) / float(candidate["c"])
         return math.sqrt((da * da + dc * dc) / 2)
     return None
@@ -205,14 +209,12 @@ def lattice_distance(phase: Dict[str, Any], candidate: Dict[str, Any]) -> Option
 def detect_material_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     phases = metadata.get("phases") if isinstance(metadata, dict) else []
     phase = phases[0] if phases else {}
-    names = [str(phase.get("structure_name") or ""), str(phase.get("material_name") or "")]
-    name_element = next((element for element in (alias_element(name) for name in names) if element), None)
     candidates = []
     for candidate in MATERIAL_PHASES:
         distance = lattice_distance(phase, candidate)
         if distance is None or distance > 0.025:
             continue
-        score = distance - (0.01 if name_element == candidate["element"] else 0)
+        score = distance
         candidates.append({**candidate, "distance": distance, "score": score})
     candidates.sort(key=lambda item: item["score"])
     best = candidates[0] if candidates else None
@@ -221,10 +223,7 @@ def detect_material_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     ambiguous = False
     if best:
         matched_by.append("lattice")
-        if name_element == best["element"]:
-            matched_by.append("structure_name_alias")
-            confidence = "high" if best["distance"] <= 0.018 else "medium"
-        elif best["distance"] <= 0.010:
+        if best["distance"] <= 0.010:
             confidence = "high"
         elif best["distance"] <= 0.020:
             confidence = "medium"
@@ -233,13 +232,10 @@ def detect_material_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
         if len(candidates) > 1 and abs(candidates[1]["score"] - best["score"]) < 0.006:
             ambiguous = True
             confidence = "ambiguous"
-    elif name_element:
-        matched_by.append("structure_name_alias")
-        confidence = "low"
 
-    element = best["element"] if best else name_element
+    element = best["element"] if best else None
     phase_label = best["phase"] if best else None
-    material_key = best["key"] if best else (f"{element}-Unknown" if element else "unknown")
+    material_key = best["key"] if best else "unknown"
     display_name = f"{element} ({phase_label})" if element and phase_label else (element or "Unknown")
     return {
         "material_key": material_key,

@@ -1224,6 +1224,27 @@ function materialStyle(element: string): Record<string, string> {
       '--material-text': '#8a5a00',
     }
   }
+  if (element === 'Al') {
+    return {
+      '--material-bg': '#f3f4f6',
+      '--material-border': '#b8c0cc',
+      '--material-text': '#4b5563',
+    }
+  }
+  if (element === 'Ta') {
+    return {
+      '--material-bg': '#dce4ef',
+      '--material-border': '#66758a',
+      '--material-text': '#2f3a4a',
+    }
+  }
+  if (element === 'Ti') {
+    return {
+      '--material-bg': '#eef2f7',
+      '--material-border': '#8a95a6',
+      '--material-text': '#3f4a5a',
+    }
+  }
   return {
     '--material-bg': '#e5e7eb',
     '--material-border': '#9ca3af',

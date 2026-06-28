@@ -34,7 +34,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   0,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 	})
 

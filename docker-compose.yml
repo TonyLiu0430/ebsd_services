@@ -9,8 +9,10 @@ services:
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       GO_BACKEND_URL: "http://go_backend:8080"
     depends_on:
-      - postgres
-      - go_backend
+      postgres:
+        condition: service_healthy
+      go_backend:
+        condition: service_started
 
   cpp_backend:
     build:
@@ -34,6 +36,10 @@ services:
       DATABASE_CONNECTION_STRING: "dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} host=postgres port=5432 sslmode=disable"
       JWT_SECRET: ${JWT_SECRET}
       AUTH_SECRET: ${AUTH_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
   caddy:
     image: caddy:2
     ports:
@@ -54,6 +60,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   cloudflared:
     image: cloudflare/cloudflared:latest

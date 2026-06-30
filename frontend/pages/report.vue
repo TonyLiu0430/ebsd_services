@@ -131,10 +131,18 @@
     <!-- ══════════════ REPORT ══════════════ -->
     <template v-if="reportData">
       <div
+        v-if="!versionDockCollapsed"
         class="report-version-dock pdf-exclude"
         aria-label="Report version switcher"
         data-html2canvas-ignore="true"
       >
+        <button
+          class="report-version-dock__collapse"
+          type="button"
+          aria-label="收合左下角控制面板"
+          title="收合"
+          @click="versionDockCollapsed = true"
+        >收合</button>
         <div class="report-version-dock__title">Report 版本</div>
         <div class="report-version-dock__meta">
           <span>{{ selectedSample }}目前版本: {{ currentSelectedVersionLabel }}</span>
@@ -175,6 +183,15 @@
           {{ grainSettingsError }}
         </el-text>
       </div>
+      <button
+        v-else
+        class="report-version-dock-dot pdf-exclude"
+        type="button"
+        aria-label="展開左下角控制面板"
+        title="展開控制面板"
+        data-html2canvas-ignore="true"
+        @click="versionDockCollapsed = false"
+      ></button>
 
       <div class="report-action-bar pdf-exclude" data-html2canvas-ignore="true">
         <button class="pdf-btn" @click="exportReportPdf" :disabled="exportingPdf">
@@ -1004,6 +1021,7 @@ const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
 const rawVersionPositions = ref<Record<string, Record<string, string[]>>>({})
+const versionDockCollapsed = ref(false)
 
 const DEFAULT_FEATURE_OPTIONS = [
   'overall distribution : wasserstein_distance / mean',
@@ -2979,6 +2997,38 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   overflow-x: hidden;
   overflow-y: auto;
 }
+.report-version-dock__collapse {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  height: 26px;
+  padding: 0 .65rem;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #409eff;
+  color: #fff;
+  font-size: .74rem;
+  font-weight: 800;
+  line-height: 24px;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+}
+.report-version-dock__collapse:hover {
+  background: #337ecc;
+}
+.report-version-dock-dot {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 40;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #409eff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+  cursor: pointer;
+}
 .report-version-dock * {
   box-sizing: border-box;
 }
@@ -3560,6 +3610,10 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     bottom: 12px;
     width: auto;
     max-height: min(70vh, 520px);
+  }
+  .report-version-dock-dot {
+    left: 12px;
+    bottom: 12px;
   }
   .grain-card-head {
     align-items: stretch;

@@ -553,6 +553,64 @@ int main() {
         res.set_content(buffer, "image/png");
     });
 
+    svr.Post("/ipf_legend", [](const httplib::Request& req, httplib::Response& res) {
+        if (!req.is_multipart_form_data()) {
+            res.status = 400;
+            res.set_content("Content-Type must be multipart/form-data", "text/plain");
+            return;
+        }
+
+        const auto& cpr_file = req.get_file_value("cpr");
+        const auto& crc_file = req.get_file_value("crc");
+        if(!(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc"))) {
+            res.status = 400;
+            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
+            return;
+        }
+
+        std::filesystem::path temp_dir = "./temp";
+        std::filesystem::create_directories(temp_dir);
+        std::random_device rd;
+        thread_local std::mt19937 rng(rd());
+        uuids::uuid_random_generator generator(rng);
+        std::string rand_name = uuids::to_string(generator());
+        std::filesystem::path cpr_path = temp_dir / ("legend_" + rand_name + ".cpr");
+        std::filesystem::path crc_path = temp_dir / ("legend_" + rand_name + ".crc");
+        std::filesystem::path legend_path = temp_dir / ("ipf_legend_" + rand_name + ".png");
+        TempFile cpr(cpr_path);
+        TempFile crc(crc_path);
+        TempFile legend(legend_path);
+        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
+        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
+
+        int size = 220;
+        if(req.has_param("size")) {
+            try {
+                size = std::stoi(req.get_param_value("size"));
+            } catch(...) {
+                res.status = 400;
+                res.set_content("size must be an integer", "text/plain");
+                return;
+            }
+        }
+        size = std::max(80, std::min(size, 640));
+
+        try {
+            save_ipf_legend(cpr_path, legend_path, size);
+        } catch(const std::exception& exc) {
+            res.status = 500;
+            res.set_content(exc.what(), "text/plain");
+            return;
+        }
+
+        std::ifstream legend_fs(legend_path, std::ios::binary);
+        std::string buffer;
+        auto file_size = std::filesystem::file_size(legend_path);
+        buffer.resize(file_size);
+        legend_fs.read(buffer.data(), file_size);
+        res.set_content(buffer, "image/png");
+    });
+
     svr.Get("/", [](const httplib::Request& req, httplib::Response& res) {
         res.set_content("Hello, World!", "text/plain");
     });

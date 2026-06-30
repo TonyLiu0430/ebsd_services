@@ -11,11 +11,13 @@ nlohmann::json features(const std::string &cpr_file_path, int min_grain_size = 1
 
 nlohmann::json material_metadata(const std::string &cpr_file_path);
 
-std::vector<std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const std::vector<std::vector<QuatF>> &orientations, std::array<double, 3> ref_dir = {0.0, 0.0, 1.0});
+std::vector<std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const std::vector<std::vector<QuatF>> &orientations, const std::filesystem::path& cpr_path, std::array<double, 3> ref_dir = {0.0, 0.0, 1.0});
 
 void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir = {0.0, 0.0, 1.0}, double denoindex_threshold = 50.0);
 
 void save_ipf_legend(const std::filesystem::path& img_path, int size = 220);
+
+void save_ipf_legend(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, int size = 220);
 
 /* TODO */
 std::vector<std::vector<QuatF>> orientations_to_2d(float* euler1, float* euler2, float* euler3, int Xdim, int Ydim);

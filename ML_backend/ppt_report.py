@@ -29,12 +29,8 @@ ROW_SERIES_INFO = [
     {"rowKey": "M", "color": RGBColor(59, 130, 246), "label": "中 (M)"},
     {"rowKey": "B", "color": RGBColor(16, 185, 129), "label": "下 (B)"},
 ]
-ORIENT_LINE_SERIES_INFO = [
-    {"orientationKey": "001", "index": 0, "color": RGBColor(64, 158, 255), "label": "[001]"},
-    {"orientationKey": "011", "index": 1, "color": RGBColor(103, 194, 58), "label": "[011]"},
-    {"orientationKey": "111", "index": 2, "color": RGBColor(230, 162, 60), "label": "[111]"},
-]
-ORIENT_LABELS = ["001", "011", "111"]
+ORIENT_COLORS = [RGBColor(64, 158, 255), RGBColor(103, 194, 58), RGBColor(230, 162, 60)]
+DEFAULT_ORIENT_LABELS = ["[001]", "[011]", "[111]"]
 ORIENT_LINE_X_TICKS = [
     {"colKey": "C", "label": "內"},
     {"colKey": "M", "label": "中"},
@@ -57,6 +53,21 @@ Snapshot = Dict[str, FeatureMap]
 ReportData = Dict[str, Snapshot]
 
 
+def _orientation_labels(snapshot: Snapshot) -> List[str]:
+    for features in snapshot.values():
+        labels = features.get("orientation_labels") if isinstance(features, dict) else None
+        if isinstance(labels, list) and len(labels) >= 3:
+            return [str(label) for label in labels[:3]]
+    return list(DEFAULT_ORIENT_LABELS)
+
+
+def _orientation_series_info(labels: List[str]) -> List[Dict[str, Any]]:
+    return [
+        {"orientationKey": label.strip("[]"), "index": idx, "color": ORIENT_COLORS[idx], "label": label}
+        for idx, label in enumerate(labels[:3])
+    ]
+
+
 def build_pptx_report(
     *,
     selected_sample: str,
@@ -73,6 +84,7 @@ def build_pptx_report(
 
     selected_snapshot = report_data.get(selected_sample, {})
     golden_snapshot = report_data.get(golden_sample, {})
+    orientation_labels = _orientation_labels(selected_snapshot)
     selected_positions = sorted(selected_snapshot.keys(), key=_sort_position_key)
     golden_positions = sorted(golden_snapshot.keys(), key=_sort_position_key)
     missing_golden = [pos for pos in selected_positions if pos not in golden_snapshot]
@@ -88,11 +100,11 @@ def build_pptx_report(
     )
     if ipf_images:
         _add_ipf_slide(prs, selected_sample, selected_version_label, ipf_images, ipf_legend)
-    _add_nine_grid_slide(prs, selected_sample, selected_version_label, selected_snapshot, missing_golden, missing_selected)
-    _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "20%")
-    _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "15%")
-    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "20%")
-    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "15%")
+    _add_nine_grid_slide(prs, selected_sample, selected_version_label, selected_snapshot, missing_golden, missing_selected, orientation_labels)
+    _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "20%", orientation_labels)
+    _add_orientation_triangle_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, report_data, "15%", orientation_labels)
+    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "20%", orientation_labels)
+    _add_orientation_line_slide(prs, selected_sample, golden_sample, selected_version_label, golden_version_label, selected_snapshot, golden_snapshot, "15%", orientation_labels)
 
     output = io.BytesIO()
     prs.save(output)
@@ -297,6 +309,7 @@ def _add_nine_grid_slide(
     selected_snapshot: Snapshot,
     missing_golden: Iterable[str],
     missing_selected: Iterable[str],
+    orientation_labels: List[str],
 ):
     missing_golden_set = set(missing_golden)
     missing_selected_set = set(missing_selected)
@@ -319,10 +332,10 @@ def _add_nine_grid_slide(
         for c, col_key in enumerate(COL_KEYS):
             pos = f"{col_key}-{row_key}"
             x = x0 + c * (cell_w + gap_x)
-            _draw_nine_grid_data_card(slide, x, y, cell_w, cell_h, pos, selected_snapshot.get(pos), _position_status(pos, selected_snapshot.get(pos), missing_golden_set, missing_selected_set))
+            _draw_nine_grid_data_card(slide, x, y, cell_w, cell_h, pos, selected_snapshot.get(pos), _position_status(pos, selected_snapshot.get(pos), missing_golden_set, missing_selected_set), orientation_labels)
 
 
-def _draw_nine_grid_data_card(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], status: str):
+def _draw_nine_grid_data_card(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], status: str, orientation_labels: List[str]):
     card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
     card.fill.solid()
     card.fill.fore_color.rgb = RGBColor(255, 255, 255)
@@ -347,7 +360,7 @@ def _draw_nine_grid_data_card(slide, x: float, y: float, w: float, h: float, pos
     orient_table = slide.shapes.add_table(3, 4, Inches(x + 1.48), Inches(y + 0.51), Inches(w - 1.62), Inches(0.62)).table
     for idx, width in enumerate([0.34, 0.54, 0.54, 0.54]):
         orient_table.columns[idx].width = Inches(width)
-    for col, label in enumerate(["", "[001]", "[011]", "[111]"]):
+    for col, label in enumerate(["", *orientation_labels[:3]]):
         _style_header_cell(orient_table.cell(0, col), label)
         _set_cell_text(orient_table.cell(0, col), label, size=5, bold=True, color=SUCCESS_TEXT)
     for row, (dev, values) in enumerate([("20deg", orient20), ("15deg", orient15)], start=1):
@@ -366,6 +379,7 @@ def _draw_orientation_ratio_card(
     selected_features: Optional[FeatureMap],
     golden_features: Optional[FeatureMap],
     dev: str,
+    orientation_labels: List[str],
 ):
     card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
     card.fill.solid()
@@ -385,7 +399,7 @@ def _draw_orientation_ratio_card(
     table = slide.shapes.add_table(3, 4, Inches(x + 0.18), Inches(y + 0.42), Inches(w - 0.36), Inches(0.78)).table
     for idx, width in enumerate([0.72, 0.75, 0.75, 0.75]):
         table.columns[idx].width = Inches(width)
-    for col, label in enumerate(["", "[001]", "[011]", "[111]"]):
+    for col, label in enumerate(["", *orientation_labels[:3]]):
         _style_header_cell(table.cell(0, col), label)
         _set_cell_text(table.cell(0, col), label, size=6, bold=True, color=SUCCESS_TEXT)
     row_specs = [
@@ -408,6 +422,7 @@ def _add_orientation_triangle_slide(
     golden_version_label: str,
     report_data: ReportData,
     dev: str,
+    orientation_labels: List[str],
 ):
     slide = _blank_slide(prs)
     _add_section_title(slide, f"晶粒取向比例 - Misorientation {dev}")
@@ -420,7 +435,7 @@ def _add_orientation_triangle_slide(
     panel_w = 3.95
     panel_h = 5.25
     for c, col_key in enumerate(COL_KEYS):
-        _draw_triangle_panel(slide, x0 + c * 4.25, y0, panel_w, panel_h, col_key, dev, selected_snapshot, golden_snapshot)
+        _draw_triangle_panel(slide, x0 + c * 4.25, y0, panel_w, panel_h, col_key, dev, selected_snapshot, golden_snapshot, orientation_labels)
 
 
 def _add_orientation_line_slide(
@@ -432,6 +447,7 @@ def _add_orientation_line_slide(
     selected_snapshot: Snapshot,
     golden_snapshot: Snapshot,
     dev: str,
+    orientation_labels: List[str],
 ):
     slide = _blank_slide(prs)
     _add_section_title(slide, f"晶粒取向折線圖 - Misorientation {dev}")
@@ -446,7 +462,7 @@ def _add_orientation_line_slide(
             pos = f"{col_key}-{row_key}"
             x = x0 + c * 4.18
             y = y0 + r * 1.82
-            _draw_position_orientation_line_chart(slide, x, y, chart_w, chart_h, pos, selected_snapshot.get(pos), golden_snapshot.get(pos), dev)
+            _draw_position_orientation_line_chart(slide, x, y, chart_w, chart_h, pos, selected_snapshot.get(pos), golden_snapshot.get(pos), dev, orientation_labels)
 
 
 def _draw_grain_chart(
@@ -468,11 +484,12 @@ def _draw_grain_chart(
     _add_picture_contain(slide, chart_png, x + 0.05, y + 0.22, w - 0.1, h - 0.25)
 
 
-def _draw_position_orientation_line_chart(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], golden_features: Optional[FeatureMap], dev: str):
+def _draw_position_orientation_line_chart(slide, x: float, y: float, w: float, h: float, pos: str, features: Optional[FeatureMap], golden_features: Optional[FeatureMap], dev: str, orientation_labels: List[str]):
     _add_text(slide, pos, x, y, w, 0.18, size=9, bold=True, align=PP_ALIGN.CENTER)
     chart_png = _render_position_orientation_chart_png(
         _orient_values(features, dev) or [0.0, 0.0, 0.0],
         _orient_values(golden_features, dev) or [0.0, 0.0, 0.0],
+        orientation_labels,
     )
     _add_picture_contain(slide, chart_png, x + 0.03, y + 0.2, w - 0.06, h - 0.22)
 
@@ -564,7 +581,7 @@ def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str,
     return output
 
 
-def _render_position_orientation_chart_png(values: List[float], golden_values: List[float]) -> io.BytesIO:
+def _render_position_orientation_chart_png(values: List[float], golden_values: List[float], orientation_labels: List[str]) -> io.BytesIO:
     fig = Figure(figsize=(3.15, 1.25), dpi=220)
     canvas = FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
@@ -576,7 +593,7 @@ def _render_position_orientation_chart_png(values: List[float], golden_values: L
     ax.set_xlim(-0.15, 2.15)
     ax.set_ylim(0, 100)
     ax.set_xticks(xs)
-    ax.set_xticklabels(["[001]", "[011]", "[111]"], fontsize=6, color="#6b7280")
+    ax.set_xticklabels(orientation_labels[:3], fontsize=6, color="#6b7280")
     ax.set_yticks([0, 25, 50, 75, 100])
     ax.tick_params(labelsize=6, colors="#6b7280", length=2)
     ax.yaxis.grid(True, color="#f0f0f0", linewidth=0.7)
@@ -690,7 +707,7 @@ def _add_triangle_slide_legend(slide, x: float, y: float, selected_version_label
         cursor += 0.82
 
 
-def _draw_triangle_panel(slide, x: float, y: float, w: float, h: float, col_key: str, dev: str, selected_snapshot: Snapshot, golden_snapshot: Snapshot):
+def _draw_triangle_panel(slide, x: float, y: float, w: float, h: float, col_key: str, dev: str, selected_snapshot: Snapshot, golden_snapshot: Snapshot, orientation_labels: List[str]):
     card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
     card.fill.solid()
     card.fill.fore_color.rgb = RGBColor(255, 255, 255)
@@ -715,7 +732,7 @@ def _draw_triangle_panel(slide, x: float, y: float, w: float, h: float, col_key:
         line.line.color.rgb = RGBColor(156, 163, 175)
         line.line.width = Pt(0.55)
         lx, ly = point(58, i)
-        _add_text(slide, f"[{ORIENT_LABELS[i]}]", lx / 914400 - 0.2, ly / 914400 - 0.08, 0.4, 0.14, size=7, bold=True, align=PP_ALIGN.CENTER)
+        _add_text(slide, orientation_labels[i], lx / 914400 - 0.25, ly / 914400 - 0.08, 0.5, 0.14, size=7, bold=True, align=PP_ALIGN.CENTER)
 
     for info in ROW_SERIES_INFO:
         row_key = str(info["rowKey"])
@@ -760,10 +777,10 @@ def _draw_polygon(slide, points: List[Tuple[int, int]], color: RGBColor, *, widt
     _draw_polyline(slide, points + [points[0]], color, width=width, dashed=dashed)
 
 
-def _add_orientation_table(slide, x: float, y: float, w: float, h: float, col_key: str, dev: str, selected_snapshot: Snapshot, golden_snapshot: Snapshot):
+def _add_orientation_table(slide, x: float, y: float, w: float, h: float, col_key: str, dev: str, selected_snapshot: Snapshot, golden_snapshot: Snapshot, orientation_labels: List[str]):
     table = slide.shapes.add_table(4, 4, Inches(x), Inches(y), Inches(w), Inches(h)).table
     _style_header_cell(table.cell(0, 0), "位置")
-    for c, label in enumerate(ORIENT_LABELS, start=1):
+    for c, label in enumerate(orientation_labels[:3], start=1):
         _style_header_cell(table.cell(0, c), label)
     for r, row_key in enumerate(ROW_KEYS, start=1):
         pos = f"{col_key}-{row_key}"
@@ -774,7 +791,7 @@ def _add_orientation_table(slide, x: float, y: float, w: float, h: float, col_ke
             _set_cell_text(table.cell(r, c + 1), f"S {selected[c]:.1f}%\nG {golden[c]:.1f}%", size=7)
 
 
-def _draw_orientation_line_chart(slide, x: float, y: float, w: float, h: float, title: str, row_key: str, dev: str, selected_snapshot: Snapshot):
+def _draw_orientation_line_chart(slide, x: float, y: float, w: float, h: float, title: str, row_key: str, dev: str, selected_snapshot: Snapshot, orientation_labels: List[str]):
     _add_text(slide, title, x, y + 0.47, 0.95, 0.2, size=10, bold=True)
     px = Inches(x + 1.05)
     py = Inches(y + 0.08)
@@ -784,7 +801,7 @@ def _draw_orientation_line_chart(slide, x: float, y: float, w: float, h: float, 
     for idx, tick in enumerate(ORIENT_LINE_X_TICKS):
         lx = x + 1.05 + (w - 1.35) * idx / 2
         _add_text(slide, str(tick["label"]), lx - 0.15, y + h - 0.18, 0.3, 0.12, size=7, color=RGBColor(107, 114, 128), align=PP_ALIGN.CENTER)
-    for info in ORIENT_LINE_SERIES_INFO:
+    for info in _orientation_series_info(orientation_labels):
         orientation_index = int(info["index"])
         values = []
         for tick in ORIENT_LINE_X_TICKS:
@@ -803,11 +820,12 @@ def _draw_orientation_line_chart(slide, x: float, y: float, w: float, h: float, 
             dot.line.fill.background()
 
 
-def _add_native_orientation_line_chart(slide, x: float, y: float, w: float, h: float, title: str, row_key: str, dev: str, selected_snapshot: Snapshot):
+def _add_native_orientation_line_chart(slide, x: float, y: float, w: float, h: float, title: str, row_key: str, dev: str, selected_snapshot: Snapshot, orientation_labels: List[str]):
     _add_text(slide, title, x, y, 1.25, 0.22, size=10, bold=True)
     data = CategoryChartData()
     data.categories = [str(tick["label"]) for tick in ORIENT_LINE_X_TICKS]
-    for info in ORIENT_LINE_SERIES_INFO:
+    series_info = _orientation_series_info(orientation_labels)
+    for info in series_info:
         orientation_index = int(info["index"])
         values = []
         for tick in ORIENT_LINE_X_TICKS:
@@ -834,7 +852,7 @@ def _add_native_orientation_line_chart(slide, x: float, y: float, w: float, h: f
     chart.value_axis.tick_labels.font.size = Pt(8)
     chart.category_axis.tick_labels.font.size = Pt(8)
     for idx, series in enumerate(chart.series):
-        color = ORIENT_LINE_SERIES_INFO[idx]["color"]
+        color = series_info[idx]["color"]
         series.format.line.color.rgb = color
         series.format.line.width = Pt(1.6)
         series.marker.format.fill.solid()
@@ -874,10 +892,11 @@ def _format_nine_grid_cell(pos: str, features: Optional[FeatureMap]) -> str:
         grain_text = "Grain Size (um)\n-"
     orient20 = _orient_values(features, "20%") or [0.0, 0.0, 0.0]
     orient15 = _orient_values(features, "15%") or [0.0, 0.0, 0.0]
+    labels = [str(label) for label in features.get("orientation_labels", DEFAULT_ORIENT_LABELS)[:3]]
     return (
         f"{pos}\n{grain_text}\n"
-        f"Orientation Ratio\n20deg [001]{orient20[0]:.1f}% [011]{orient20[1]:.1f}% [111]{orient20[2]:.1f}%\n"
-        f"15deg [001]{orient15[0]:.1f}% [011]{orient15[1]:.1f}% [111]{orient15[2]:.1f}%"
+        f"Orientation Ratio\n20deg {labels[0]}{orient20[0]:.1f}% {labels[1]}{orient20[1]:.1f}% {labels[2]}{orient20[2]:.1f}%\n"
+        f"15deg {labels[0]}{orient15[0]:.1f}% {labels[1]}{orient15[1]:.1f}% {labels[2]}{orient15[2]:.1f}%"
     )
 
 

@@ -64,6 +64,77 @@ int select_cluster_medoid(const std::vector<NeighborSample>& samples, const std:
     return best_idx;
 }
 
+template <typename T>
+bool is_hcp_lattice(const std::vector<T>& lattice)
+{
+    if(lattice.size() < 6) {
+        return false;
+    }
+    const double a = lattice[0];
+    const double b = lattice[1];
+    const double alpha = lattice[3];
+    const double beta = lattice[4];
+    const double gamma = lattice[5];
+    if(a <= 0.0 || b <= 0.0) {
+        return false;
+    }
+    const double abRelDiff = std::fabs(a - b) / ((a + b) * 0.5);
+    return abRelDiff <= 0.03
+        && std::fabs(alpha - 90.0) <= 3.0
+        && std::fabs(beta - 90.0) <= 3.0
+        && std::fabs(gamma - 120.0) <= 3.0;
+}
+
+OrientationFamilySet orientation_family_set_from_cpr(CprReader& reader, const uint8_t* phase, int totalPoints)
+{
+    std::map<int, int> phaseCounts;
+    for(int i = 0; i < totalPoints; ++i) {
+        const int phaseIndex = static_cast<int>(phase[i]);
+        if(phaseIndex > 0) {
+            phaseCounts[phaseIndex] += 1;
+        }
+    }
+
+    int primaryPhaseIndex = 0;
+    int primaryPhaseCount = 0;
+    for(const auto& item : phaseCounts) {
+        if(item.second > primaryPhaseCount) {
+            primaryPhaseIndex = item.first;
+            primaryPhaseCount = item.second;
+        }
+    }
+
+    for(const auto& phaseInfo : reader.getPhaseVector()) {
+        if(!phaseInfo) {
+            continue;
+        }
+        if(primaryPhaseIndex > 0 && phaseInfo->getPhaseIndex() != primaryPhaseIndex) {
+            continue;
+        }
+        if(is_hcp_lattice(phaseInfo->getLatticeConstants())) {
+            return OrientationFamilySet::Hcp;
+        }
+    }
+
+    if(primaryPhaseIndex == 0) {
+        for(const auto& phaseInfo : reader.getPhaseVector()) {
+            if(phaseInfo && is_hcp_lattice(phaseInfo->getLatticeConstants())) {
+                return OrientationFamilySet::Hcp;
+            }
+        }
+    }
+
+    return OrientationFamilySet::Cubic;
+}
+
+nlohmann::json orientation_labels_for_family_set(OrientationFamilySet familySet)
+{
+    if(familySet == OrientationFamilySet::Hcp) {
+        return {"[0001]", "[10-10]", "[11-20]"};
+    }
+    return {"[001]", "[011]", "[111]"};
+}
+
 } // namespace
 
 nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
@@ -80,6 +151,7 @@ nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
     auto euler1 = reader->getEuler1Pointer();
     auto euler2 = reader->getEuler2Pointer();
     auto euler3 = reader->getEuler3Pointer();
+    const OrientationFamilySet orientationFamilySet = orientation_family_set_from_cpr(*reader, phase, totalPoints);
     denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
     GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
     std::vector<Grain> grains = grainSegmenter.find_grains(min_grain_size);
@@ -96,11 +168,13 @@ nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
     }
     // Orientations_finder orientations_finder(grains);
     Orientations_finder_by_pixel orientations_finder(euler1, euler2, euler3, phase, xDim, yDim);
-    auto ratio20 = orientations_finder.ratio(20);
-    auto ratio15 = orientations_finder.ratio(15);
+    auto ratio20 = orientations_finder.ratio(20, {0.0, 0.0, 1.0}, orientationFamilySet);
+    auto ratio15 = orientations_finder.ratio(15, {0.0, 0.0, 1.0}, orientationFamilySet);
     nlohmann::json j = {
         {"grains", grain_sizes},
         {"noindexed", noindexed(phase, xDim, yDim)},
+        {"orientation_family", orientationFamilySet == OrientationFamilySet::Hcp ? "hcp" : "cubic"},
+        {"orientation_labels", orientation_labels_for_family_set(orientationFamilySet)},
         {"orientation_ratio(20%)", {std::get<0>(ratio20), std::get<1>(ratio20), std::get<2>(ratio20)}},
         {"orientation_ratio(15%)", {std::get<0>(ratio15), std::get<1>(ratio15), std::get<2>(ratio15)}}
     };

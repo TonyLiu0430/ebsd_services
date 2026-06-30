@@ -117,12 +117,35 @@ GRAIN_FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
 
 ORIENTATION_FEATURES: Dict[str, Callable[[float, float], float]] = {
     "[001] (deviation 20%)": numeric_compare,
+    "[011] (deviation 20%)": numeric_compare,
     "[110] (deviation 20%)": numeric_compare,
     "[111] (deviation 20%)": numeric_compare,
+    "[0001] (deviation 20%)": numeric_compare,
+    "[10-10] (deviation 20%)": numeric_compare,
+    "[11-20] (deviation 20%)": numeric_compare,
     "[001] (deviation 15%)": numeric_compare,
+    "[011] (deviation 15%)": numeric_compare,
     "[110] (deviation 15%)": numeric_compare,
-    "[111] (deviation 15%)": numeric_compare
+    "[111] (deviation 15%)": numeric_compare,
+    "[0001] (deviation 15%)": numeric_compare,
+    "[10-10] (deviation 15%)": numeric_compare,
+    "[11-20] (deviation 15%)": numeric_compare,
 }
+
+
+def orientation_label_key(label: Any) -> str:
+    return str(label).strip().strip("[]").replace("−", "-")
+
+
+def orientation_index_for_feature(feature: str, feature_payload: Dict[str, Any]) -> Optional[int]:
+    axis = orientation_label_key(feature.split(']')[0].lstrip('['))
+    labels = feature_payload.get("orientation_labels")
+    if isinstance(labels, list):
+        for idx, label in enumerate(labels):
+            if orientation_label_key(label) == axis:
+                return idx
+    legacy_idx_map = {"001": 0, "011": 1, "110": 1, "111": 2}
+    return legacy_idx_map.get(axis)
 
 ELEMENT_ALIASES = {
     "cu": "Cu", "copper": "Cu", "cupper": "Cu",
@@ -872,6 +895,10 @@ def cpp_ipf_legend() -> bytes:
     return get_cpp_bytes("/ipf_legend", "image/png")
 
 
+def cpp_pair_ipf_legend(row: UserEbsdPair) -> bytes:
+    return post_cpp_pair("/ipf_legend", row, "image/png")
+
+
 @app.get('/ebsd/pairs/{user_pair_id}/ipf_map')
 def get_ebsd_pair_ipf_map(
     user_pair_id: str,
@@ -906,6 +933,20 @@ def get_ebsd_pair_ipf_map(
 def get_ebsd_ipf_legend(request: Request):
     current_user_from_go_session(request)
     return Response(content=cpp_ipf_legend(), media_type="image/png")
+
+
+@app.get('/ebsd/pairs/{user_pair_id}/ipf_legend')
+def get_ebsd_pair_ipf_legend(user_pair_id: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user_from_go_session(request)
+    row = db.execute(
+        select(UserEbsdPair).where(
+            UserEbsdPair.id == user_pair_id,
+            UserEbsdPair.user_id == user["id"],
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="file pair not found")
+    return Response(content=cpp_pair_ipf_legend(row), media_type="image/png")
 
 
 def version_options_for_rows(entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -1065,6 +1106,8 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
     golden_sample = context["golden_sample"]
     selected_key = context["selected_version_key"]
     golden_key = context["golden_version_key"]
+    selected_pairs = context["cumulative_pairs"].get(selected_sample, {}).get(selected_key, {})
+    selected_pair_for_legend = next(iter(selected_pairs.values()), None)
     return {
         "selected_sample": selected_sample,
         "golden_sample": golden_sample,
@@ -1075,7 +1118,7 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
             golden_sample: context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}),
         },
         "ipf_images": context["ipf_images"],
-        "ipf_legend": cpp_ipf_legend(),
+        "ipf_legend": cpp_pair_ipf_legend(selected_pair_for_legend) if selected_pair_for_legend else cpp_ipf_legend(),
     }
 
 
@@ -1124,13 +1167,14 @@ def analysis(req: AnalysisRequest):
                     statRes.append(handler(golden_data["grains"], cur_data["grains"]))
                 elif feat in ORIENTATION_FEATURES:
                     handler = ORIENTATION_FEATURES[feat]
-                    # feat example: "[001] (deviation 20%)"
+                    # feat example: "[001] (deviation 20%)" or "[0001] (deviation 20%)"
                     try:
-                        axis = feat.split(']')[0].lstrip('[')  # 001 / 110 / 111
                         deviation = "20" if "20%" in feat else "15"
                         ratio_key = f"orientation_ratio({deviation}%)"
-                        idx_map = {"001": 0, "110": 1, "111": 2}
-                        idx = idx_map[axis]
+                        idx = orientation_index_for_feature(feat, cur_data)
+                        golden_idx = orientation_index_for_feature(feat, golden_data)
+                        if idx is None or golden_idx is None or idx != golden_idx:
+                            continue
                         golden_ratio = golden_data[ratio_key]
                         sample_ratio = cur_data[ratio_key]
                         statRes.append(handler(float(golden_ratio[idx]), float(sample_ratio[idx])))

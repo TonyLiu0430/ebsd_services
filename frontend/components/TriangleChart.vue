@@ -1,16 +1,11 @@
 <script setup lang="ts">
 /**
  * IPF-style triangle radar chart (SVG).
- * 3 axes:
- *   [001] → top      (angle = -π/2)
- *   [110] → bottom-right (angle = +π/6)
- *   [111] → bottom-left  (angle = 5π/6)
- *
  * series: Array<{
  *   name: string
  *   color: string
  *   dashed: boolean
- *   values: [v001, v110, v111]  // 0-100 (%)
+ *   values: [axis0, axis1, axis2]  // 0-100 (%)
  * }>
  */
 
@@ -25,10 +20,12 @@ const props = withDefaults(defineProps<{
   series: Series[]
   title?: string
   showValueLabels?: boolean
+  axisLabels?: string[]
 }>(), {
   series: () => [],
   title: '',
   showValueLabels: true,
+  axisLabels: () => ['[001]', '[011]', '[111]'],
 })
 
 // SVG geometry
@@ -36,9 +33,14 @@ const CX = 140
 const CY = 148
 const R = 100 // radius for 100%
 
-const ANGLES = [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6] // 001, 110, 111
-const AXIS_LABELS = ['001', '110', '111']
+const ANGLES = [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6]
+const GRID_LEVELS = [10, 25, 50]
 const MAX_PCT = 50  // 頂點 = 50%，超過自然超出
+
+const axisLabels = computed(() => {
+  const labels = props.axisLabels?.length ? props.axisLabels : ['[001]', '[011]', '[111]']
+  return labels.slice(0, 3)
+})
 
 function axisPoint(axisIdx: number, pct: number): { x: number; y: number } {
   const r = (pct / MAX_PCT) * R
@@ -115,7 +117,7 @@ function axisLabelPos(idx: number) {
 
       <!-- Axis labels -->
       <text
-        v-for="(label, i) in AXIS_LABELS"
+        v-for="(label, i) in axisLabels"
         :key="label"
         :x="axisLabelPos(i).x"
         :y="axisLabelPos(i).y + 4"

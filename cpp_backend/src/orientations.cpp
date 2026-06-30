@@ -26,9 +26,54 @@ double angleBetweenUnitVectorsDeg(const EbsdLib::Matrix3X1D& a, const EbsdLib::M
 
 struct FamilyCandidate
 {
-    int familyId; // 0={001}, 1={110}, 2={111}
+    int familyId;
     EbsdLib::Matrix3X1D dir;
 };
+
+std::vector<FamilyCandidate> orientationCandidates(OrientationFamilySet familySet)
+{
+    const double r2 = EbsdLib::Constants::k_1OverRoot2D;
+    const double r3 = EbsdLib::Constants::k_1OverRoot3D;
+    if(familySet == OrientationFamilySet::Hcp)
+    {
+        const double sqrt3Over2 = std::sqrt(3.0) / 2.0;
+        return {
+            // <0001>
+            {0, EbsdLib::Matrix3X1D(0.0, 0.0, 1.0)},
+
+            // <10-10>, basal axes 60 degrees apart. Opposite directions are folded by abs(dot).
+            {1, EbsdLib::Matrix3X1D(1.0, 0.0, 0.0)},
+            {1, EbsdLib::Matrix3X1D(0.5, sqrt3Over2, 0.0)},
+            {1, EbsdLib::Matrix3X1D(-0.5, sqrt3Over2, 0.0)},
+
+            // <11-20>, basal axes rotated 30 degrees from <10-10>.
+            {2, EbsdLib::Matrix3X1D(sqrt3Over2, 0.5, 0.0)},
+            {2, EbsdLib::Matrix3X1D(0.0, 1.0, 0.0)},
+            {2, EbsdLib::Matrix3X1D(-sqrt3Over2, 0.5, 0.0)},
+        };
+    }
+
+    return {
+        // {001}
+        {0, EbsdLib::Matrix3X1D(1.0, 0.0, 0.0)},
+        {0, EbsdLib::Matrix3X1D(0.0, 1.0, 0.0)},
+        {0, EbsdLib::Matrix3X1D(0.0, 0.0, 1.0)},
+
+        // {110}
+        {1, EbsdLib::Matrix3X1D( r2,  r2, 0.0)},
+        {1, EbsdLib::Matrix3X1D( r2, 0.0,  r2)},
+        {1, EbsdLib::Matrix3X1D(0.0,  r2,  r2)},
+        {1, EbsdLib::Matrix3X1D(-r2,  r2, 0.0)},
+        {1, EbsdLib::Matrix3X1D(-r2, 0.0,  r2)},
+        {1, EbsdLib::Matrix3X1D(0.0, -r2,  r2)},
+
+        // {111}
+        {2, EbsdLib::Matrix3X1D( r3,  r3,  r3)},
+        {2, EbsdLib::Matrix3X1D(-r3,  r3,  r3)},
+        {2, EbsdLib::Matrix3X1D( r3, -r3,  r3)},
+        {2, EbsdLib::Matrix3X1D( r3,  r3, -r3)},
+    };
+}
 
 double minAngleToFamily(const EbsdLib::Matrix3X1D& p, const std::vector<FamilyCandidate>& candidates, int familyId)
 {
@@ -51,7 +96,7 @@ double minAngleToFamily(const EbsdLib::Matrix3X1D& p, const std::vector<FamilyCa
 
 } // namespace
 
-std::tuple<double, double, double> Orientations_finder::ratio(double misorientation_threshold, std::array<double, 3> sampleDir) {
+std::tuple<double, double, double> Orientations_finder::ratio(double misorientation_threshold, std::array<double, 3> sampleDir, OrientationFamilySet familySet) {
     if(grains.empty()) {
         throw std::invalid_argument("Orientations_finder::ratio: grains is empty");
     }
@@ -60,29 +105,7 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
     EbsdLib::Matrix3X1D refDir(sampleDir[0], sampleDir[1], sampleDir[2]);
     refDir = refDir.normalize();
 
-    const double r2 = EbsdLib::Constants::k_1OverRoot2D;
-    const double r3 = EbsdLib::Constants::k_1OverRoot3D;
-
-    const std::vector<FamilyCandidate> candidates = {
-            // {001}
-            {0, EbsdLib::Matrix3X1D(1.0, 0.0, 0.0)},
-            {0, EbsdLib::Matrix3X1D(0.0, 1.0, 0.0)},
-            {0, EbsdLib::Matrix3X1D(0.0, 0.0, 1.0)},
-
-            // {110}
-            {1, EbsdLib::Matrix3X1D( r2,  r2, 0.0)},
-            {1, EbsdLib::Matrix3X1D( r2, 0.0,  r2)},
-            {1, EbsdLib::Matrix3X1D(0.0,  r2,  r2)},
-            {1, EbsdLib::Matrix3X1D(-r2,  r2, 0.0)},
-            {1, EbsdLib::Matrix3X1D(-r2, 0.0,  r2)},
-            {1, EbsdLib::Matrix3X1D(0.0, -r2,  r2)},
-
-            // {111}
-            {2, EbsdLib::Matrix3X1D( r3,  r3,  r3)},
-            {2, EbsdLib::Matrix3X1D(-r3,  r3,  r3)},
-            {2, EbsdLib::Matrix3X1D( r3, -r3,  r3)},
-            {2, EbsdLib::Matrix3X1D( r3,  r3, -r3)},
-    };
+    const std::vector<FamilyCandidate> candidates = orientationCandidates(familySet);
 
     double area001 = 0.0;
     double area110 = 0.0;
@@ -141,34 +164,12 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
     return {area001 / totalArea, area110 / totalArea, area111 / totalArea};
 }
 
-std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double misorientation_threshold, std::array<double, 3> sampleDir) {
+std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double misorientation_threshold, std::array<double, 3> sampleDir, OrientationFamilySet familySet) {
     // normalize sample direction
     EbsdLib::Matrix3X1D refDir(sampleDir[0], sampleDir[1], sampleDir[2]);
     refDir = refDir.normalize();
 
-    const double r2 = EbsdLib::Constants::k_1OverRoot2D;
-    const double r3 = EbsdLib::Constants::k_1OverRoot3D;
-
-    const std::vector<FamilyCandidate> candidates = {
-            // {001}
-            {0, EbsdLib::Matrix3X1D(1.0, 0.0, 0.0)},
-            {0, EbsdLib::Matrix3X1D(0.0, 1.0, 0.0)},
-            {0, EbsdLib::Matrix3X1D(0.0, 0.0, 1.0)},
-
-            // {110}
-            {1, EbsdLib::Matrix3X1D( r2,  r2, 0.0)},
-            {1, EbsdLib::Matrix3X1D( r2, 0.0,  r2)},
-            {1, EbsdLib::Matrix3X1D(0.0,  r2,  r2)},
-            {1, EbsdLib::Matrix3X1D(-r2,  r2, 0.0)},
-            {1, EbsdLib::Matrix3X1D(-r2, 0.0,  r2)},
-            {1, EbsdLib::Matrix3X1D(0.0, -r2,  r2)},
-
-            // {111}
-            {2, EbsdLib::Matrix3X1D( r3,  r3,  r3)},
-            {2, EbsdLib::Matrix3X1D(-r3,  r3,  r3)},
-            {2, EbsdLib::Matrix3X1D( r3, -r3,  r3)},
-            {2, EbsdLib::Matrix3X1D( r3,  r3, -r3)},
-    };
+    const std::vector<FamilyCandidate> candidates = orientationCandidates(familySet);
 
     double area001 = 0.0;
     double area110 = 0.0;

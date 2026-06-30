@@ -338,10 +338,10 @@
               <div class="ipf-legend-card" role="tooltip">
                 <div class="ipf-legend-title">IPF 色鍵</div>
                 <div class="ipf-legend-figure">
-                  <img :src="'/api/ebsd/ipf_legend'" alt="IPF triangle color key" class="ipf-legend-img" />
-                  <span class="ipf-legend-label label-111">[111]</span>
-                  <span class="ipf-legend-label label-001">[001]</span>
-                  <span class="ipf-legend-label label-101">[101]</span>
+                  <img :src="ipfLegendUrl" alt="IPF triangle color key" class="ipf-legend-img" />
+                  <span class="ipf-legend-label label-111">{{ ipfLegendLabels.top }}</span>
+                  <span class="ipf-legend-label label-001">{{ ipfLegendLabels.left }}</span>
+                  <span class="ipf-legend-label label-101">{{ ipfLegendLabels.right }}</span>
                 </div>
                 <small>色鍵用來解讀 IPF map 的晶向顏色。</small>
               </div>
@@ -492,20 +492,19 @@
                   <div class="stat-title">Orientation Ratio</div>
                   <table class="orient-table">
                     <thead>
-                      <tr><th></th><th>[001]</th><th>[011]</th><th>[111]</th></tr>
+                      <tr>
+                        <th></th>
+                        <th v-for="label in currentOrientationLabels" :key="label">{{ label }}</th>
+                      </tr>
                     </thead>
                     <tbody>
                       <tr>
                         <td class="dev-label">20°</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 0) }}%</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 1) }}%</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '20%', 2) }}%</td>
+                        <td v-for="(_, idx) in currentOrientationLabels" :key="`20-${idx}`">{{ fmtOrient(`${colKey}-${rowKey}`, '20%', idx) }}%</td>
                       </tr>
                       <tr>
                         <td class="dev-label">15°</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 0) }}%</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 1) }}%</td>
-                        <td>{{ fmtOrient(`${colKey}-${rowKey}`, '15%', 2) }}%</td>
+                        <td v-for="(_, idx) in currentOrientationLabels" :key="`15-${idx}`">{{ fmtOrient(`${colKey}-${rowKey}`, '15%', idx) }}%</td>
                       </tr>
                     </tbody>
                   </table>
@@ -551,7 +550,7 @@
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '20%')" :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(colKey, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -591,7 +590,7 @@
         <div class="triangle-row">
           <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
             <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '15%')" :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(colKey, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -603,7 +602,7 @@
           <div class="orient-legend-row">
             <div class="orient-line-legend-group">
               <span class="orient-line-legend-title">方向</span>
-              <span v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey" class="orient-line-legend-item">
+              <span v-for="info in orientLineSeriesInfo" :key="info.orientationKey" class="orient-line-legend-item">
                 <svg width="28" height="12">
                   <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
                 </svg>
@@ -626,7 +625,7 @@
             <div class="row-toggle-group">
               <span class="toggle-label">線條顯示:</span>
               <button
-                v-for="info in ORIENT_LINE_SERIES_INFO"
+                v-for="info in orientLineSeriesInfo"
                 :key="info.orientationKey"
                 class="row-toggle-btn"
                 :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
@@ -719,7 +718,7 @@
           <div class="orient-legend-row">
             <div class="orient-line-legend-group">
               <span class="orient-line-legend-title">方向</span>
-              <span v-for="info in ORIENT_LINE_SERIES_INFO" :key="info.orientationKey" class="orient-line-legend-item">
+              <span v-for="info in orientLineSeriesInfo" :key="info.orientationKey" class="orient-line-legend-item">
                 <svg width="28" height="12">
                   <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
                 </svg>
@@ -742,7 +741,7 @@
             <div class="row-toggle-group">
               <span class="toggle-label">線條顯示:</span>
               <button
-                v-for="info in ORIENT_LINE_SERIES_INFO"
+                v-for="info in orientLineSeriesInfo"
                 :key="info.orientationKey"
                 class="row-toggle-btn"
                 :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
@@ -878,6 +877,8 @@ type CppFeatures = {
   grains: number[]
   'orientation_ratio(20%)': number[]
   'orientation_ratio(15%)': number[]
+  orientation_family?: string
+  orientation_labels?: string[]
 }
 type AllDataResult = Record<string, Record<string, CppFeatures>>
 type VersionedDataResult = Record<string, Record<string, Record<string, CppFeatures>>>
@@ -936,11 +937,8 @@ const ROW_SERIES_INFO = [
   { rowKey: 'M', color: '#3B82F6', label: '中 (M)' },
   { rowKey: 'B', color: '#10B981', label: '下 (B)' },
 ]
-const ORIENT_LINE_SERIES_INFO = [
-  { orientationKey: '001', index: 0, color: '#409EFF', label: '[001]' },
-  { orientationKey: '011', index: 1, color: '#67C23A', label: '[011]' },
-  { orientationKey: '111', index: 2, color: '#E6A23C', label: '[111]' },
-] as const
+const DEFAULT_ORIENTATION_LABELS = ['[001]', '[011]', '[111]'] as const
+const ORIENTATION_COLORS = ['#409EFF', '#67C23A', '#E6A23C'] as const
 const ORIENT_LINE_ROWS = [
   { rowKey: 'U', title: ROW_LABELS.U },
   { rowKey: 'M', title: ROW_LABELS.M },
@@ -984,7 +982,7 @@ function toggleRow(rowKey: string) {
   }
   visibleRows.value = new Set(visibleRows.value)
 }
-const visibleLineOrientations = ref(new Set<string>(['001', '011', '111']))
+const visibleLineOrientations = ref(new Set<string>(DEFAULT_ORIENTATION_LABELS.map(orientationLabelKey)))
 const showOrientLineLabels = ref(true)
 function toggleOrientLineLabels() {
   showOrientLineLabels.value = !showOrientLineLabels.value
@@ -1023,6 +1021,37 @@ const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
 const rawVersionPositions = ref<Record<string, Record<string, string[]>>>({})
 const versionDockCollapsed = ref(false)
 
+function orientationLabelKey(label: string): string {
+  return label.replace(/[\[\]]/g, '').replace('−', '-').trim()
+}
+
+function orientationLabelsFromSnapshot(snapshot: Record<string, CppFeatures>): string[] {
+  for (const data of Object.values(snapshot)) {
+    if (Array.isArray(data.orientation_labels) && data.orientation_labels.length >= 3) {
+      return data.orientation_labels.slice(0, 3)
+    }
+  }
+  return [...DEFAULT_ORIENTATION_LABELS]
+}
+
+const currentOrientationLabels = computed(() => {
+  if (!selectedSample.value) return [...DEFAULT_ORIENTATION_LABELS]
+  return orientationLabelsFromSnapshot(getDisplayedSampleSnapshot(selectedSample.value))
+})
+
+const orientLineSeriesInfo = computed(() =>
+  currentOrientationLabels.value.map((label, index) => ({
+    orientationKey: orientationLabelKey(label),
+    index,
+    color: ORIENTATION_COLORS[index] ?? '#6b7280',
+    label,
+  })),
+)
+
+watch(currentOrientationLabels, (labels) => {
+  visibleLineOrientations.value = new Set(labels.map(orientationLabelKey))
+})
+
 const DEFAULT_FEATURE_OPTIONS = [
   'overall distribution : wasserstein_distance / mean',
   'mean',
@@ -1031,11 +1060,17 @@ const DEFAULT_FEATURE_OPTIONS = [
   '75 percentiles',
   'standard deviation',
   '[001] (deviation 20%)',
-  '[110] (deviation 20%)',
+  '[011] (deviation 20%)',
   '[111] (deviation 20%)',
+  '[0001] (deviation 20%)',
+  '[10-10] (deviation 20%)',
+  '[11-20] (deviation 20%)',
   '[001] (deviation 15%)',
-  '[110] (deviation 15%)',
+  '[011] (deviation 15%)',
   '[111] (deviation 15%)',
+  '[0001] (deviation 15%)',
+  '[10-10] (deviation 15%)',
+  '[11-20] (deviation 15%)',
 ] as const
 
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
@@ -1394,6 +1429,17 @@ const gridDisplaySample = computed(() => displaySampleForTarget(gridDisplayTarge
 const gridDisplayTitle = computed(() => displayTitleForTarget(gridDisplayTarget.value))
 
 const ipfMapPairs = computed(() => resolveDisplayPairs(ipfDisplaySample.value, ipfDisplayVersionOption.value))
+const ipfLegendPair = computed(() => ipfMapPairs.value[0])
+const ipfLegendUrl = computed(() => ipfLegendPair.value?.id
+  ? `/api/ebsd/pairs/${encodeURIComponent(ipfLegendPair.value.id)}/ipf_legend`
+  : '/api/ebsd/ipf_legend')
+const ipfLegendLabels = computed(() => {
+  const snapshot = getDisplayedSampleSnapshot(ipfDisplaySample.value)
+  const isHcp = Object.values(snapshot).some((data) => data.orientation_family === 'hcp')
+  return isHcp
+    ? { top: '[0001]', left: '[10-10]', right: '[11-20]' }
+    : { top: '[111]', left: '[001]', right: '[101]' }
+})
 
 function displaySampleForTarget(target: SampleDisplayTarget): string {
   return target === 'golden' ? goldenSample.value : selectedSample.value
@@ -1822,7 +1868,7 @@ function buildOrientLineChart(rowKey: string, dev: OrientDev) {
       label: String(value),
       y: orientLineY(value),
     })),
-    series: ORIENT_LINE_SERIES_INFO
+    series: orientLineSeriesInfo.value
       .filter((info) => visibleLineOrientations.value.has(info.orientationKey))
       .flatMap((info) => [
         { source: 'analysis' as const, sample: selectedSample.value, dashed: false, labelOffset: -8 },

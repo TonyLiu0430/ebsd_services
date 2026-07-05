@@ -217,17 +217,20 @@ int noindexed(uint8_t* phase, int xDim, int yDim) {
     return count;
 }
 
-void denoindex(float* euler1, float* euler2, float* euler3, uint8_t* phase, int x, int y, double threshold) {
+void denoindex(float* euler1, float* euler2, float* euler3, uint8_t* phase, int x, int y, double threshold, double misorientation_threshold) {
     if(x <= 0 || y <= 0) {
         return;
     }
     if(euler1 == nullptr || euler2 == nullptr || euler3 == nullptr || phase == nullptr) {
         throw std::invalid_argument("denoindex: input pointers must not be null");
     }
+    if(!std::isfinite(misorientation_threshold) || misorientation_threshold < 0.0 || misorientation_threshold > 180.0) {
+        throw std::invalid_argument("denoindex: misorientation threshold must be a finite number between 0 and 180 degrees");
+    }
 
     const int total = x * y;
     const double ratio_threshold = std::clamp(threshold / 100.0, 0.0, 1.0);
-    const float tolerance_rad = 10.0f * static_cast<float>(M_PI / 180.0);
+    const float tolerance_rad = static_cast<float>(misorientation_threshold * M_PI / 180.0);
     constexpr std::array<std::pair<int, int>, 8> neighbors = {{
         {-1,  0}, {1,  0}, {0, -1}, {0,  1},
         {-1, -1}, {-1, 1}, {1, -1}, {1,  1}

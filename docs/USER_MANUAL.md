@@ -377,7 +377,7 @@
 
 - 使用「分析樣本」與「Golden 樣本」切換目前顯示對象。
 - 點選「IPF 色鍵」查看顏色與晶向的對應。
-- 點選「設定」調整 IPF 參考方向向量與 De-noindex threshold。
+- 點選「設定」調整 IPF 參考方向向量、De-noindex threshold 與 misorientation 分群角度。
 
 查看 IPF 色鍵：
 
@@ -393,7 +393,7 @@ IPF 設定：
 - 可手動輸入 X、Y、Z 向量。
 - 套用時系統會自動歸一化向量。
 - 零向量不可使用。
-- De-noindex threshold 可設定 0 至 100，預設為 50%。
+- De-noindex threshold 可設定 0 至 100，預設為 100%；misorientation 分群角度預設為 10°。
 
 ![IPF 設定](images/user-manual/18-ipf-settings-dialog.png)
 

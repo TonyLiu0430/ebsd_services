@@ -330,7 +330,7 @@
         <div class="ipf-section-head">
           <div>
             <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ ipfDisplayTitle }}</h2>
-            <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }}) / De-noindex：{{ formattedIpfDenoindexThreshold }}%</div>
+            <div class="ipf-settings-summary">參考方向向量：({{ formattedIpfReferenceVector }}) / De-noindex：{{ formattedIpfDenoindexThreshold }}% / Misorientation：{{ formattedIpfDenoindexMisorientationThreshold }}°</div>
           </div>
           <div class="ipf-head-actions">
             <div class="ipf-legend-popover" tabindex="0">
@@ -366,6 +366,7 @@
           :sample="ipfDisplaySample"
           :referenceVector="ipfReferenceVector"
           :denoindexThreshold="ipfDenoindexThreshold"
+          :denoindexMisorientationThreshold="ipfDenoindexMisorientationThreshold"
         />
       </section>
 
@@ -418,8 +419,18 @@
                   controls-position="right"
                 />
               </label>
+              <label>
+                <span>Misorientation (°)</span>
+                <el-input-number
+                  v-model="ipfDenoindexMisorientationThresholdDraft"
+                  :min="0"
+                  :max="180"
+                  :step="1"
+                  controls-position="right"
+                />
+              </label>
             </div>
-            <div class="ipf-setting-desc">控制 IPF map 產生前填補 no-index 點的門檻；預設 50%。</div>
+            <div class="ipf-setting-desc">控制 IPF map 產生前填補 no-index 點的門檻；Threshold 預設 100%，Misorientation 預設 10°。</div>
           </div>
         </div>
 
@@ -1096,10 +1107,12 @@ const histBinStartModeDraft = ref<HistBinStartMode>('min')
 const histBinWidthModeDraft = ref<HistBinWidthMode>('ratio')
 const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_RATIO)
 const ipfReferenceVector = ref<[number, number, number]>([0, 0, 1])
-const ipfDenoindexThreshold = ref(50)
+const ipfDenoindexThreshold = ref(100)
+const ipfDenoindexMisorientationThreshold = ref(10)
 const ipfPresetDraft = ref<IpfPreset | ''>('z')
 const ipfVectorDraft = ref({ x: 0, y: 0, z: 1 })
-const ipfDenoindexThresholdDraft = ref(50)
+const ipfDenoindexThresholdDraft = ref(100)
+const ipfDenoindexMisorientationThresholdDraft = ref(10)
 
 watch(histBinWidthModeDraft, (mode) => {
   if (!histogramSettingsOpen.value) return
@@ -1475,6 +1488,9 @@ const formattedIpfReferenceVector = computed(() =>
   ipfReferenceVector.value.map((v) => formatSettingNumber(v)).join(', '),
 )
 const formattedIpfDenoindexThreshold = computed(() => formatSettingNumber(ipfDenoindexThreshold.value))
+const formattedIpfDenoindexMisorientationThreshold = computed(() =>
+  formatSettingNumber(ipfDenoindexMisorientationThreshold.value),
+)
 
 function detectIpfPreset(vector: [number, number, number]): IpfPreset | '' {
   const eps = 1e-9
@@ -1494,6 +1510,7 @@ function openIpfSettings() {
   ipfVectorDraft.value = { x, y, z }
   ipfPresetDraft.value = detectIpfPreset(ipfReferenceVector.value)
   ipfDenoindexThresholdDraft.value = ipfDenoindexThreshold.value
+  ipfDenoindexMisorientationThresholdDraft.value = ipfDenoindexMisorientationThreshold.value
   ipfSettingsOpen.value = true
 }
 
@@ -1524,9 +1541,19 @@ function applyIpfSettings() {
     ElMessage.error('De-noindex threshold 必須介於 0 到 100')
     return
   }
+  const misorientationThreshold = Number(ipfDenoindexMisorientationThresholdDraft.value)
+  if (!Number.isFinite(misorientationThreshold) || misorientationThreshold < 0 || misorientationThreshold > 180) {
+    ElMessage.error('Misorientation threshold 必須介於 0 到 180')
+    return
+  }
   ipfReferenceVector.value = normalized
   ipfDenoindexThreshold.value = threshold
+  ipfDenoindexMisorientationThreshold.value = misorientationThreshold
   ipfSettingsOpen.value = false
+}
+
+function toBackendDenoindexThreshold(value: number): number {
+  return 100 - value
 }
 
 async function generateReport() {
@@ -2047,7 +2074,8 @@ async function exportReportPpt() {
         version_key: currentSelectedVersionOption.value?.key,
         min_grain_size: grainSettings.value.minGrainSize,
         ipf_reference_vector: ipfReferenceVector.value,
-        ipf_denoindex_threshold: ipfDenoindexThreshold.value,
+        ipf_denoindex_threshold: toBackendDenoindexThreshold(ipfDenoindexThreshold.value),
+        ipf_denoindex_misorientation_threshold: ipfDenoindexMisorientationThreshold.value,
       },
     })
     const stamp = new Date().toISOString().slice(0, 10)
@@ -2937,6 +2965,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: .75rem;
 }
+.ipf-threshold-input {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+}
 .ipf-vector-inputs label,
 .ipf-threshold-input label {
   display: grid;
@@ -3677,7 +3710,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     justify-content: center;
     width: 100%;
   }
-  .ipf-vector-inputs {
+  .ipf-vector-inputs,
+  .ipf-threshold-input {
     grid-template-columns: 1fr;
   }
   .ipf-settings-footer {

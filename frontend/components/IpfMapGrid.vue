@@ -16,6 +16,7 @@ const props = defineProps<{
   sample: string
   referenceVector?: [number, number, number]
   denoindexThreshold?: number
+  denoindexMisorientationThreshold?: number
 }>()
 
 type CellState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -35,11 +36,13 @@ function cellImage(pos: string): string | undefined {
 
 function buildIpfMapUrl(pairId: string): string {
   const vector = props.referenceVector ?? [0, 0, 1]
+  const denoindexThreshold = 100 - (props.denoindexThreshold ?? 100)
   const query = new URLSearchParams({
     reference_x: String(vector[0]),
     reference_y: String(vector[1]),
     reference_z: String(vector[2]),
-    denoindex_threshold: String(props.denoindexThreshold ?? 50),
+    denoindex_threshold: String(denoindexThreshold),
+    denoindex_misorientation_threshold: String(props.denoindexMisorientationThreshold ?? 10),
   })
   return `/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map?${query.toString()}`
 }
@@ -108,6 +111,7 @@ async function loadAllCells() {
 watch(samplePairs, loadAllCells, { immediate: true })
 watch(() => props.referenceVector, loadAllCells)
 watch(() => props.denoindexThreshold, loadAllCells)
+watch(() => props.denoindexMisorientationThreshold, loadAllCells)
 
 onUnmounted(() => {
   for (const url of blobUrls) {

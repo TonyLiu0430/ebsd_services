@@ -287,7 +287,7 @@ std::array<double, 3> parse_ipf_reference_dir(const httplib::Request& req) {
 
 double parse_ipf_denoindex_threshold(const httplib::Request& req) {
     if(!req.has_param("denoindex_threshold")) {
-        return 50.0;
+        return 0.0;
     }
 
     try {
@@ -303,6 +303,27 @@ double parse_ipf_denoindex_threshold(const httplib::Request& req) {
         return value;
     } catch(...) {
         throw std::invalid_argument("denoindex_threshold must be a finite number between 0 and 100");
+    }
+}
+
+double parse_ipf_denoindex_misorientation_threshold(const httplib::Request& req) {
+    if(!req.has_param("denoindex_misorientation_threshold")) {
+        return 10.0;
+    }
+
+    try {
+        const std::string raw_value = req.get_param_value("denoindex_misorientation_threshold");
+        std::size_t parsed = 0;
+        const double value = std::stod(raw_value, &parsed);
+        if(parsed != raw_value.size()) {
+            throw std::invalid_argument("invalid trailing characters");
+        }
+        if(!std::isfinite(value) || value < 0.0 || value > 180.0) {
+            throw std::out_of_range("denoindex_misorientation_threshold out of range");
+        }
+        return value;
+    } catch(...) {
+        throw std::invalid_argument("denoindex_misorientation_threshold must be a finite number between 0 and 180");
     }
 }
 
@@ -499,17 +520,19 @@ int main() {
         std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         std::array<double, 3> reference_dir = {0.0, 0.0, 1.0};
-        double denoindex_threshold = 50.0;
+        double denoindex_threshold = 0.0;
+        double denoindex_misorientation_threshold = 10.0;
         try {
             reference_dir = parse_ipf_reference_dir(req);
             denoindex_threshold = parse_ipf_denoindex_threshold(req);
+            denoindex_misorientation_threshold = parse_ipf_denoindex_misorientation_threshold(req);
         } catch(const std::exception& exc) {
             res.status = 400;
             res.set_content(exc.what(), "text/plain");
             return;
         }
 
-        save_ipf_map(cpr_path.string(), ipf_path, reference_dir, denoindex_threshold);
+        save_ipf_map(cpr_path.string(), ipf_path, reference_dir, denoindex_threshold, denoindex_misorientation_threshold);
 
         std::ifstream ipf_fs(ipf_path, std::ios::binary);
         std::string buffer;

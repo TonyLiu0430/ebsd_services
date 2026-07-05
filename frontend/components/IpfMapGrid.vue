@@ -33,18 +33,40 @@ function cellImage(pos: string): string | undefined {
   return images.value[pos]
 }
 
+function buildIpfMapUrl(pairId: string): string {
+  const vector = props.referenceVector ?? [0, 0, 1]
+  const query = new URLSearchParams({
+    reference_x: String(vector[0]),
+    reference_y: String(vector[1]),
+    reference_z: String(vector[2]),
+    denoindex_threshold: String(props.denoindexThreshold ?? 50),
+  })
+  return `/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map?${query.toString()}`
+}
+
+function viewerUrl(pos: string, pairId: string): string {
+  const title = `${props.sample} ${pos} IPF map`
+  const params = new URLSearchParams({
+    src: buildIpfMapUrl(pairId),
+    title,
+  })
+  return `/ipf-viewer?${params.toString()}`
+}
+
+function pairForPos(pos: string): FilePair | undefined {
+  return samplePairs.value.find((p) => p.pos === pos)
+}
+
+function cellViewerUrl(pos: string): string | undefined {
+  const pair = pairForPos(pos)
+  return pair ? viewerUrl(pos, pair.id) : undefined
+}
+
 async function loadCell(pos: string, pairId: string, generation: number) {
   if (generation !== loadGeneration) return
   states.value[pos] = 'loading'
   try {
-    const vector = props.referenceVector ?? [0, 0, 1]
-    const query = new URLSearchParams({
-      reference_x: String(vector[0]),
-      reference_y: String(vector[1]),
-      reference_z: String(vector[2]),
-      denoindex_threshold: String(props.denoindexThreshold ?? 50),
-    })
-    const response = await fetch(`/api/ebsd/pairs/${encodeURIComponent(pairId)}/ipf_map?${query.toString()}`, {
+    const response = await fetch(buildIpfMapUrl(pairId), {
       credentials: 'include',
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -113,12 +135,21 @@ onUnmounted(() => {
           <div v-else-if="cellState(`${colKey}-${rowKey}`) === 'error'" class="ipf-status ipf-error">
             <span>載入失敗</span>
           </div>
-          <img
+          <a
             v-else-if="cellImage(`${colKey}-${rowKey}`)"
-            :src="cellImage(`${colKey}-${rowKey}`)"
-            class="ipf-image"
-            :alt="`IPF map ${colKey}-${rowKey}`"
-          />
+            :href="cellViewerUrl(`${colKey}-${rowKey}`)"
+            target="_blank"
+            rel="noopener"
+            class="ipf-image-link"
+            title="中鍵點擊開啟完整 IPF map，新分頁可縮放"
+            @click.prevent
+          >
+            <img
+              :src="cellImage(`${colKey}-${rowKey}`)"
+              class="ipf-image"
+              :alt="`IPF map ${colKey}-${rowKey}`"
+            />
+          </a>
           <div v-else class="ipf-status ipf-empty">
             <span>無數據</span>
           </div>
@@ -208,6 +239,14 @@ onUnmounted(() => {
   height: auto;
   display: block;
   border-radius: 4px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.ipf-image-link {
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
 }
 
 .ipf-status {

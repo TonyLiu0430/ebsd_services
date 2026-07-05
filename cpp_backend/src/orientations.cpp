@@ -59,7 +59,7 @@ std::vector<FamilyCandidate> orientationCandidates(OrientationFamilySet familySe
         {0, EbsdLib::Matrix3X1D(0.0, 1.0, 0.0)},
         {0, EbsdLib::Matrix3X1D(0.0, 0.0, 1.0)},
 
-        // {110}
+        // {011}
         {1, EbsdLib::Matrix3X1D( r2,  r2, 0.0)},
         {1, EbsdLib::Matrix3X1D( r2, 0.0,  r2)},
         {1, EbsdLib::Matrix3X1D(0.0,  r2,  r2)},
@@ -108,7 +108,7 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
     const std::vector<FamilyCandidate> candidates = orientationCandidates(familySet);
 
     double area001 = 0.0;
-    double area110 = 0.0;
+    double area011 = 0.0;
     double area111 = 0.0;
     double totalArea = 0.0;
     double acceptedArea = 0.0;
@@ -126,13 +126,13 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
         EbsdLib::Matrix3X1D p = (mat * refDir).normalize();
 
         double ang001 = minAngleToFamily(p, candidates, 0);
-        double ang110 = minAngleToFamily(p, candidates, 1);
+        double ang011 = minAngleToFamily(p, candidates, 1);
         double ang111 = minAngleToFamily(p, candidates, 2);
 
         double bestAngle = ang001;
         int bestFamily = 0;
-        if(ang110 < bestAngle) {
-            bestAngle = ang110;
+        if(ang011 < bestAngle) {
+            bestAngle = ang011;
             bestFamily = 1;
         }
         if(ang111 < bestAngle) {
@@ -146,7 +146,7 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
                 area001 += w;
             }
             else if(bestFamily == 1) {
-                area110 += w;
+                area011 += w;
             }
             else {
                 area111 += w;
@@ -161,7 +161,7 @@ std::tuple<double, double, double> Orientations_finder::ratio(double misorientat
         throw std::runtime_error("No grain orientations within the misorientation threshold");
     }
 
-    return {area001 / totalArea, area110 / totalArea, area111 / totalArea};
+    return {area001 / totalArea, area011 / totalArea, area111 / totalArea};
 }
 
 std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double misorientation_threshold, std::array<double, 3> sampleDir, OrientationFamilySet familySet) {
@@ -172,7 +172,7 @@ std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double mi
     const std::vector<FamilyCandidate> candidates = orientationCandidates(familySet);
 
     double area001 = 0.0;
-    double area110 = 0.0;
+    double area011 = 0.0;
     double area111 = 0.0;
     double totalArea = 0.0;
     double acceptedArea = 0.0;
@@ -191,13 +191,13 @@ std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double mi
         EbsdLib::Matrix3X1D p = (mat * refDir).normalize();
 
         double ang001 = minAngleToFamily(p, candidates, 0);
-        double ang110 = minAngleToFamily(p, candidates, 1);
+        double ang011 = minAngleToFamily(p, candidates, 1);
         double ang111 = minAngleToFamily(p, candidates, 2);
 
         double bestAngle = ang001;
         int bestFamily = 0;
-        if(ang110 < bestAngle) {
-            bestAngle = ang110;
+        if(ang011 < bestAngle) {
+            bestAngle = ang011;
             bestFamily = 1;
         }
         if(ang111 < bestAngle) {
@@ -211,7 +211,7 @@ std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double mi
                 area001 += w;
             }
             else if(bestFamily == 1) {
-                area110 += w;
+                area011 += w;
             }
             else {
                 area111 += w;
@@ -226,5 +226,5 @@ std::tuple<double, double, double> Orientations_finder_by_pixel::ratio(double mi
         throw std::runtime_error("No grain orientations within the misorientation threshold");
     }
 
-    return {area001 / totalArea, area110 / totalArea, area111 / totalArea};
+    return {area001 / totalArea, area011 / totalArea, area111 / totalArea};
 }

@@ -118,14 +118,12 @@ GRAIN_FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
 ORIENTATION_FEATURES: Dict[str, Callable[[float, float], float]] = {
     "[001] (deviation 20%)": numeric_compare,
     "[011] (deviation 20%)": numeric_compare,
-    "[110] (deviation 20%)": numeric_compare,
     "[111] (deviation 20%)": numeric_compare,
     "[0001] (deviation 20%)": numeric_compare,
     "[10-10] (deviation 20%)": numeric_compare,
     "[11-20] (deviation 20%)": numeric_compare,
     "[001] (deviation 15%)": numeric_compare,
     "[011] (deviation 15%)": numeric_compare,
-    "[110] (deviation 15%)": numeric_compare,
     "[111] (deviation 15%)": numeric_compare,
     "[0001] (deviation 15%)": numeric_compare,
     "[10-10] (deviation 15%)": numeric_compare,
@@ -144,8 +142,8 @@ def orientation_index_for_feature(feature: str, feature_payload: Dict[str, Any])
         for idx, label in enumerate(labels):
             if orientation_label_key(label) == axis:
                 return idx
-    legacy_idx_map = {"001": 0, "011": 1, "110": 1, "111": 2}
-    return legacy_idx_map.get(axis)
+    default_idx_map = {"001": 0, "011": 1, "111": 2}
+    return default_idx_map.get(axis)
 
 ELEMENT_ALIASES = {
     "cu": "Cu", "copper": "Cu", "cupper": "Cu",

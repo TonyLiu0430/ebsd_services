@@ -93,7 +93,7 @@ class SlipSystem:
     
     @property
     def slip_dir_label(self): # -> str:
-        """Returns the slip direction label. For example '[110]'.
+        """Returns the slip direction label. For example '[011]'.
 
         Returns
         -------
@@ -176,5 +176,4 @@ class SlipSystem:
         """
         ...
     
-
 

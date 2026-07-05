@@ -841,10 +841,21 @@
       <!-- ── Section 4: Python Analysis ──────── -->
       <section class="card" :data-pdf-page="analysisRes ? 'feature-analysis' : undefined">
         <h2 class="section-title">④ 特徵分析 </h2>
-        <div class="feat-label">選擇分析項目</div>
-        <el-checkbox-group v-model="selectedFeatures" class="feat-checkbox-group">
-          <el-checkbox v-for="feat in featureOptionsList" :key="feat" :label="feat" :value="feat" />
-        </el-checkbox-group>
+        <div class="feature-selector-head">
+          <div class="feat-label">選擇分析項目</div>
+          <span class="feature-family-chip">{{ currentAnalysisFamilyLabel }}</span>
+        </div>
+        <div class="feature-group-list">
+          <section v-for="group in visibleFeatureGroups" :key="group.key" class="feature-group">
+            <div class="feature-group-title">
+              <span>{{ group.label }}</span>
+              <span>{{ group.options.length }}</span>
+            </div>
+            <el-checkbox-group v-model="selectedFeatures" class="feat-checkbox-group">
+              <el-checkbox v-for="feat in group.options" :key="feat" :label="feat" :value="feat" />
+            </el-checkbox-group>
+          </section>
+        </div>
         <div class="color-range-settings">
           <h4>顏色範圍設定（%）</h4>
           <div class="color-slider-wrap">
@@ -899,6 +910,9 @@ type HistBinStartMode = 'zero' | 'min'
 type HistBinWidthMode = 'ratio' | 'absolute'
 type IpfPreset = 'x' | 'y' | 'z'
 type SampleDisplayTarget = 'analysis' | 'golden'
+type FeatureFamily = 'all' | 'cubic' | 'hcp'
+type FeatureGroupKey = 'grain' | 'cubic20' | 'cubic15' | 'hcp20' | 'hcp15' | 'other'
+type FeatureGroup = { key: FeatureGroupKey; label: string; options: string[] }
 type GrainSettings = {
   minGrainSize: number
   histBinStartMode: HistBinStartMode
@@ -1083,6 +1097,25 @@ const DEFAULT_FEATURE_OPTIONS = [
   '[10-10] (deviation 15%)',
   '[11-20] (deviation 15%)',
 ] as const
+const GRAIN_FEATURE_OPTIONS = new Set<string>([
+  'overall distribution : wasserstein_distance / mean',
+  'mean',
+  'max',
+  '25 percentiles',
+  '75 percentiles',
+  'standard deviation',
+])
+const CUBIC_FEATURE_AXES = new Set(['[001]', '[011]', '[111]'])
+const HCP_FEATURE_AXES = new Set(['[0001]', '[10-10]', '[11-20]'])
+const FEATURE_GROUP_META: Record<FeatureGroupKey, { label: string; family: FeatureFamily }> = {
+  grain: { label: '晶粒尺寸', family: 'all' },
+  cubic20: { label: 'Cubic 晶向 20%', family: 'cubic' },
+  cubic15: { label: 'Cubic 晶向 15%', family: 'cubic' },
+  hcp20: { label: 'HCP 晶向 20%', family: 'hcp' },
+  hcp15: { label: 'HCP 晶向 15%', family: 'hcp' },
+  other: { label: '其他', family: 'all' },
+}
+const FEATURE_GROUP_ORDER: FeatureGroupKey[] = ['grain', 'cubic20', 'cubic15', 'hcp20', 'hcp15', 'other']
 
 const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
@@ -1132,6 +1165,33 @@ const PDF_CAPTURE_SCALE = 1.35
 const PDF_MARGIN_MM = 8
 const featureOptionsList = computed(() =>
   featuresOptions.value?.length ? featuresOptions.value : [...DEFAULT_FEATURE_OPTIONS],
+)
+const currentAnalysisFamily = computed<Exclude<FeatureFamily, 'all'>>(() =>
+  orientationFamilyFromSnapshot(getDisplayedSampleSnapshot(selectedSample.value)),
+)
+const currentAnalysisFamilyLabel = computed(() =>
+  currentAnalysisFamily.value === 'hcp' ? 'HCP' : 'Cubic',
+)
+const visibleFeatureGroups = computed<FeatureGroup[]>(() => {
+  const groups = new Map<FeatureGroupKey, string[]>()
+
+  for (const feat of featureOptionsList.value) {
+    const groupKey = featureGroupKeyForFeature(feat)
+    const meta = FEATURE_GROUP_META[groupKey]
+    if (meta.family !== 'all' && meta.family !== currentAnalysisFamily.value) continue
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), feat])
+  }
+
+  return FEATURE_GROUP_ORDER
+    .map((key) => ({
+      key,
+      label: FEATURE_GROUP_META[key].label,
+      options: groups.get(key) ?? [],
+    }))
+    .filter((group) => group.options.length > 0)
+})
+const visibleFeatureOptionValues = computed(() =>
+  visibleFeatureGroups.value.flatMap((group) => group.options),
 )
 
 const canGenerate = computed(
@@ -1448,11 +1508,27 @@ const ipfLegendUrl = computed(() => ipfLegendPair.value?.id
   : '/api/ebsd/ipf_legend')
 const ipfLegendLabels = computed(() => {
   const snapshot = getDisplayedSampleSnapshot(ipfDisplaySample.value)
-  const isHcp = Object.values(snapshot).some((data) => data.orientation_family === 'hcp')
-  return isHcp
+  return orientationFamilyFromSnapshot(snapshot) === 'hcp'
     ? { top: '[0001]', left: '[10-10]', right: '[11-20]' }
     : { top: '[111]', left: '[001]', right: '[101]' }
 })
+
+function orientationFamilyFromSnapshot(snapshot: Record<string, CppFeatures>): Exclude<FeatureFamily, 'all'> {
+  return Object.values(snapshot).some((data) => data.orientation_family === 'hcp') ? 'hcp' : 'cubic'
+}
+
+function featureAxisLabel(feature: string): string {
+  return feature.match(/^\[[^\]]+\]/)?.[0] ?? ''
+}
+
+function featureGroupKeyForFeature(feature: string): FeatureGroupKey {
+  if (GRAIN_FEATURE_OPTIONS.has(feature)) return 'grain'
+  const axis = featureAxisLabel(feature)
+  const deviation = feature.includes('20%') ? '20' : feature.includes('15%') ? '15' : ''
+  if (CUBIC_FEATURE_AXES.has(axis)) return deviation === '20' ? 'cubic20' : deviation === '15' ? 'cubic15' : 'other'
+  if (HCP_FEATURE_AXES.has(axis)) return deviation === '20' ? 'hcp20' : deviation === '15' ? 'hcp15' : 'other'
+  return 'other'
+}
 
 function displaySampleForTarget(target: SampleDisplayTarget): string {
   return target === 'golden' ? goldenSample.value : selectedSample.value
@@ -1630,6 +1706,15 @@ function getDisplayedSampleSnapshot(sample: string): Record<string, CppFeatures>
   const versionKey = getDisplayedVersionKey(sample)
   return versionKey ? getVersionSnapshot(sample, versionKey) : getLatestSampleSnapshot(sample)
 }
+
+watch(visibleFeatureOptionValues, (availableFeatures) => {
+  const available = new Set(availableFeatures)
+  const nextFeatures = selectedFeatures.value.filter((feat) => available.has(feat))
+  if (nextFeatures.length !== selectedFeatures.value.length) {
+    selectedFeatures.value = nextFeatures
+    analysisRes.value = null
+  }
+}, { immediate: true })
 
 function getDisplayedPosData(sample: string, pos: string): CppFeatures | undefined {
   return getDisplayedSampleSnapshot(sample)?.[pos]
@@ -3615,15 +3700,75 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   border-radius: 50%;
 }
 
-.feat-label { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: .4rem; }
-.feat-checkbox-group { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: 1rem; }
+.feature-selector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .7rem;
+}
+.feat-label { font-size: .88rem; font-weight: 600; color: #374151; }
+.feature-family-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: .18rem .68rem;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: .78rem;
+  font-weight: 700;
+}
+.feature-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: .8rem;
+  margin-bottom: 1rem;
+}
+.feature-group {
+  padding: .8rem .9rem .65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+.feature-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-bottom: .45rem;
+  color: #1f2937;
+  font-size: .86rem;
+  font-weight: 700;
+}
+.feature-group-title span:last-child {
+  color: #6b7280;
+  font-size: .75rem;
+}
+.feat-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  min-width: 0;
+}
 .feat-checkbox-group :deep(.el-checkbox) {
-  margin-right: 1rem;
-  min-height: 32px;
+  align-items: flex-start;
+  height: auto;
+  margin-right: 0;
+  min-height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 .feat-checkbox-group :deep(.el-checkbox__label) {
   color: #374151;
   font-size: .95rem;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .color-range-settings {

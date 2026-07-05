@@ -555,10 +555,10 @@ IPF 設定操作：
 | 75 percentiles | 比較分析樣本與 Golden 樣本的第 75 百分位 grain size 差異。 |
 | standard deviation | 比較分析樣本與 Golden 樣本的 grain size 標準差差異。 |
 | [001] (deviation 20%) | 比較 misorientation 20% 條件下 `[001]` 方向比例與 Golden 樣本的差異。 |
-| [110] (deviation 20%) | 比較 misorientation 20% 條件下 `[110]` 方向比例與 Golden 樣本的差異。 |
+| [011] (deviation 20%) | 比較 misorientation 20% 條件下 `[011]` 方向比例與 Golden 樣本的差異。 |
 | [111] (deviation 20%) | 比較 misorientation 20% 條件下 `[111]` 方向比例與 Golden 樣本的差異。 |
 | [001] (deviation 15%) | 比較 misorientation 15% 條件下 `[001]` 方向比例與 Golden 樣本的差異。 |
-| [110] (deviation 15%) | 比較 misorientation 15% 條件下 `[110]` 方向比例與 Golden 樣本的差異。 |
+| [011] (deviation 15%) | 比較 misorientation 15% 條件下 `[011]` 方向比例與 Golden 樣本的差異。 |
 | [111] (deviation 15%) | 比較 misorientation 15% 條件下 `[111]` 方向比例與 Golden 樣本的差異。 |
 
 系統會針對有共同位置的分析樣本與 Golden 樣本計算所選項目。若同時勾選多個分析項目，系統會彙整所選項目的結果並顯示於九宮格。

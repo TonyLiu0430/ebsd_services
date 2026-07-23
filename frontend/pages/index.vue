@@ -380,6 +380,7 @@ type StoredTarget = {
 
 type StoredEbsdPair = {
   id: string
+  target_id: string
   pair_id: string
   pair_hash: string
   crc_filename: string
@@ -407,6 +408,7 @@ type StoredEbsdPair = {
 
 type SaveEbsdPairResponse = {
   id: string
+  target_id: string
   pair_id: string
   pair_hash: string
   crc_hash: string

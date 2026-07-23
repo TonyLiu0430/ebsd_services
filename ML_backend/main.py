@@ -32,7 +32,7 @@ from ebsd_store import (
     init_db,
     read_upload,
     upsert_user_target,
-    upsert_user_pair,
+    create_user_pair,
 )
 from ppt_report import build_pptx_report
 from sqlalchemy import func, select
@@ -322,6 +322,7 @@ def _user_pair_metadata_query(user_id: str):
             load_only(
                 UserEbsdPair.id,
                 UserEbsdPair.user_id,
+                UserEbsdPair.target_id,
                 UserEbsdPair.pair_id,
                 UserEbsdPair.display_name,
                 UserEbsdPair.sample,
@@ -371,6 +372,7 @@ def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
     )
     return {
         "id": row.id,
+        "target_id": row.target_id,
         "pair_id": row.pair_id,
         "pair_hash": row.pair.pair_hash,
         "crc_filename": row.pair.crc_file.original_filename,
@@ -538,19 +540,19 @@ async def save_ebsd_pair(
         version_num,
     )
 
-    upsert_user_target(db, user["id"], clean_sample)
+    target, _ = upsert_user_target(db, user["id"], clean_sample)
     crc_file, crc_created = get_or_create_ebsd_file(db, crc_content, crc_filename, ".crc")
     cpr_file, cpr_created = get_or_create_ebsd_file(db, cpr_content, cpr_filename, ".cpr")
     pair, pair_created = get_or_create_pair(db, crc_file, cpr_file)
     material = detect_material_from_metadata(
         cpp_material_metadata_from_files(crc_filename, crc_content, cpr_filename, cpr_content)
     )
-    user_pair, user_pair_created = upsert_user_pair(
+    user_pair, user_pair_created = create_user_pair(
         db,
         user["id"],
+        target,
         pair,
         display_name=name.strip() or f"{clean_sample}-{position}",
-        sample=clean_sample,
         position=position.strip(),
         folder=folder.strip() or None,
         version_key=resolved_version_key,
@@ -562,6 +564,7 @@ async def save_ebsd_pair(
 
     return {
         "id": user_pair.id,
+        "target_id": target.id,
         "pair_id": pair.id,
         "pair_hash": pair.pair_hash,
         "crc_hash": crc_file.content_hash,

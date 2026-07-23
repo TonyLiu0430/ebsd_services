@@ -929,6 +929,7 @@ type ReportDataResponse = {
 type AnalysisResult = Record<string, Record<string, number>>
 type StoredEbsdPair = {
   id: string
+  target_id: string
   pair_id: string
   pair_hash: string
   crc_filename: string

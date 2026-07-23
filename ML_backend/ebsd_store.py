@@ -20,6 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    inspect as sqlalchemy_inspect,
     select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -104,6 +105,7 @@ class UserEbsdPair(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), nullable=False)
+    target_id = Column(String(36), ForeignKey("user_ebsd_targets.id"), nullable=False)
     pair_id = Column(String(36), ForeignKey("ebsd_pairs.id"), nullable=False)
     display_name = Column(String(255), nullable=False)
     sample = Column(String(255), nullable=False)
@@ -127,16 +129,169 @@ class UserEbsdPair(Base):
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    target = relationship("UserEbsdTarget")
     pair = relationship("EbsdPair")
 
     __table_args__ = (
-        UniqueConstraint("user_id", "pair_id", name="uq_user_ebsd_pairs_user_pair"),
+        Index("ix_user_ebsd_pairs_target", "target_id"),
         Index("ix_user_ebsd_pairs_user_sample", "user_id", "sample"),
     )
 
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    migrate_user_pair_target_reference(engine)
+
+
+def _migrate_sqlite_user_pair_target_reference(db_engine) -> None:
+    columns = (
+        "id, user_id, target_id, pair_id, display_name, sample, position, folder, "
+        "version_key, version_label, version_num, material_key, "
+        "material_display_name, material_element, material_phase, "
+        "material_confidence, material_source, material_metadata, "
+        "updated_at, created_at"
+    )
+    create_table = """
+        CREATE TABLE user_ebsd_pairs (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            target_id VARCHAR(36) NOT NULL,
+            pair_id VARCHAR(36) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            sample VARCHAR(255) NOT NULL,
+            position VARCHAR(32) NOT NULL,
+            folder VARCHAR(255),
+            version_key VARCHAR(64),
+            version_label VARCHAR(255),
+            version_num INTEGER,
+            material_key VARCHAR(64) NOT NULL,
+            material_display_name VARCHAR(255) NOT NULL,
+            material_element VARCHAR(32),
+            material_phase VARCHAR(32),
+            material_confidence VARCHAR(32) NOT NULL,
+            material_source VARCHAR(255) NOT NULL,
+            material_metadata TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            FOREIGN KEY(target_id) REFERENCES user_ebsd_targets (id),
+            FOREIGN KEY(pair_id) REFERENCES ebsd_pairs (id)
+        )
+    """
+
+    # SQLite cannot drop the old UNIQUE constraint or add a foreign key in
+    # place, so rebuild only the association table.
+    with db_engine.connect() as connection:
+        foreign_keys_enabled = bool(
+            connection.exec_driver_sql("PRAGMA foreign_keys").scalar()
+        )
+        connection.commit()
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
+        try:
+            with connection.begin():
+                connection.exec_driver_sql(
+                    "ALTER TABLE user_ebsd_pairs RENAME TO user_ebsd_pairs_legacy"
+                )
+                connection.exec_driver_sql(
+                    "DROP INDEX IF EXISTS ix_user_ebsd_pairs_user_sample"
+                )
+                connection.exec_driver_sql(
+                    "DROP INDEX IF EXISTS ix_user_ebsd_pairs_target"
+                )
+                connection.exec_driver_sql(create_table)
+                connection.exec_driver_sql(
+                    f"INSERT INTO user_ebsd_pairs ({columns}) "
+                    f"SELECT {columns} FROM user_ebsd_pairs_legacy"
+                )
+                connection.exec_driver_sql("DROP TABLE user_ebsd_pairs_legacy")
+                connection.exec_driver_sql(
+                    "CREATE INDEX ix_user_ebsd_pairs_user_sample "
+                    "ON user_ebsd_pairs (user_id, sample)"
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX ix_user_ebsd_pairs_target "
+                    "ON user_ebsd_pairs (target_id)"
+                )
+        finally:
+            if foreign_keys_enabled:
+                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+                connection.commit()
+
+
+def migrate_user_pair_target_reference(db_engine) -> None:
+    """Replace contextual uniqueness with a direct target UUID reference."""
+    inspector = sqlalchemy_inspect(db_engine)
+    table_name = UserEbsdPair.__tablename__
+    columns = {column["name"]: column for column in inspector.get_columns(table_name)}
+    unique_constraints = inspector.get_unique_constraints(table_name)
+    foreign_keys = inspector.get_foreign_keys(table_name)
+
+    old_unique_sets = {
+        frozenset(("user_id", "pair_id")),
+        frozenset(("user_id", "pair_id", "sample")),
+    }
+    obsolete_uniques = [
+        constraint
+        for constraint in unique_constraints
+        if frozenset(constraint.get("column_names") or []) in old_unique_sets
+    ]
+    has_target_fk = any(
+        foreign_key.get("constrained_columns") == ["target_id"]
+        and foreign_key.get("referred_table") == UserEbsdTarget.__tablename__
+        for foreign_key in foreign_keys
+    )
+    target_column = columns.get("target_id")
+    if (
+        target_column
+        and not target_column.get("nullable", True)
+        and has_target_fk
+        and not obsolete_uniques
+    ):
+        return
+
+    if not target_column:
+        with db_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE user_ebsd_pairs ADD COLUMN target_id VARCHAR(36)"
+            )
+
+    # Existing rows already store the target's display name in sample. Resolve
+    # that legacy value once and persist the target UUID used from now on.
+    with Session(db_engine) as db:
+        rows = db.execute(
+            select(UserEbsdPair).where(UserEbsdPair.target_id.is_(None))
+        ).scalars().all()
+        for row in rows:
+            target, _ = upsert_user_target(db, row.user_id, row.sample)
+            row.target_id = target.id
+        db.commit()
+
+    if db_engine.dialect.name == "sqlite":
+        _migrate_sqlite_user_pair_target_reference(db_engine)
+        return
+
+    quote = db_engine.dialect.identifier_preparer.quote
+    with db_engine.begin() as connection:
+        for constraint in obsolete_uniques:
+            name = constraint.get("name")
+            if not name:
+                raise RuntimeError("cannot migrate unnamed user_ebsd_pairs unique constraint")
+            connection.exec_driver_sql(
+                f"ALTER TABLE {quote(table_name)} DROP CONSTRAINT {quote(name)}"
+            )
+        connection.exec_driver_sql(
+            f"ALTER TABLE {quote(table_name)} ALTER COLUMN target_id SET NOT NULL"
+        )
+        if not has_target_fk:
+            connection.exec_driver_sql(
+                f"ALTER TABLE {quote(table_name)} "
+                "ADD CONSTRAINT fk_user_ebsd_pairs_target "
+                "FOREIGN KEY (target_id) REFERENCES user_ebsd_targets (id)"
+            )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_user_ebsd_pairs_target "
+            "ON user_ebsd_pairs (target_id)"
+        )
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -255,13 +410,13 @@ def get_or_create_pair(db: Session, crc_file: EbsdFile, cpr_file: EbsdFile) -> T
         return found, False
 
 
-def upsert_user_pair(
+def create_user_pair(
     db: Session,
     user_id: str,
+    target: UserEbsdTarget,
     pair: EbsdPair,
     *,
     display_name: str,
-    sample: str,
     position: str,
     folder: Optional[str],
     version_key: Optional[str],
@@ -269,10 +424,15 @@ def upsert_user_pair(
     version_num: Optional[int],
     material: Optional[Dict[str, Any]] = None,
 ) -> Tuple[UserEbsdPair, bool]:
+    if target.user_id != user_id:
+        raise ValueError("target does not belong to user")
+
     material = material or {}
     metadata = {
         "display_name": display_name[:255],
-        "sample": sample[:255],
+        # Kept as denormalized display metadata for existing report queries;
+        # identity and ownership come from target_id.
+        "sample": target.name[:255],
         "position": position[:32],
         "folder": folder[:255] if folder else None,
         "version_key": version_key[:64] if version_key else None,
@@ -287,33 +447,15 @@ def upsert_user_pair(
         "material_metadata": json.dumps(material, ensure_ascii=False) if material else None,
         "updated_at": datetime.now(timezone.utc),
     }
-    found = db.execute(
-        select(UserEbsdPair).where(
-            UserEbsdPair.user_id == user_id,
-            UserEbsdPair.pair_id == pair.id,
-        )
-    ).scalar_one_or_none()
-
-    created = False
-    if not found:
-        found = UserEbsdPair(user_id=user_id, pair_id=pair.id, **metadata)
-        try:
-            with db.begin_nested():
-                db.add(found)
-                db.flush()
-            created = True
-        except IntegrityError:
-            found = db.execute(
-                select(UserEbsdPair).where(
-                    UserEbsdPair.user_id == user_id,
-                    UserEbsdPair.pair_id == pair.id,
-                )
-            ).scalar_one()
-
-    for key, value in metadata.items():
-        setattr(found, key, value)
+    record = UserEbsdPair(
+        user_id=user_id,
+        target_id=target.id,
+        pair_id=pair.id,
+        **metadata,
+    )
+    db.add(record)
     db.flush()
-    return found, created
+    return record, True
 
 
 def upsert_user_target(db: Session, user_id: str, name: str) -> Tuple[UserEbsdTarget, bool]:

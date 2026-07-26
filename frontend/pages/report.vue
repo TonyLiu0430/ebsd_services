@@ -10,7 +10,7 @@
       </button>
     </header>
 
-    <section class="panel report-setup-panel">
+    <section id="report-setup" class="panel report-setup-panel">
       <div class="panel-title-row">
         <div>
           <h2>報表資料來源</h2>
@@ -207,7 +207,7 @@
       </div>
 
       <!-- ── Section 1: Grain distribution curves ──────────── -->
-      <section class="card" data-pdf-page="grain-distribution">
+      <section id="grain-distribution" class="card" data-pdf-page="grain-distribution">
         <div class="grain-card-head">
           <div>
             <h2 class="section-title">Grain 粒徑分布比對</h2>
@@ -326,7 +326,7 @@
       </el-dialog>
 
       <!-- ── Section 1b: IPF Map grid ────────── -->
-      <section v-if="pairs.length" class="card" data-pdf-page="ipf-map">
+      <section id="ipf-map" v-if="pairs.length" class="card" data-pdf-page="ipf-map">
         <div class="ipf-section-head">
           <div>
             <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ ipfDisplayTitle }}</h2>
@@ -443,7 +443,7 @@
       </el-dialog>
 
       <!-- ── Section 2: Nine-grid full data ────────── -->
-      <section class="card" data-pdf-page="nine-grid-data">
+      <section id="nine-grid-data" class="card" data-pdf-page="nine-grid-data">
         <div class="grid-section-head">
           <h2 class="section-title">九宮格完整數據 — {{ gridDisplayTitle }}</h2>
           <div class="sample-display-toggle" aria-label="九宮格顯示樣本">
@@ -527,7 +527,7 @@
       </section>
 
       <!-- ── Section 3a: Orientation triangles 20° ── -->
-      <section class="card" data-pdf-page="orientation-triangle-20">
+      <section id="orientation-triangle-20" class="card" data-pdf-page="orientation-triangle-20">
         <h2 class="section-title">晶粒取向比例 — Misorientation 20°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
@@ -567,7 +567,7 @@
       </section>
 
       <!-- ── Section 3b: Orientation triangles 15° ── -->
-      <section class="card" data-pdf-page="orientation-triangle-15">
+      <section id="orientation-triangle-15" class="card" data-pdf-page="orientation-triangle-15">
         <h2 class="section-title">晶粒取向比例 — Misorientation 15°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
@@ -607,7 +607,7 @@
       </section>
 
       <!-- Section 3c: Orientation line charts 20度 -->
-      <section class="card" data-pdf-page="orientation-line-20">
+      <section id="orientation-line-20" class="card" data-pdf-page="orientation-line-20">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
@@ -723,7 +723,7 @@
       </section>
 
       <!-- Section 3d: Orientation line charts 15度 -->
-      <section class="card" data-pdf-page="orientation-line-15">
+      <section id="orientation-line-15" class="card" data-pdf-page="orientation-line-15">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
@@ -839,7 +839,7 @@
       </section>
 
       <!-- ── Section 4: Python Analysis ──────── -->
-      <section class="card" :data-pdf-page="analysisRes ? 'feature-analysis' : undefined">
+      <section id="feature-analysis" class="card" :data-pdf-page="analysisRes ? 'feature-analysis' : undefined">
         <h2 class="section-title">④ 特徵分析 </h2>
         <div class="feature-selector-head">
           <div class="feat-label">選擇分析項目</div>
@@ -878,6 +878,28 @@
       </section>
 
     </template>
+
+    <aside
+      class="report-anchor-dock pdf-exclude"
+      :class="{ 'report-anchor-dock--raised': reportData && !versionDockCollapsed }"
+      aria-label="報表章節導覽"
+      data-html2canvas-ignore="true"
+    >
+      <div class="report-anchor-dock__title">章節導覽</div>
+      <el-anchor :offset="80">
+        <el-anchor-link href="#report-setup" title="資料來源" />
+        <template v-if="reportData">
+          <el-anchor-link href="#grain-distribution" title="Grain 粒徑" />
+          <el-anchor-link v-if="pairs.length" href="#ipf-map" title="IPF 取向圖" />
+          <el-anchor-link href="#nine-grid-data" title="九宮格數據" />
+          <el-anchor-link href="#orientation-triangle-20" title="取向比例 20°" />
+          <el-anchor-link href="#orientation-triangle-15" title="取向比例 15°" />
+          <el-anchor-link href="#orientation-line-20" title="取向折線 20°" />
+          <el-anchor-link href="#orientation-line-15" title="取向折線 15°" />
+          <el-anchor-link href="#feature-analysis" title="特徵分析" />
+        </template>
+      </el-anchor>
+    </aside>
   </div>
 </template>
 
@@ -2332,6 +2354,18 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   color: #1f2937;
 }
 
+#report-setup,
+#grain-distribution,
+#ipf-map,
+#nine-grid-data,
+#orientation-triangle-20,
+#orientation-triangle-15,
+#orientation-line-20,
+#orientation-line-15,
+#feature-analysis {
+  scroll-margin-top: 80px;
+}
+
 .ghost-btn,
 .ghost-link,
 .primary-btn {
@@ -3162,6 +3196,43 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   overflow-x: hidden;
   overflow-y: auto;
 }
+.report-anchor-dock {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 39;
+  width: 184px;
+  max-height: calc(100vh - 36px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: .85rem .8rem .7rem;
+  border: 1px solid #dcdfe6;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+.report-anchor-dock__title {
+  margin: 0 .65rem .45rem;
+  color: #409eff;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.report-anchor-dock :deep(.el-anchor) {
+  background: transparent;
+}
+.report-anchor-dock :deep(.el-anchor__link) {
+  overflow: hidden;
+  color: #606266;
+  font-size: .8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-anchor-dock :deep(.el-anchor__link.is-active) {
+  color: #409eff;
+  font-weight: 700;
+}
 .report-version-dock__collapse {
   position: absolute;
   top: 10px;
@@ -3839,6 +3910,15 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   .report-version-dock-dot {
     left: 12px;
     bottom: 12px;
+  }
+  .report-anchor-dock {
+    right: 12px;
+    bottom: 12px;
+    width: 164px;
+    max-height: min(42vh, 340px);
+  }
+  .report-anchor-dock--raised {
+    bottom: calc(13rem + 12px);
   }
   .grain-card-head {
     align-items: stretch;

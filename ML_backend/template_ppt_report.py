@@ -251,9 +251,67 @@ def _add_picture_contain(slide, data: Union[bytes, io.BytesIO], left: int, top: 
     slide.shapes.add_picture(stream, left + (width - draw_width) // 2, top + (height - draw_height) // 2, draw_width, draw_height)
 
 
-def _chunks(values: Sequence[str], size: int) -> Iterable[Sequence[str]]:
-    for index in range(0, len(values), size):
-        yield values[index:index + size]
+def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows: Sequence[int]):
+    """Replace the fixed 3x3 template grid with one unscaled, dynamic matrix.
+
+    The template's data-cell size is intentionally retained.  Matrices larger
+    than 3x3 therefore extend beyond the slide instead of being split across
+    several slides, so all positions remain together for comparison.
+    """
+    grid_shape = deck.shape(slide, "EBSD_IPF_GRID")
+    prototype_table = grid_shape.table
+    data_columns = [column for index, column in enumerate(prototype_table.columns) if index > 0]
+    data_rows = [row for index, row in enumerate(prototype_table.rows) if index > 0]
+    header_column_width = prototype_table.columns[0].width
+    data_column_width = round(
+        sum(column.width for column in data_columns)
+        / max(1, len(data_columns))
+    )
+    header_row_height = prototype_table.rows[0].height
+    data_row_height = round(
+        sum(row.height for row in data_rows)
+        / max(1, len(data_rows))
+    )
+    left = grid_shape.left
+    top = grid_shape.top
+    deck.remove_shape(slide, "EBSD_IPF_GRID")
+
+    table = slide.shapes.add_table(
+        len(rows) + 1,
+        len(columns) + 1,
+        left,
+        top,
+        header_column_width + len(columns) * data_column_width,
+        header_row_height + len(rows) * data_row_height,
+    ).table
+    deck.apply_table_template(table, "ipf", "EBSD_IPF_GRID")
+    table.columns[0].width = header_column_width
+    for column_index, column in enumerate(table.columns):
+        if column_index > 0:
+            column.width = data_column_width
+    table.rows[0].height = header_row_height
+    for row_index, row in enumerate(table.rows):
+        if row_index > 0:
+            row.height = data_row_height
+
+    _set_cell(table.cell(0, 0), "", size=18)
+    for column_index, column in enumerate(columns, start=1):
+        _set_cell(table.cell(0, column_index), column, size=18)
+    for row_index, row in enumerate(rows, start=1):
+        _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
+        for column_index in range(1, len(columns) + 1):
+            _set_cell(table.cell(row_index, column_index), "", size=18)
+
+    horizontal_padding = Inches(0.07)
+    vertical_padding = Inches(0.02)
+    return (
+        left + header_column_width,
+        top + header_row_height,
+        data_column_width,
+        data_row_height,
+        horizontal_padding,
+        vertical_padding,
+    )
 
 
 def _add_ipf_pages(deck: TemplateDeck, selected_sample: str, version_label: str, directions: Dict[str, Dict[str, bytes]], legend: Optional[bytes]) -> None:
@@ -261,39 +319,26 @@ def _add_ipf_pages(deck: TemplateDeck, selected_sample: str, version_label: str,
         columns, rows = _matrix_positions(images)
         if not columns or not rows:
             continue
-        column_blocks = [columns[index:index + 3] for index in range(0, len(columns), 3)]
-        row_blocks = [rows[index:index + 3] for index in range(0, len(rows), 3)]
-        blocks = [
-            (row_block, column_block)
-            for row_block in row_blocks
-            for column_block in column_blocks
-            if any(f"{column}-{row}" in images for row in row_block for column in column_block)
-        ]
-        page_count = len(blocks)
-        page = 0
-        slots = deck.manifest["ipf"]["image_slots_in"]
-        for row_block, column_block in blocks:
-            page += 1
-            suffix = f" ({page}/{page_count})" if page_count > 1 else ""
-            slide = deck.add_slide(
-                f"{selected_sample}-Orientation maps with IPF {direction.upper()}{suffix}",
-                kind="ipf",
-            )
-            table = deck.shape(slide, "EBSD_IPF_GRID").table
-            for row_index in range(4):
-                for column_index in range(4):
-                    _set_cell(table.cell(row_index, column_index), "", size=18)
-            for column_index, column in enumerate(column_block, start=1):
-                _set_cell(table.cell(0, column_index), column, size=18)
-            for row_index, row in enumerate(row_block, start=1):
-                _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
-                for column_index, column in enumerate(column_block, start=1):
-                    position = f"{column}-{row}"
-                    image = images.get(position)
-                    if not image:
-                        continue
-                    slot = slots[(row_index - 1) * 3 + (column_index - 1)]
-                    _add_picture_contain(slide, image, *(Inches(value) for value in slot))
+        slide = deck.add_slide(
+            f"{selected_sample}-Orientation maps with IPF {direction.upper()}",
+            kind="ipf",
+        )
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
+            deck, slide, columns, rows
+        )
+        for row_index, row in enumerate(rows):
+            for column_index, column in enumerate(columns):
+                image = images.get(f"{column}-{row}")
+                if not image:
+                    continue
+                _add_picture_contain(
+                    slide,
+                    image,
+                    image_left + column_index * cell_width + pad_x,
+                    image_top + row_index * cell_height + pad_y,
+                    cell_width - 2 * pad_x,
+                    cell_height - 2 * pad_y,
+                )
 
 
 def _histogram_edges(all_values: Sequence[float], settings: Dict[str, Any]) -> List[float]:
@@ -378,43 +423,33 @@ def _add_grain_chart_pages(deck: TemplateDeck, selected: Snapshot, golden: Snaps
         ("area", "Area-weighted grain histogram"),
     )
     matrix_columns, matrix_rows = _matrix_positions(positions)
-    column_blocks = [matrix_columns[index:index + 3] for index in range(0, len(matrix_columns), 3)]
-    row_blocks = [matrix_rows[index:index + 3] for index in range(0, len(matrix_rows), 3)]
     position_set = set(positions)
-    blocks = [
-        (row_block, column_block)
-        for row_block in row_blocks
-        for column_block in column_blocks
-        if any(f"{column}-{row}" in position_set for row in row_block for column in column_block)
-    ]
-    slots = deck.manifest["ipf"]["image_slots_in"]
+    if not matrix_columns or not matrix_rows:
+        return
     for mode, title in modes:
-        for page, (row_block, column_block) in enumerate(blocks, start=1):
-            suffix = f" ({page}/{len(blocks)})" if len(blocks) > 1 else ""
-            slide = deck.add_slide(
-                f"{title}{suffix}",
-                kind="ipf",
-            )
-            table = deck.shape(slide, "EBSD_IPF_GRID").table
-            for row_index in range(4):
-                for column_index in range(4):
-                    _set_cell(table.cell(row_index, column_index), "", size=18)
-            for column_index, column in enumerate(column_block, start=1):
-                _set_cell(table.cell(0, column_index), column, size=18)
-            for row_index, row in enumerate(row_block, start=1):
-                _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
-                for column_index, column in enumerate(column_block, start=1):
-                    position = f"{column}-{row}"
-                    if position not in position_set:
-                        continue
-                    png = _grain_chart(
-                        _finite(selected.get(position, {}).get("grains")),
-                        _finite(golden.get(position, {}).get("grains")),
-                        mode,
-                        edges,
-                    )
-                    slot = slots[(row_index - 1) * 3 + (column_index - 1)]
-                    _add_picture_contain(slide, png, *(Inches(value) for value in slot))
+        slide = deck.add_slide(title, kind="ipf")
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
+            deck, slide, matrix_columns, matrix_rows
+        )
+        for row_index, row in enumerate(matrix_rows):
+            for column_index, column in enumerate(matrix_columns):
+                position = f"{column}-{row}"
+                if position not in position_set:
+                    continue
+                png = _grain_chart(
+                    _finite(selected.get(position, {}).get("grains")),
+                    _finite(golden.get(position, {}).get("grains")),
+                    mode,
+                    edges,
+                )
+                _add_picture_contain(
+                    slide,
+                    png,
+                    image_left + column_index * cell_width + pad_x,
+                    image_top + row_index * cell_height + pad_y,
+                    cell_width - 2 * pad_x,
+                    cell_height - 2 * pad_y,
+                )
 
 
 def _complete_cell(item: Optional[Dict[str, Any]]) -> str:
@@ -644,19 +679,18 @@ def _triangle_chart(column: str, rows: Sequence[int], selected: Snapshot, golden
 def _add_triangle_pages(deck: TemplateDeck, selected: Snapshot, golden: Snapshot) -> None:
     labels = _orientation_labels(selected)
     columns, rows = _matrix_positions(_positions(selected, golden))
+    if not columns:
+        return
     for deviation in ("20%", "15%"):
-        column_blocks = [columns[index:index + 3] for index in range(0, len(columns), 3)]
-        for page, column_block in enumerate(column_blocks, start=1):
-            suffix = f" ({page}/{len(column_blocks)})" if len(column_blocks) > 1 else ""
-            slide = deck.add_slide(
-                f"晶粒取向三角圖 - Misorientation {deviation}{suffix}",
-                "Sample 實線 / Golden 虛線",
-            )
-            left, top, width, height = deck.content
-            cell_width = width // 3
-            for index, column in enumerate(column_block):
-                png = _triangle_chart(column, rows, selected, golden, deviation, labels)
-                _add_picture_contain(slide, png, left + index * cell_width, top, cell_width, height)
+        slide = deck.add_slide(
+            f"晶粒取向三角圖 - Misorientation {deviation}",
+            "Sample 實線 / Golden 虛線",
+        )
+        left, top, width, height = deck.content
+        cell_width = width // 3
+        for index, column in enumerate(columns):
+            png = _triangle_chart(column, rows, selected, golden, deviation, labels)
+            _add_picture_contain(slide, png, left + index * cell_width, top, cell_width, height)
 
 
 def _line_chart(columns: Sequence[str], selected_values: Sequence[float], golden_values: Optional[Sequence[float]], axis_label: str) -> io.BytesIO:

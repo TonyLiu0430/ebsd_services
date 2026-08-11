@@ -28,3 +28,17 @@ curl -X POST http://localhost:8080/band_contrast_map \
   -F 'include_scale_bar=false' \
   --output band-contrast.png
 ```
+
+## Texture figure APIs
+
+`POST /pole_figure` and `POST /inverse_pole_figure` return fixed-layout RGB PNG density plots. Both endpoints use the primary indexed phase and accept the same `.cpr` + `.crc`, `.ctf`, or `.ang` multipart uploads as the other EBSD APIs. Plot resolution, projection, smoothing, and color scale use fixed defaults.
+
+```bash
+curl -X POST http://localhost:8080/pole_figure \
+  -F 'ebsd=@sample.ctf' \
+  --output pole-figure.png
+
+curl -X POST http://localhost:8080/inverse_pole_figure \
+  -F 'ebsd=@sample.ctf' \
+  --output inverse-pole-figure.png
+```

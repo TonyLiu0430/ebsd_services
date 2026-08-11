@@ -43,9 +43,11 @@ RUN ${VCPKG_ROOT}/vcpkg install \
 
 COPY include/ include/
 COPY src/ src/
+COPY tests/ tests/
 
 RUN cmake --preset release \
     && cmake --build "build/release" --config Release \
+    && ctest --test-dir "build/release" --output-on-failure \
     && mkdir -p /opt/runtime-app /opt/runtime-lib /opt/runtime-bin \
     && cp "/app/build/release/ebsd_cpp_backend" /opt/runtime-app/ebsd_cpp_backend \
     && cp -a "/app/build/release/vcpkg_installed/linux-dynamic/lib/." /opt/runtime-lib/ \

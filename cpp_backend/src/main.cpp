@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 #include <string_view>
+#include "band_contrast_map.h"
 #include "utils.h"
 #include <future>
 
@@ -563,6 +564,39 @@ int main() {
         ipf_fs.read(buffer.data(), size);
 
         res.set_content(buffer, "image/png");
+    });
+
+    svr.Post("/band_contrast_map", [](const httplib::Request& req, httplib::Response& res) {
+        if(!req.is_multipart_form_data()) {
+            res.status = 400;
+            res.set_content("Content-Type must be multipart/form-data", "text/plain");
+            return;
+        }
+
+        std::filesystem::path temp_dir = "./temp";
+        std::filesystem::create_directories(temp_dir);
+        std::random_device rd;
+        thread_local std::mt19937 rng(rd());
+        uuids::uuid_random_generator generator(rng);
+        const std::filesystem::path image_path = temp_dir / ("band_contrast_" + uuids::to_string(generator()) + ".png");
+        TempFile image(image_path);
+
+        try {
+            auto upload = prepare_ebsd_upload(req, "band_contrast");
+            const bool include_scale_bar = parse_include_scale_bar(req);
+            save_band_contrast_map(upload.primary_path, image_path, include_scale_bar);
+
+            std::ifstream image_stream(image_path, std::ios::binary);
+            if(!image_stream) throw std::runtime_error("Failed to read generated band contrast PNG");
+            std::string buffer;
+            buffer.resize(std::filesystem::file_size(image_path));
+            image_stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            if(!image_stream) throw std::runtime_error("Failed to read generated band contrast PNG");
+            res.set_content(buffer, "image/png");
+        } catch(const std::exception& exc) {
+            res.status = 400;
+            res.set_content(exc.what(), "text/plain");
+        }
     });
 
     svr.Get("/ipf_legend", [](const httplib::Request& req, httplib::Response& res) {

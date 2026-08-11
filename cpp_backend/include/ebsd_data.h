@@ -24,6 +24,7 @@ struct EbsdData {
     std::vector<float> euler2;
     std::vector<float> euler3;
     std::vector<uint8_t> phase;
+    std::vector<uint8_t> band_contrast;
     std::vector<EbsdPhaseMetadata> phases;
     int primary_phase_index = 0;
     unsigned int primary_orientation_ops_index = 1;

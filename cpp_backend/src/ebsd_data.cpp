@@ -52,6 +52,16 @@ void copy_phases(std::vector<uint8_t>& destination, const T* source, size_t coun
     }
 }
 
+template <typename T>
+void copy_band_contrast(std::vector<uint8_t>& destination, const T* source, size_t count)
+{
+    if(source == nullptr && count > 0) throw std::runtime_error("EBSD reader returned a null band contrast array");
+    destination.resize(count);
+    for(size_t index = 0; index < count; ++index) {
+        destination[index] = static_cast<uint8_t>(std::clamp(static_cast<int>(source[index]), 0, 255));
+    }
+}
+
 void resolve_primary_phase(EbsdData& data)
 {
     std::map<int, int> counts;
@@ -126,6 +136,7 @@ EbsdData load_cpr(const std::filesystem::path& path, bool header_only)
         copy_floats(data.euler2, reader.getEuler2Pointer(), count);
         copy_floats(data.euler3, reader.getEuler3Pointer(), count);
         copy_phases(data.phase, reader.getPhasePointer(), count);
+        copy_band_contrast(data.band_contrast, reader.getBandContrastPointer(), count);
     }
     resolve_primary_phase(data);
     return data;
@@ -165,6 +176,7 @@ EbsdData load_ctf(const std::filesystem::path& path, bool header_only)
         convert_degrees_to_radians(data.euler2);
         convert_degrees_to_radians(data.euler3);
         copy_phases(data.phase, reader.getPhasePointer(), count);
+        copy_band_contrast(data.band_contrast, reader.getBandContrastPointer(), count);
     }
     resolve_primary_phase(data);
     return data;

@@ -34,7 +34,19 @@
     "width_in": 9.917,
     "height_in": 4.95
   },
+  "page_heading": {
+    "title_left_in": 0.05,
+    "title_top_in": 0.02,
+    "title_width_in": 13.0,
+    "title_height_in": 0.5,
+    "subtitle_left_in": 0.08,
+    "subtitle_top_in": 0.55,
+    "subtitle_width_in": 12.8,
+    "subtitle_height_in": 0.35
+  },
   "ipf": {
+    "grid_left_in": 1.25,
+    "grid_top_in": 0.5,
     "image_slots_in": [
       [3.320, 1.699, 2.482, 1.643],
       [5.940, 1.681, 2.519, 1.680],

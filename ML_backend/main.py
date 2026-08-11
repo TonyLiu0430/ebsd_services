@@ -1136,6 +1136,14 @@ def collect_report_data(
         }
         for sample, versions in raw_positions.items()
     }
+    previous_positions: set[str] = set()
+    selected_overridden_positions: List[str] = []
+    for option in selected_options:
+        version_positions = raw_positions.get(selected_sample, {}).get(option["key"], set())
+        if option["key"] == selected_key:
+            selected_overridden_positions = sorted(version_positions & previous_positions)
+            break
+        previous_positions.update(version_positions)
 
     ipf_images: Dict[str, bytes] = {}
     if include_ipf_images:
@@ -1160,6 +1168,7 @@ def collect_report_data(
         "report_data": merged_latest,
         "versioned_report_data": cumulative,
         "raw_version_positions": raw_version_positions,
+        "selected_overridden_positions": selected_overridden_positions,
         "cumulative_pairs": cumulative_pairs,
         "ipf_images": ipf_images,
     }
@@ -1251,6 +1260,7 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
         "analysis_data": analysis_data,
         "analysis_features": req.selected_features,
         "color_thresholds": req.color_thresholds,
+        "overridden_positions": context["selected_overridden_positions"],
         "histogram_settings": {
             "start_mode": req.hist_bin_start_mode,
             "width_mode": req.hist_bin_width_mode,

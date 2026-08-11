@@ -31,6 +31,7 @@ RED = "#dc2626"
 ORIENTATION_COLORS = ("#409eff", "#67c23a", "#e6a23c")
 ORIENTATION_SAMPLE = "#409eff"
 ORIENTATION_GOLDEN = "#e6a23c"
+OVERRIDDEN_TEXT = RGBColor(0, 0, 255)
 POSITION_RE = re.compile(r"^([A-Z]+)-([1-9]\d*)$")
 
 Snapshot = Dict[str, Dict[str, Any]]
@@ -118,9 +119,18 @@ class TemplateDeck:
             slide.shapes._spTree.insert_element_before(deepcopy(shape.element), "p:extLst")
         title_shape = self.shape(slide, "EBSD_TITLE")
         _replace_shape_text(title_shape, title)
+        heading = self.manifest["page_heading"]
+        title_shape.left = Inches(heading["title_left_in"])
+        title_shape.top = Inches(heading["title_top_in"])
+        title_shape.width = Inches(heading["title_width_in"])
+        title_shape.height = Inches(heading["title_height_in"])
         subtitle_shape = next((shape for shape in slide.shapes if shape.name == "EBSD_SUBTITLE"), None)
         if subtitle_shape is not None:
             _replace_shape_text(subtitle_shape, subtitle)
+            subtitle_shape.left = Inches(heading["subtitle_left_in"])
+            subtitle_shape.top = Inches(heading["subtitle_top_in"])
+            subtitle_shape.width = Inches(heading["subtitle_width_in"])
+            subtitle_shape.height = Inches(heading["subtitle_height_in"])
         return slide
 
     @staticmethod
@@ -258,6 +268,7 @@ def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows:
     than 3x3 therefore extend beyond the slide instead of being split across
     several slides, so all positions remain together for comparison.
     """
+    layout = deck.manifest["ipf"]
     grid_shape = deck.shape(slide, "EBSD_IPF_GRID")
     prototype_table = grid_shape.table
     data_columns = [column for index, column in enumerate(prototype_table.columns) if index > 0]
@@ -272,8 +283,8 @@ def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows:
         sum(row.height for row in data_rows)
         / max(1, len(data_rows))
     )
-    left = grid_shape.left
-    top = grid_shape.top
+    left = Inches(layout["grid_left_in"])
+    top = Inches(layout["grid_top_in"])
     deck.remove_shape(slide, "EBSD_IPF_GRID")
 
     table = slide.shapes.add_table(
@@ -468,9 +479,16 @@ def _complete_cell(item: Optional[Dict[str, Any]]) -> str:
     ))
 
 
-def _add_complete_table(deck: TemplateDeck, sample: str, version: str, snapshot: Snapshot) -> None:
+def _add_complete_table(
+    deck: TemplateDeck,
+    sample: str,
+    version: str,
+    snapshot: Snapshot,
+    overridden_positions: Sequence[str] = (),
+) -> None:
     slide = deck.add_slide("Complete EBSD data", f"{sample} · {version}")
     positions = sorted(snapshot, key=_position_key)
+    overridden_set = set(overridden_positions)
     labels = _orientation_labels(snapshot)
     columns = 10
     column_width = deck.manifest["orientation_table"]["column_width_in"]
@@ -511,11 +529,24 @@ def _add_complete_table(deck: TemplateDeck, sample: str, version: str, snapshot:
             *(f"{value:.1f}%" for value in ratio15),
         ]
         for column_index, value in enumerate(values):
-            _set_cell(table.cell(row_index, column_index), value, header=column_index == 0, size=14)
+            _set_cell(
+                table.cell(row_index, column_index),
+                value,
+                header=column_index == 0,
+                size=14,
+                color=OVERRIDDEN_TEXT if column_index > 0 and position in overridden_set else None,
+            )
 
 
-def _add_orientation_tables(deck: TemplateDeck, snapshot: Snapshot, *, grains: bool) -> None:
+def _add_orientation_tables(
+    deck: TemplateDeck,
+    snapshot: Snapshot,
+    *,
+    grains: bool,
+    overridden_positions: Sequence[str] = (),
+) -> None:
     labels = _orientation_labels(snapshot)
+    overridden_set = set(overridden_positions)
     kind = "orientation_grains" if grains else "orientation_pixels"
     title = "Orientation ratio by grains" if grains else "Orientation ratio by pixels"
     slide = deck.add_slide(title, kind=kind)
@@ -569,10 +600,17 @@ def _add_orientation_tables(deck: TemplateDeck, snapshot: Snapshot, *, grains: b
                         table.cell(row_index, 1 + axis_index * len(columns) + column_index),
                         f"{values[axis_index]:.1f}%" if position in snapshot else "",
                         size=18,
+                        color=OVERRIDDEN_TEXT if position in overridden_set else None,
                     )
 
 
-def _add_statistics(deck: TemplateDeck, statistics_by_min_size: Dict[int, Snapshot], sample: str) -> None:
+def _add_statistics(
+    deck: TemplateDeck,
+    statistics_by_min_size: Dict[int, Snapshot],
+    sample: str,
+    overridden_positions: Sequence[str] = (),
+) -> None:
+    overridden_set = set(overridden_positions)
     metric_specs = (
         ("Average", "EBSD_STATS_AVERAGE", lambda values: f"{statistics.mean(values):.2f}" if values else "—"),
         ("Max", "EBSD_STATS_MAX", lambda values: f"{max(values):.2f}" if values else "—"),
@@ -614,7 +652,12 @@ def _add_statistics(deck: TemplateDeck, statistics_by_min_size: Dict[int, Snapsh
                 for column_index, column in enumerate(columns, start=1):
                     position = f"{column}-{row}"
                     grains = _finite(snapshot.get(position, {}).get("grains"))
-                    _set_cell(table.cell(row_index, column_index), formatter(grains) if position in snapshot else "", size=18)
+                    _set_cell(
+                        table.cell(row_index, column_index),
+                        formatter(grains) if position in snapshot else "",
+                        size=18,
+                        color=OVERRIDDEN_TEXT if position in overridden_set else None,
+                    )
 
 
 def _triangle_chart(column: str, rows: Sequence[int], selected: Snapshot, golden: Snapshot, deviation: str, labels: List[str]) -> io.BytesIO:
@@ -797,6 +840,7 @@ def build_pptx_report(
     analysis_data: Optional[Dict[str, Dict[str, float]]] = None,
     analysis_features: Optional[List[str]] = None,
     color_thresholds: Optional[List[float]] = None,
+    overridden_positions: Optional[List[str]] = None,
     histogram_settings: Optional[Dict[str, Any]] = None,
 ) -> bytes:
     deck = TemplateDeck()
@@ -807,10 +851,11 @@ def build_pptx_report(
         directions["z"] = ipf_images
     _add_ipf_pages(deck, selected_sample, selected_version_label, directions, ipf_legend)
     _add_grain_chart_pages(deck, selected, golden, selected_version_label, golden_version_label, histogram_settings or {})
-    _add_complete_table(deck, selected_sample, selected_version_label, selected)
-    _add_orientation_tables(deck, selected, grains=False)
-    _add_orientation_tables(deck, selected, grains=True)
-    _add_statistics(deck, statistics_by_min_grain_size or {10: selected}, selected_sample)
+    overwritten = overridden_positions or []
+    _add_complete_table(deck, selected_sample, selected_version_label, selected, overwritten)
+    _add_orientation_tables(deck, selected, grains=False, overridden_positions=overwritten)
+    _add_orientation_tables(deck, selected, grains=True, overridden_positions=overwritten)
+    _add_statistics(deck, statistics_by_min_grain_size or {10: selected}, selected_sample, overwritten)
     _add_triangle_pages(deck, selected, golden)
     _add_orientation_lines(deck, selected, golden)
     _add_feature_analysis(deck, analysis_data or {}, selected_sample, analysis_features or [], color_thresholds or [30.0, 70.0])

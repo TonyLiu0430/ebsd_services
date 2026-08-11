@@ -240,7 +240,7 @@ def _add_grain_distribution_slide(
     for mode, title in modes:
         slide = _blank_slide(prs)
         _add_section_title(slide, title)
-        _add_legend(slide, 0.65, 0.93, [(selected_version_label, RGBColor(59, 130, 246)), (f"{golden_version_label} (黃金)", RGBColor(245, 158, 11))])
+        _add_grain_legend(slide, 0.65, 0.93, selected_version_label, golden_version_label, mode)
         if mode != "cdf":
             _add_text(slide, f"Bin 起點 {hist_bin_min:.1f} um / Bin 數 16 / 顯示軸從 0 到 200 um", 6.2, 0.93, 6.2, 0.22, size=9, color=RGBColor(75, 85, 99))
 
@@ -519,8 +519,8 @@ def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str,
             if xs:
                 ax.plot(xs, ys, color=color, linewidth=1.8, linestyle=linestyle, solid_joinstyle="round")
 
-        plot(golden, "#f59e0b", "--")
-        plot(sample, "#3b82f6", "-")
+        plot(golden, "#2563eb", "-")
+        plot(sample, "#dc2626", "--")
         ax.set_ylim(0, 100)
         ax.set_yticks([0, 25, 50, 75, 100])
         ax.set_ylabel("Cumulative %", fontsize=7, color="#6b7280", labelpad=1)
@@ -540,10 +540,10 @@ def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str,
             golden_series,
             width=bin_width,
             align="edge",
-            facecolor=(245 / 255, 158 / 255, 11 / 255, 0.20),
-            edgecolor=(245 / 255, 158 / 255, 11 / 255, 0.95),
+            facecolor=(37 / 255, 99 / 255, 235 / 255, 0.24),
+            edgecolor=(37 / 255, 99 / 255, 235 / 255, 0.95),
             linewidth=1.0,
-            linestyle=(0, (2.2, 1.4)),
+            linestyle="-",
             zorder=2,
         )
         ax.bar(
@@ -551,9 +551,10 @@ def _render_grain_chart_png(sample: List[float], golden: List[float], mode: str,
             sample_series,
             width=bin_width,
             align="edge",
-            facecolor=(15 / 255, 118 / 255, 110 / 255, 0.24),
-            edgecolor=(15 / 255, 118 / 255, 110 / 255, 0.95),
+            facecolor=(220 / 255, 38 / 255, 38 / 255, 0.22),
+            edgecolor=(220 / 255, 38 / 255, 38 / 255, 0.95),
             linewidth=1.0,
+            linestyle=(0, (2.2, 1.4)),
             zorder=3,
         )
         ax.set_ylim(0, y_axis_max)
@@ -868,6 +869,66 @@ def _add_legend(slide, x: float, y: float, items: List[Tuple[str, RGBColor]]):
         line.line.width = Pt(2)
         _add_text(slide, label, cursor + 0.34, y, 2.25, 0.22, size=9, color=RGBColor(75, 85, 99))
         cursor += 2.55
+
+
+def _add_grain_legend(slide, x: float, y: float, selected_label: str, golden_label: str, mode: str):
+    if mode == "cdf":
+        sample_mark = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(x),
+            Inches(y + 0.12),
+            Inches(x + 0.28),
+            Inches(y + 0.12),
+        )
+        sample_mark.line.width = Pt(2)
+        sample_mark.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+    else:
+        sample_mark = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(x + 0.04),
+            Inches(y + 0.04),
+            Inches(0.20),
+            Inches(0.16),
+        )
+        sample_mark.fill.solid()
+        sample_mark.fill.fore_color.rgb = RGBColor(248, 207, 207)
+        sample_mark.line.width = Pt(1)
+        sample_mark.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+    sample_mark.line.color.rgb = RGBColor(220, 38, 38)
+    _add_text(slide, selected_label, x + 0.34, y, 2.25, 0.22, size=9, color=RGBColor(75, 85, 99))
+
+    golden_x = x + 2.55
+    if mode == "cdf":
+        golden_mark = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(golden_x),
+            Inches(y + 0.12),
+            Inches(golden_x + 0.28),
+            Inches(y + 0.12),
+        )
+        golden_mark.line.width = Pt(2)
+    else:
+        golden_mark = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(golden_x + 0.04),
+            Inches(y + 0.04),
+            Inches(0.20),
+            Inches(0.16),
+        )
+        golden_mark.fill.solid()
+        golden_mark.fill.fore_color.rgb = RGBColor(203, 218, 251)
+        golden_mark.line.width = Pt(1)
+    golden_mark.line.color.rgb = RGBColor(37, 99, 235)
+    _add_text(
+        slide,
+        f"{golden_label} (黃金)",
+        golden_x + 0.34,
+        y,
+        2.25,
+        0.22,
+        size=9,
+        color=RGBColor(75, 85, 99),
+    )
 
 
 def _add_placeholder(slide, x: float, y: float, w: float, h: float, text: str):

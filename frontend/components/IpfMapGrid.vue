@@ -1,9 +1,5 @@
 <script setup lang="ts">
-const COL_KEYS = ['C', 'M', 'E'] as const
-const ROW_KEYS = ['U', 'M', 'B'] as const
-
-const COL_LABELS: Record<string, string> = { C: '內 Center', M: '中 Middle', E: '外 Edge' }
-const ROW_LABELS: Record<string, string> = { U: '上 Up', M: '中 Middle', B: '下 Bottom' }
+import { buildPositionMatrix, positionKey } from '~/utils/positions'
 
 interface FilePair {
   id: string
@@ -89,6 +85,10 @@ async function loadCell(pos: string, pairId: string, generation: number) {
 const samplePairs = computed(() =>
   props.pairs.filter((p) => p.sample === props.sample),
 )
+const positionMatrix = computed(() => buildPositionMatrix(samplePairs.value.map((pair) => pair.pos)))
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `64px repeat(${Math.max(1, positionMatrix.value.columnCount)}, minmax(220px, 1fr))`,
+}))
 
 async function loadAllCells() {
   loadGeneration++
@@ -122,26 +122,26 @@ onUnmounted(() => {
 
 <template>
   <div class="ipf-grid-wrap">
-    <div class="ipf-grid-header">
+    <div class="ipf-grid-header" :style="gridStyle">
       <div class="ipf-grid-corner"></div>
-      <div v-for="colKey in COL_KEYS" :key="colKey" class="ipf-col-header">
-        {{ COL_LABELS[colKey] }}<br /><small>({{ colKey }})</small>
+      <div v-for="column in positionMatrix.columns" :key="column" class="ipf-col-header">
+        {{ column }}
       </div>
     </div>
-    <div v-for="rowKey in ROW_KEYS" :key="rowKey" class="ipf-grid-row">
-      <div class="ipf-row-header">{{ ROW_LABELS[rowKey] }}</div>
-      <div v-for="colKey in COL_KEYS" :key="colKey" class="ipf-cell">
-        <div class="ipf-pos-label">{{ colKey }}-{{ rowKey }}</div>
+    <div v-for="row in positionMatrix.rows" :key="row" class="ipf-grid-row" :style="gridStyle">
+      <div class="ipf-row-header">{{ row }}</div>
+      <div v-for="column in positionMatrix.columns" :key="column" class="ipf-cell">
+        <div class="ipf-pos-label">{{ positionKey(column, row) }}</div>
         <div class="ipf-img-wrap">
-          <div v-if="cellState(`${colKey}-${rowKey}`) === 'loading'" class="ipf-status ipf-loading">
+          <div v-if="cellState(positionKey(column, row)) === 'loading'" class="ipf-status ipf-loading">
             <span>載入中...</span>
           </div>
-          <div v-else-if="cellState(`${colKey}-${rowKey}`) === 'error'" class="ipf-status ipf-error">
+          <div v-else-if="cellState(positionKey(column, row)) === 'error'" class="ipf-status ipf-error">
             <span>載入失敗</span>
           </div>
           <a
-            v-else-if="cellImage(`${colKey}-${rowKey}`)"
-            :href="cellViewerUrl(`${colKey}-${rowKey}`)"
+            v-else-if="cellImage(positionKey(column, row))"
+            :href="cellViewerUrl(positionKey(column, row))"
             target="_blank"
             rel="noopener"
             class="ipf-image-link"
@@ -149,9 +149,9 @@ onUnmounted(() => {
             @click.prevent
           >
             <img
-              :src="cellImage(`${colKey}-${rowKey}`)"
+              :src="cellImage(positionKey(column, row))"
               class="ipf-image"
-              :alt="`IPF map ${colKey}-${rowKey}`"
+              :alt="`IPF map ${positionKey(column, row)}`"
             />
           </a>
           <div v-else class="ipf-status ipf-empty">
@@ -170,7 +170,6 @@ onUnmounted(() => {
 
 .ipf-grid-header {
   display: grid;
-  grid-template-columns: 80px repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 4px;
 }
@@ -193,7 +192,6 @@ onUnmounted(() => {
 
 .ipf-grid-row {
   display: grid;
-  grid-template-columns: 80px repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -279,10 +277,4 @@ onUnmounted(() => {
   background: #f3f4f6;
 }
 
-@media (max-width: 700px) {
-  .ipf-grid-header,
-  .ipf-grid-row {
-    grid-template-columns: 60px repeat(3, 1fr);
-  }
-}
 </style>

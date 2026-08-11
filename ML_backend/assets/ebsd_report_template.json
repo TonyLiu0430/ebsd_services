@@ -1,0 +1,64 @@
+{
+  "schema_version": 2,
+  "template_file": "ebsd_report_template.pptx",
+  "provenance": "Clean-room report skeleton derived from the customer visual language; the source presentation is not versioned.",
+  "slide_size": {
+    "width_emu": 12192000,
+    "height_emu": 6858000
+  },
+  "prototypes": {
+    "ipf": {
+      "slide_number": 1,
+      "prototype_shape": "EBSD_TITLE"
+    },
+    "orientation_pixels": {
+      "slide_number": 2,
+      "prototype_shape": "EBSD_TITLE"
+    },
+    "orientation_grains": {
+      "slide_number": 3,
+      "prototype_shape": "EBSD_TITLE"
+    },
+    "statistics": {
+      "slide_number": 4,
+      "prototype_shape": "EBSD_TITLE"
+    },
+    "generic": {
+      "slide_number": 5,
+      "prototype_shape": "EBSD_TITLE"
+    }
+  },
+  "generic_content_box": {
+    "left_in": 1.708,
+    "top_in": 1.25,
+    "width_in": 9.917,
+    "height_in": 4.95
+  },
+  "ipf": {
+    "image_slots_in": [
+      [3.320, 1.699, 2.482, 1.643],
+      [5.940, 1.681, 2.519, 1.680],
+      [8.567, 1.681, 2.492, 1.661],
+      [3.339, 3.400, 2.493, 1.662],
+      [5.940, 3.382, 2.519, 1.680],
+      [8.569, 3.384, 2.514, 1.676],
+      [3.354, 5.084, 2.413, 1.609],
+      [5.968, 5.083, 2.500, 1.667],
+      [8.604, 5.062, 2.479, 1.653]
+    ]
+  },
+  "orientation_table": {
+    "left_in": 1.708,
+    "top_20_in": 1.25,
+    "top_15_in": 4.167,
+    "column_width_in": 0.992,
+    "row_height_in": 0.406,
+    "section_gap_in": 0.884
+  },
+  "statistics_table": {
+    "left_in": 2.167,
+    "top_in": 1.417,
+    "column_width_in": 1.111,
+    "row_height_in": 0.406
+  }
+}

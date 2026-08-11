@@ -64,7 +64,7 @@
         <div class="panel-title-row">
           <h2>新增位置掃描檔</h2>
           <span class="pair-badge" :class="{ ready: hasCompletePair }">
-            {{ hasCompletePair ? 'CRC + CPR 已選齊' : '等待成對檔案' }}
+            {{ hasCompletePair ? `${selectedFormatLabel} 已就緒` : '等待 EBSD 檔案' }}
           </span>
         </div>
 
@@ -103,42 +103,29 @@
         <div class="single-position-panel">
           <div class="position-picker-head">
             <span>位置</span>
-            <small>可點選或手動輸入，保存時會統一成 C-U 格式</small>
-          </div>
-          <div class="single-position-map">
-            <div class="single-axis-labels">
-              <span>內</span>
-              <span>中</span>
-              <span>外</span>
-            </div>
-            <div class="single-map-grid">
-              <div v-for="row in POSITION_ROWS" :key="row.label" class="single-map-row">
-                <span class="row-label">{{ row.label }}</span>
-                <button
-                  v-for="pos in row.positions"
-                  :key="pos"
-                  type="button"
-                  class="position-pick-btn"
-                  :class="{ active: normalizedSinglePosition === pos }"
-                  @click="setSinglePosition(pos)"
-                >
-                  {{ pos }}
-                </button>
-              </div>
-            </div>
+            <small>使用 Excel 座標格式，例如 A-1、B-2、AA-12；舊檔名會在匯入時自動轉換。</small>
           </div>
           <label class="field">
             <span>手動位置</span>
             <input
               v-model.trim="singleForm.position"
               type="text"
-              placeholder="C-U"
+              placeholder="A-1"
               @blur="normalizeSinglePositionInput"
             />
           </label>
         </div>
 
-        <div class="file-pair-grid">
+        <label class="field">
+          <span>EBSD 格式</span>
+          <select v-model="singleFileFormat" @change="resetSelectedFiles">
+            <option value="cpr">Oxford CPR + CRC</option>
+            <option value="ang">TSL ANG（單檔）</option>
+            <option value="ctf">HKL CTF（單檔）</option>
+          </select>
+        </label>
+
+        <div v-if="singleFileFormat === 'cpr'" class="file-pair-grid">
           <label class="file-drop" :class="{ selected: !!crcFile }">
             <input ref="crcInput" type="file" accept=".crc" @change="handleSingleFile('crc', $event)" />
             <span class="file-kind">CRC</span>
@@ -151,6 +138,19 @@
             <span class="file-kind">CPR</span>
             <strong>{{ cprFile?.name || '選擇 .cpr' }}</strong>
             <small>{{ cprFile ? formatBytes(cprFile.size) : '必填' }}</small>
+          </label>
+        </div>
+        <div v-else class="file-pair-grid file-pair-grid--single">
+          <label class="file-drop" :class="{ selected: !!ebsdFile }">
+            <input
+              ref="ebsdInput"
+              type="file"
+              :accept="`.${singleFileFormat}`"
+              @change="handleSingleEbsdFile"
+            />
+            <span class="file-kind">{{ singleFileFormat.toUpperCase() }}</span>
+            <strong>{{ ebsdFile?.name || `選擇 .${singleFileFormat}` }}</strong>
+            <small>{{ ebsdFile ? formatBytes(ebsdFile.size) : '必填' }}</small>
           </label>
         </div>
 
@@ -168,7 +168,7 @@
     <section class="panel folder-panel">
       <div class="panel-title-row">
         <h2>資料夾批次匯入</h2>
-        <span>{{ folderPairs.length }} 組已配對</span>
+        <span>{{ folderPairs.length }} 組已解析</span>
       </div>
       <div
         class="folder-drop"
@@ -187,9 +187,9 @@
         />
         <strong>{{ folderPairs.length ? '已解析資料夾' : '點擊或拖曳 EBSD 資料夾' }}</strong>
         <span v-if="folderPairs.length">
-          {{ folderTargets.size }} 筆靶材，{{ folderVersionCount }} 個版本，{{ folderPairs.length }} 組 .crc/.cpr
+          {{ folderTargets.size }} 筆靶材，{{ folderVersionCount }} 個版本，{{ folderPairs.length }} 組 EBSD 掃描
         </span>
-        <span v-else>會自動配對同位置的 .crc 與 .cpr；資料夾結尾為 -1、-2、-3 會視為同一靶材的版本，沒有數字則視為 -1。</span>
+        <span v-else>支援 .crc + .cpr 配對、單一 .ang、單一 .ctf；資料夾結尾 -1、-2、-3 會視為版本。</span>
       </div>
 
       <div v-if="folderPairs.length" class="folder-summary">
@@ -248,10 +248,10 @@
             </div>
             <div class="target-card-actions">
               <div class="coverage-meter">
-                <strong>{{ group.displayStandardCount }}</strong>
-                <span>/ 9 位置</span>
+                <strong>{{ group.displayTotalPositions }}</strong>
+                <span>個位置 · {{ group.displayPositionMatrix.columnCount }}×{{ group.displayPositionMatrix.rowCount }}</span>
                 <small :class="{ complete: group.displayMissingCount === 0 }">
-                  {{ group.displayMissingCount === 0 ? '標準 9 點已齊' : `缺 ${group.displayMissingCount} 個標準位置` }}
+                  {{ group.displayMissingCount === 0 ? '矩陣位置已齊' : `矩陣內缺 ${group.displayMissingCount} 個位置` }}
                 </small>
               </div>
               <button
@@ -267,24 +267,30 @@
 
           <div class="mini-map-wrap">
             <div class="mini-wafer-map">
-              <div class="axis-labels">
-                <span>內</span>
-                <span>中</span>
-                <span>外</span>
-              </div>
-              <div class="mini-map-grid">
-                <div v-for="row in POSITION_ROWS" :key="row.label" class="mini-map-row">
-                  <span class="row-label">{{ row.label }}</span>
-                  <span
-                    v-for="pos in row.positions"
-                    :key="pos"
-                    class="map-dot"
-                    :class="{ present: group.displayPositions.has(pos), missing: !group.displayPositions.has(pos) }"
-                    :title="`${pos} ${group.displayPositions.has(pos) ? '有資料' : '缺少'}`"
-                  >
-                    {{ pos }}
-                  </span>
+              <div class="dynamic-map-grid" :style="matrixGridStyle(group.displayPositionMatrix)">
+                <div class="map-corner"></div>
+                <div
+                  v-for="column in group.displayPositionMatrix.columns"
+                  :key="`column-${column}`"
+                  class="axis-label"
+                >
+                  {{ column }}
                 </div>
+                <template v-for="row in group.displayPositionMatrix.rows" :key="`row-${row}`">
+                  <div class="row-label">{{ row }}</div>
+                  <span
+                    v-for="column in group.displayPositionMatrix.columns"
+                    :key="positionKey(column, row)"
+                    class="map-dot"
+                    :class="{
+                      present: group.displayPositions.has(positionKey(column, row)),
+                      missing: !group.displayPositions.has(positionKey(column, row)),
+                    }"
+                    :title="`${positionKey(column, row)} ${group.displayPositions.has(positionKey(column, row)) ? '有資料' : '缺少'}`"
+                  >
+                    {{ positionKey(column, row) }}
+                  </span>
+                </template>
               </div>
             </div>
 
@@ -292,17 +298,6 @@
               <span><i class="legend-dot present"></i>{{ group.displayLabel }} 有資料</span>
               <span><i class="legend-dot missing"></i>缺少</span>
             </div>
-
-            <div v-if="group.displayExtraPositions.length" class="extra-position-row">
-              <span
-                v-for="pos in group.displayExtraPositions"
-                :key="pos"
-                class="pos-chip extra present"
-              >
-                {{ pos }}
-              </span>
-            </div>
-
             <div class="version-strip">
               <button
                 type="button"
@@ -345,7 +340,7 @@
                     {{ deletingPairIds.has(pair.id) ? '刪除中' : '移除' }}
                   </button>
                 </div>
-                <dl>
+                <dl v-if="pair.is_paired_format">
                   <div>
                     <dt>CRC</dt>
                     <dd>{{ pair.crc_filename }} · {{ formatBytes(pair.crc_size_bytes) }}</dd>
@@ -353,6 +348,12 @@
                   <div>
                     <dt>CPR</dt>
                     <dd>{{ pair.cpr_filename }} · {{ formatBytes(pair.cpr_size_bytes) }}</dd>
+                  </div>
+                </dl>
+                <dl v-else>
+                  <div>
+                    <dt>{{ pair.file_format.toUpperCase() }}</dt>
+                    <dd>{{ pair.primary_filename }} · {{ formatBytes(pair.primary_size_bytes) }}</dd>
                   </div>
                 </dl>
               </article>
@@ -367,6 +368,9 @@
 </template>
 
 <script setup lang="ts">
+import type { PositionMatrix } from '~/utils/positions'
+import { buildPositionMatrix, comparePositions, normalizePosition, positionKey } from '~/utils/positions'
+
 definePageMeta({
   middleware: 'auth',
 })
@@ -389,6 +393,11 @@ type StoredEbsdPair = {
   cpr_filename: string
   cpr_size_bytes: number
   cpr_hash: string
+  file_format: string
+  is_paired_format: boolean
+  primary_filename: string
+  primary_size_bytes: number
+  primary_hash: string
   sample: string
   position: string
   name: string
@@ -417,8 +426,10 @@ type SaveEbsdPairResponse = {
 
 type LocalFolderPair = {
   name: string
-  crc: File
-  cpr: File
+  crc?: File
+  cpr?: File
+  ebsd?: File
+  format: 'cpr' | 'ang' | 'ctf'
   sample: string
   position: string
   folder: string
@@ -435,19 +446,11 @@ type TargetOption = {
   materialElement: string
 }
 
-const STANDARD_POSITIONS = ['C-U', 'C-M', 'C-B', 'M-U', 'M-M', 'M-B', 'E-U', 'E-M', 'E-B'] as const
-type StandardPosition = typeof STANDARD_POSITIONS[number]
 const UNKNOWN_MATERIAL = {
   key: 'unknown',
   displayName: 'Unknown',
   element: '',
 }
-const POSITION_ROWS = [
-  { label: '上', positions: ['C-U', 'M-U', 'E-U'] },
-  { label: '中', positions: ['C-M', 'M-M', 'E-M'] },
-  { label: '下', positions: ['C-B', 'M-B', 'E-B'] },
-] as const
-
 const auth = useAuth()
 const storedTargets = ref<StoredTarget[]>([])
 const storedPairs = ref<StoredEbsdPair[]>([])
@@ -466,8 +469,11 @@ const folderError = ref('')
 const folderMessage = ref('')
 const crcFile = ref<File | null>(null)
 const cprFile = ref<File | null>(null)
+const ebsdFile = ref<File | null>(null)
+const singleFileFormat = ref<'cpr' | 'ang' | 'ctf'>('cpr')
 const crcInput = ref<HTMLInputElement>()
 const cprInput = ref<HTMLInputElement>()
+const ebsdInput = ref<HTMLInputElement>()
 const folderInput = ref<HTMLInputElement>()
 const folderPairs = ref<LocalFolderPair[]>([])
 const folderTargets = ref(new Set<string>())
@@ -534,7 +540,14 @@ const targetMaterialGroups = computed(() => {
   )
 })
 
-const hasCompletePair = computed(() => !!crcFile.value && !!cprFile.value)
+const hasCompletePair = computed(() =>
+  singleFileFormat.value === 'cpr'
+    ? !!crcFile.value && !!cprFile.value
+    : !!ebsdFile.value,
+)
+const selectedFormatLabel = computed(() =>
+  singleFileFormat.value === 'cpr' ? 'CPR + CRC' : singleFileFormat.value.toUpperCase(),
+)
 const canCreateTarget = computed(() =>
   newTargetName.value.trim() !== '' &&
   !targetOptions.value.some((target) => target.name === newTargetName.value.trim()),
@@ -586,7 +599,7 @@ const selectedSingleVersion = computed(() => {
     selectedTargetVersionOptions.value[0] ??
     { key: 'v1', label: '-1', num: 1 }
 })
-const normalizedSinglePosition = computed(() => normalizeStandardPosition(singleForm.position))
+const normalizedSinglePosition = computed(() => normalizePosition(singleForm.position))
 const folderVersionCount = computed(() => new Set(folderPairs.value.map((pair) => `${pair.sample}::${pair.versionKey}`)).size)
 const groupedPairs = computed(() => {
   const map = new Map<string, {
@@ -613,7 +626,7 @@ const groupedPairs = computed(() => {
     .map(({ sample, materialKey, materialDisplayName, materialConfidence, items }) => {
       const sortedItems = [...items].sort((a, b) =>
         versionNum(a) - versionNum(b) ||
-        a.position.localeCompare(b.position, undefined, { numeric: true, sensitivity: 'base' }),
+        comparePositions(a.position, b.position),
       )
       const versionMap = new Map<string, StoredEbsdPair[]>()
       for (const item of sortedItems) {
@@ -628,7 +641,7 @@ const groupedPairs = computed(() => {
           key,
           label: `-${versionItems[0]?.version_num ?? 1}`,
           num: versionItems[0]?.version_num ?? 1,
-          positions: Array.from(new Set(versionItems.map((item) => item.position))).sort(sortText),
+          positions: Array.from(new Set(versionItems.map((item) => item.position))).sort(comparePositions),
         }))
         .sort((a, b) => a.num - b.num || sortText(a.label, b.label))
       const latestVersion = versions[versions.length - 1]
@@ -648,14 +661,8 @@ const groupedPairs = computed(() => {
       const displayPositions = selectedVersion
         ? new Set(selectedVersion.positions)
         : positions
-      const displayStandardCount = STANDARD_POSITIONS.filter((pos) => displayPositions.has(pos)).length
-      const displayExtraPositions = Array.from(displayPositions)
-        .filter((pos) => !STANDARD_POSITIONS.includes(pos as typeof STANDARD_POSITIONS[number]))
-        .sort(sortText)
-      const standardCount = STANDARD_POSITIONS.filter((pos) => positions.has(pos)).length
-      const extraPositions = Array.from(positions)
-        .filter((pos) => !STANDARD_POSITIONS.includes(pos as typeof STANDARD_POSITIONS[number]))
-        .sort(sortText)
+      const positionMatrix = buildPositionMatrix(positions)
+      const displayPositionMatrix = buildPositionMatrix(displayPositions)
 
       return {
         sample,
@@ -664,14 +671,12 @@ const groupedPairs = computed(() => {
         materialConfidence,
         items: sortedItems,
         positions,
-        standardCount,
-        missingCount: STANDARD_POSITIONS.length - standardCount,
-        extraPositions,
+        positionMatrix,
+        missingCount: Math.max(0, positionMatrix.cellCount - positions.size),
         totalPositions: positions.size,
         displayPositions,
-        displayStandardCount,
-        displayMissingCount: STANDARD_POSITIONS.length - displayStandardCount,
-        displayExtraPositions,
+        displayPositionMatrix,
+        displayMissingCount: Math.max(0, displayPositionMatrix.cellCount - displayPositions.size),
         displayTotalPositions: displayPositions.size,
         displayLabel: selectedVersion?.label ?? '完整位置',
         activeViewKey,
@@ -795,10 +800,16 @@ function processFolderFiles(fileList: FileList | null | undefined) {
 
   const crcFiles = new Map<string, { file: File; sample: string; position: string; folder: string; versionKey: string; versionLabel: string; versionNum: number }>()
   const cprFiles = new Map<string, File>()
+  const singleFiles: LocalFolderPair[] = []
 
   for (const file of Array.from(fileList)) {
     const lowerName = file.name.toLowerCase()
-    if (!lowerName.endsWith('.crc') && !lowerName.endsWith('.cpr')) continue
+    const format: 'ang' | 'ctf' | null = lowerName.endsWith('.ang')
+      ? 'ang'
+      : lowerName.endsWith('.ctf')
+        ? 'ctf'
+        : null
+    if (!lowerName.endsWith('.crc') && !lowerName.endsWith('.cpr') && !format) continue
 
     const relativePath = file.webkitRelativePath || file.name
     const parts = relativePath.split('/').filter(Boolean)
@@ -807,11 +818,22 @@ function processFolderFiles(fileList: FileList | null | undefined) {
 
     const versionInfo = parseTargetVersion(folder)
     const sample = versionInfo.sample
-    const position = standardPos(file.name.replace(/\.(crc|cpr)$/i, '').trim())
+    const position = normalizePosition(file.name.replace(/\.(crc|cpr|ang|ctf)$/i, '').trim())
+    if (!position) continue
     const key = `${sample}::${versionInfo.versionKey}::${position}`
     folderTargets.value.add(sample)
 
-    if (lowerName.endsWith('.crc')) {
+    if (format) {
+      singleFiles.push({
+        name: `${sample}-${position}`,
+        ebsd: file,
+        format,
+        sample,
+        position,
+        folder,
+        ...versionInfo,
+      })
+    } else if (lowerName.endsWith('.crc')) {
       crcFiles.set(key, { file, sample, position, folder, ...versionInfo })
     } else {
       cprFiles.set(key, file)
@@ -826,6 +848,7 @@ function processFolderFiles(fileList: FileList | null | undefined) {
       name: `${info.sample}-${info.position}`,
       crc: info.file,
       cpr,
+      format: 'cpr',
       sample: info.sample,
       position: info.position,
       folder: info.folder,
@@ -834,6 +857,7 @@ function processFolderFiles(fileList: FileList | null | undefined) {
       versionNum: info.versionNum,
     })
   }
+  matched.push(...singleFiles)
 
   matched.sort((a, b) =>
     sortText(a.sample, b.sample) ||
@@ -842,7 +866,7 @@ function processFolderFiles(fileList: FileList | null | undefined) {
   )
   folderPairs.value = matched
   if (!matched.length) {
-    folderError.value = '找不到可配對的 .crc/.cpr'
+    folderError.value = '找不到可用的 .crc + .cpr、.ang 或 .ctf'
   }
 }
 
@@ -899,6 +923,7 @@ async function importFolderPairs() {
       await savePairToLibrary({
         crc: pair.crc,
         cpr: pair.cpr,
+        ebsd: pair.ebsd,
         sample: pair.sample,
         position: pair.position,
         name: pair.name,
@@ -961,20 +986,47 @@ function handleSingleFile(kind: 'crc' | 'cpr', event: Event) {
   if (filenameError) uploadError.value = filenameError
 }
 
+function handleSingleEbsdFile(event: Event) {
+  uploadError.value = ''
+  uploadMessage.value = ''
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  if (!file) {
+    ebsdFile.value = null
+    return
+  }
+  const expectedExtension = `.${singleFileFormat.value}`
+  if (!file.name.toLowerCase().endsWith(expectedExtension)) {
+    uploadError.value = `目前格式只能選擇 ${expectedExtension} 檔案`
+    input.value = ''
+    ebsdFile.value = null
+    return
+  }
+  ebsdFile.value = file
+  fillMetadataFromFile(file)
+}
+
 function fillMetadataFromFile(file: File) {
-  const baseName = file.name.replace(/\.(crc|cpr)$/i, '').trim()
-  if (!singleForm.position) singleForm.position = standardPos(baseName)
+  const baseName = file.name.replace(/\.(crc|cpr|ang|ctf)$/i, '').trim()
+  if (!singleForm.position) singleForm.position = normalizePosition(baseName)
 }
 
 function validateSingleUpload(): string {
   if (!selectedTarget.value) return '請先選擇或新增靶材'
-  if (!crcFile.value || !cprFile.value) return '請同時選擇 .crc 與 .cpr 檔案'
-  if (!crcFile.value.name.toLowerCase().endsWith('.crc')) return 'CRC 欄位只能上傳 .crc'
-  if (!cprFile.value.name.toLowerCase().endsWith('.cpr')) return 'CPR 欄位只能上傳 .cpr'
-  const filenameError = validateSelectedFileNames()
-  if (filenameError) return filenameError
+  if (singleFileFormat.value === 'cpr') {
+    if (!crcFile.value || !cprFile.value) return '請同時選擇 .crc 與 .cpr 檔案'
+    if (!crcFile.value.name.toLowerCase().endsWith('.crc')) return 'CRC 欄位只能上傳 .crc'
+    if (!cprFile.value.name.toLowerCase().endsWith('.cpr')) return 'CPR 欄位只能上傳 .cpr'
+    const filenameError = validateSelectedFileNames()
+    if (filenameError) return filenameError
+  } else {
+    if (!ebsdFile.value) return `請選擇 .${singleFileFormat.value} 檔案`
+    if (!ebsdFile.value.name.toLowerCase().endsWith(`.${singleFileFormat.value}`)) {
+      return `目前格式只能上傳 .${singleFileFormat.value}`
+    }
+  }
   if (!singleForm.position.trim()) return '請輸入位置'
-  if (!normalizedSinglePosition.value) return '位置格式不正確，請選擇或輸入 C-U、M-M、E-B 這類標準位置'
+  if (!normalizedSinglePosition.value) return '位置格式不正確，請輸入 A-1、B-2、AA-12 這類 Excel 座標'
   return ''
 }
 
@@ -991,7 +1043,7 @@ function validateSelectedFileNames(): string {
 async function uploadSinglePair() {
   uploadError.value = validateSingleUpload()
   uploadMessage.value = ''
-  if (uploadError.value || !crcFile.value || !cprFile.value) return
+  if (uploadError.value) return
 
   uploading.value = true
   try {
@@ -999,8 +1051,9 @@ async function uploadSinglePair() {
     if (!normalizedPosition) throw new Error('位置格式不正確')
     singleForm.position = normalizedPosition
     const saved = await savePairToLibrary({
-      crc: crcFile.value,
-      cpr: cprFile.value,
+      crc: crcFile.value ?? undefined,
+      cpr: cprFile.value ?? undefined,
+      ebsd: ebsdFile.value ?? undefined,
       sample: selectedTarget.value,
       position: normalizedPosition,
       name: `${selectedTarget.value}${selectedSingleVersion.value.label}-${normalizedPosition}`,
@@ -1022,8 +1075,9 @@ async function uploadSinglePair() {
 }
 
 async function savePairToLibrary(payload: {
-  crc: File
-  cpr: File
+  crc?: File
+  cpr?: File
+  ebsd?: File
   sample: string
   position: string
   name: string
@@ -1033,8 +1087,14 @@ async function savePairToLibrary(payload: {
   versionNum?: number
 }) {
   const body = new FormData()
-  body.append('crc', payload.crc)
-  body.append('cpr', payload.cpr)
+  if (payload.ebsd) {
+    body.append('ebsd', payload.ebsd)
+  } else if (payload.crc && payload.cpr) {
+    body.append('crc', payload.crc)
+    body.append('cpr', payload.cpr)
+  } else {
+    throw new Error('EBSD 檔案不完整')
+  }
   body.append('sample', payload.sample)
   body.append('position', payload.position)
   body.append('name', payload.name)
@@ -1051,58 +1111,24 @@ async function savePairToLibrary(payload: {
 }
 
 function resetUploadForm(clearMessage = true) {
-  crcFile.value = null
-  cprFile.value = null
+  resetSelectedFiles()
   singleForm.position = ''
   singleForm.versionChoice = selectedTargetVersionOptions.value[0]?.key ?? 'v1'
   singleForm.newVersionNum = nextSingleVersionNum.value
-  if (crcInput.value) crcInput.value.value = ''
-  if (cprInput.value) cprInput.value.value = ''
   if (clearMessage) {
     uploadError.value = ''
     uploadMessage.value = ''
   }
 }
 
-function standardPos(pos: string): string {
-  const trimmed = pos.trim()
-  const numericMap: Record<string, string> = {
-    1: 'C-U',
-    2: 'M-U',
-    3: 'E-U',
-    4: 'C-M',
-    5: 'M-M',
-    6: 'E-M',
-    7: 'C-B',
-    8: 'M-B',
-    9: 'E-B',
-  }
-  if (numericMap[trimmed]) return numericMap[trimmed]
-
-  const dashMatch = trimmed.match(/^([CME])-([UMB])$/i)
-  if (dashMatch) return `${dashMatch[1].toUpperCase()}-${dashMatch[2].toUpperCase()}`
-
-  const colMap: Record<string, string> = { E: 'E', I: 'C', M: 'M', A: 'C', B: 'M', C: 'E' }
-  const rowMap: Record<string, string> = { U: 'U', M: 'M', B: 'B', D: 'B' }
-  if (trimmed.length >= 2) {
-    const col = colMap[trimmed[0].toUpperCase()]
-    const row = rowMap[trimmed[1].toUpperCase()]
-    if (col && row) return `${col}-${row}`
-  }
-  return trimmed
-}
-
-function normalizeStandardPosition(pos: string): StandardPosition | '' {
-  const normalized = standardPos(pos)
-  return STANDARD_POSITIONS.includes(normalized as StandardPosition)
-    ? normalized as StandardPosition
-    : ''
-}
-
-function setSinglePosition(pos: StandardPosition) {
-  singleForm.position = pos
+function resetSelectedFiles() {
+  crcFile.value = null
+  cprFile.value = null
+  ebsdFile.value = null
+  if (crcInput.value) crcInput.value.value = ''
+  if (cprInput.value) cprInput.value.value = ''
+  if (ebsdInput.value) ebsdInput.value.value = ''
   uploadError.value = ''
-  uploadMessage.value = ''
 }
 
 function normalizeSinglePositionInput() {
@@ -1111,7 +1137,7 @@ function normalizeSinglePositionInput() {
 }
 
 function localFileBaseName(filename: string): string {
-  return filename.replace(/\.(crc|cpr)$/i, '').trim()
+  return filename.replace(/\.(crc|cpr|ang|ctf)$/i, '').trim()
 }
 
 async function deletePair(pair: StoredEbsdPair) {
@@ -1228,6 +1254,12 @@ function materialStyle(element: string): Record<string, string> {
 
 function sortText(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function matrixGridStyle(matrix: PositionMatrix): Record<string, string> {
+  return {
+    gridTemplateColumns: `56px repeat(${Math.max(1, matrix.columnCount)}, minmax(82px, 1fr))`,
+  }
 }
 
 function versionNum(pair: StoredEbsdPair): number {
@@ -1817,47 +1849,36 @@ function formatDate(value: string): string {
 }
 
 .mini-wafer-map {
-  position: relative;
-  isolation: isolate;
-  width: min(100%, 360px);
-  min-height: 156px;
+  max-width: 100%;
+  overflow-x: auto;
   border: 1px solid #d9e2ec;
   border-radius: 8px;
-  padding: .85rem 1rem .95rem .85rem;
+  padding: .85rem;
   background: #fff;
 }
 
-.axis-labels {
-  position: relative;
-  z-index: 1;
+.file-pair-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dynamic-map-grid {
   display: grid;
-  grid-template-columns: repeat(3, 54px);
-  gap: 14px;
-  margin-left: auto;
-  margin-right: 16px;
+  align-items: center;
+  gap: .5rem;
+  min-width: max-content;
+}
+
+.map-corner {
+  min-width: 0;
+}
+
+.axis-label {
   width: max-content;
   color: #64748b;
   font-size: .78rem;
   font-weight: 800;
   text-align: center;
-}
-
-.mini-map-grid {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: .5rem;
-  margin-left: auto;
-  margin-right: 16px;
-  margin-top: .45rem;
-  width: max-content;
-}
-
-.mini-map-row {
-  display: grid;
-  grid-template-columns: 20px repeat(3, 54px);
-  gap: 14px;
-  align-items: center;
+  justify-self: center;
 }
 
 .row-label {
@@ -1872,7 +1893,8 @@ function formatDate(value: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  min-width: 72px;
+  width: 100%;
   height: 30px;
   font-size: .72rem;
   font-weight: 850;

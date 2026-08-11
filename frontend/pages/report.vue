@@ -14,7 +14,7 @@
       <div class="panel-title-row">
         <div>
           <h2>報表資料來源</h2>
-          <p>從檔案庫選擇分析樣本與 Golden 樣本，報表會使用各靶材最新版本的完整位置狀態。</p>
+          <p>從檔案庫選擇分析樣本；Golden 樣本為選填，未選擇時顯示單筆樣本資料。</p>
         </div>
         <NuxtLink class="ghost-link" to="/">檔案庫</NuxtLink>
       </div>
@@ -28,7 +28,7 @@
         <div class="target-picker">
           <div class="section-subhead">
             <strong>選擇樣本</strong>
-            <span>{{ comparablePositionCount }} 個可比對位置</span>
+            <span>{{ comparablePositionCount }} 個{{ goldenSample ? '可比對' : '樣本' }}位置</span>
           </div>
           <div class="selector-grid">
             <label class="field">
@@ -43,9 +43,9 @@
               </select>
             </label>
             <label class="field">
-              <span>Golden 樣本</span>
+              <span>Golden 樣本（選填）</span>
               <select v-model="goldenSample">
-                <option value="">請選擇</option>
+                <option value="">不使用 Golden</option>
                 <optgroup v-for="group in goldenMaterialGroups" :key="group.key" :label="group.displayName">
                   <option v-for="card in group.samples" :key="card.sample" :value="card.sample">
                     {{ card.sample }}
@@ -64,9 +64,9 @@
             </article>
             <article class="selected-card golden">
               <span>Golden</span>
-              <strong>{{ goldenSample || '未選擇' }}</strong>
+              <strong>{{ goldenSample || '單筆模式' }}</strong>
               <em v-if="goldenSampleCard" class="selected-material">{{ goldenSampleCard.materialDisplayName }}</em>
-              <small>{{ goldenSampleSummary }}</small>
+              <small>{{ goldenSample ? goldenSampleSummary : '不進行 Golden 比較與特徵分析' }}</small>
             </article>
           </div>
 
@@ -132,9 +132,8 @@
     <template v-if="reportData">
       <div
         v-if="!versionDockCollapsed"
-        class="report-version-dock pdf-exclude"
+        class="report-version-dock"
         aria-label="Report version switcher"
-        data-html2canvas-ignore="true"
       >
         <button
           class="report-version-dock__collapse"
@@ -185,32 +184,26 @@
       </div>
       <button
         v-else
-        class="report-version-dock-dot pdf-exclude"
+        class="report-version-dock-dot"
         type="button"
         aria-label="展開左下角控制面板"
         title="展開控制面板"
-        data-html2canvas-ignore="true"
         @click="versionDockCollapsed = false"
       ></button>
 
-      <div class="report-action-bar pdf-exclude" data-html2canvas-ignore="true">
-        <button class="pdf-btn" @click="exportReportPdf" :disabled="exportingPdf">
-          <span v-if="exportingPdf">輸出中… {{ pdfExportProgress }}</span>
-          <span v-else>輸出 PDF</span>
-        </button>
-        <button class="pdf-btn" @click="exportReportPpt" :disabled="exportingPpt">
+      <div class="report-action-bar">
+        <button class="export-btn" @click="exportReportPpt" :disabled="exportingPpt">
           <span v-if="exportingPpt">輸出 PPT 中…</span>
           <span v-else>輸出 PPT</span>
         </button>
-        <el-text v-if="pdfError" type="danger" class="err-msg">{{ pdfError }}</el-text>
         <el-text v-if="pptError" type="danger" class="err-msg">{{ pptError }}</el-text>
       </div>
 
       <!-- ── Section 1: Grain distribution curves ──────────── -->
-      <section id="grain-distribution" class="card" data-pdf-page="grain-distribution">
+      <section id="grain-distribution" class="card">
         <div class="grain-card-head">
           <div>
-            <h2 class="section-title">Grain 粒徑分布比對</h2>
+            <h2 class="section-title">Grain 粒徑分布{{ goldenSample ? '比對' : '' }}</h2>
             <div class="grain-settings-summary">{{ grainSettingsSummary }}</div>
           </div>
           <button class="grain-settings-btn" type="button" @click="openHistogramSettings">設定</button>
@@ -232,6 +225,20 @@
             :class="{ active: grainChartMode === 'areaHist' }"
             @click="grainChartMode = 'areaHist'"
           >面積加權直方圖</button>
+          <template v-if="grainChartMode === 'hist'">
+            <span class="grain-mode-divider"></span>
+            <span class="grain-mode-label">Y 軸</span>
+            <button
+              class="grain-mode-btn"
+              :class="{ active: histogramYMode === 'count' }"
+              @click="histogramYMode = 'count'"
+            >Count</button>
+            <button
+              class="grain-mode-btn"
+              :class="{ active: histogramYMode === 'ratio' }"
+              @click="histogramYMode = 'ratio'"
+            >比例 (%)</button>
+          </template>
         </div>
 
         <p v-if="grainChartMode === 'areaHist'" class="grain-mode-note">
@@ -239,44 +246,45 @@
         </p>
 
         <div class="chart-legend-row">
-          <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#3B82F6" stroke-width="2.5"/></svg>
+          <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#DC2626" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
           <svg v-else width="16" height="14">
-            <rect x="2" y="2" width="12" height="10" fill="#0f766e" opacity="0.28"/>
-            <rect x="2" y="2" width="12" height="10" fill="none" stroke="#0f766e" stroke-width="1"/>
+            <rect x="2" y="2" width="12" height="10" fill="#DC2626" opacity="0.22"/>
+            <rect x="2" y="2" width="12" height="10" fill="none" stroke="#DC2626" stroke-width="1" stroke-dasharray="2,1"/>
           </svg>
           <span class="legend-lbl">{{ currentSelectedVersionLabel }}</span>
-          <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5,2.5"/></svg>
-          <svg v-else width="16" height="14">
-            <rect x="2" y="2" width="12" height="10" fill="#F59E0B" opacity="0.28"/>
-            <rect x="2" y="2" width="12" height="10" fill="none" stroke="#F59E0B" stroke-width="1" stroke-dasharray="2,1"/>
-          </svg>
-          <span class="legend-lbl">{{ currentGoldenVersionLabel }} (黃金)</span>
+          <template v-if="goldenSample">
+            <svg v-if="grainChartMode === 'cdf'" width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#2563EB" stroke-width="2.5"/></svg>
+            <svg v-else width="16" height="14">
+              <rect x="2" y="2" width="12" height="10" fill="#2563EB" opacity="0.24"/>
+              <rect x="2" y="2" width="12" height="10" fill="none" stroke="#2563EB" stroke-width="1"/>
+            </svg>
+            <span class="legend-lbl">{{ currentGoldenVersionLabel }} (黃金)</span>
+          </template>
         </div>
 
-        <div class="nine-cdf-grid">
-          <template v-for="(rowLabel, rowKey) in ROW_LABELS" :key="rowKey">
-            <template v-for="colKey in COL_KEYS" :key="colKey">
-              <div
-                class="cdf-cell"
-                :class="positionStatusClass(`${colKey}-${rowKey}`)"
-              >
-                <div class="cdf-pos-label">{{ colKey }}-{{ rowKey }}</div>
-                <div v-if="isMissingGoldenPos(`${colKey}-${rowKey}`)" class="cell-status-tag warning">缺 Golden</div>
-                <div v-else-if="isMissingSelectedPos(`${colKey}-${rowKey}`)" class="cell-status-tag muted">未上傳</div>
-                <GrainCdfChart
-                  :sample="getCompareSampleGrains(`${colKey}-${rowKey}`)"
-                  :golden="getCompareGoldenGrains(`${colKey}-${rowKey}`)"
-                  :sampleLabel="currentSelectedVersionLabel"
-                  :goldenLabel="currentGoldenVersionLabel"
-                  :mode="grainChartMode"
-                  :fixedXMin="sharedGrainBins.min"
-                  :fixedXMax="sharedGrainBins.max"
-                  :binCount="sharedGrainBins.binCount"
-                  :binWidth="sharedGrainBins.binWidth"
-                />
-              </div>
-            </template>
-          </template>
+        <div class="nine-cdf-grid" :style="dynamicCardGridStyle(reportPositionMatrix.columnCount)">
+          <div
+            v-for="pos in reportPositionMatrix.positions"
+            :key="pos"
+            class="cdf-cell"
+            :class="positionStatusClass(pos)"
+          >
+            <div class="cdf-pos-label">{{ pos }}</div>
+            <div v-if="isMissingGoldenPos(pos)" class="cell-status-tag warning">缺 Golden</div>
+            <div v-else-if="isMissingSelectedPos(pos)" class="cell-status-tag muted">未上傳</div>
+            <GrainCdfChart
+              :sample="getCompareSampleGrains(pos)"
+              :golden="getCompareGoldenGrains(pos)"
+              :sampleLabel="currentSelectedVersionLabel"
+              :goldenLabel="currentGoldenVersionLabel"
+              :mode="grainChartMode"
+              :histYMode="histogramYMode"
+              :fixedXMin="sharedGrainBins.min"
+              :fixedXMax="sharedGrainBins.max"
+              :binCount="sharedGrainBins.binCount"
+              :binWidth="sharedGrainBins.binWidth"
+            />
+          </div>
         </div>
       </section>
 
@@ -326,7 +334,7 @@
       </el-dialog>
 
       <!-- ── Section 1b: IPF Map grid ────────── -->
-      <section id="ipf-map" v-if="pairs.length" class="card" data-pdf-page="ipf-map">
+      <section id="ipf-map" v-if="pairs.length" class="card">
         <div class="ipf-section-head">
           <div>
             <h2 class="section-title">IPF 晶粒取向分佈圖 — {{ ipfDisplayTitle }}</h2>
@@ -346,7 +354,7 @@
                 <small>色鍵用來解讀 IPF map 的晶向顏色。</small>
               </div>
             </div>
-            <div class="sample-display-toggle" aria-label="IPF 顯示樣本">
+            <div v-if="goldenSample" class="sample-display-toggle" aria-label="IPF 顯示樣本">
               <button
                 type="button"
                 :class="{ active: ipfDisplayTarget === 'analysis' }"
@@ -442,11 +450,11 @@
         </template>
       </el-dialog>
 
-      <!-- ── Section 2: Nine-grid full data ────────── -->
-      <section id="nine-grid-data" class="card" data-pdf-page="nine-grid-data">
+      <!-- ── Section 2: Dynamic-position full data ────────── -->
+      <section id="nine-grid-data" class="card">
         <div class="grid-section-head">
-          <h2 class="section-title">九宮格完整數據 — {{ gridDisplayTitle }}</h2>
-          <div class="sample-display-toggle" aria-label="九宮格顯示樣本">
+          <h2 class="section-title">完整位置數據 — {{ gridDisplayTitle }}</h2>
+          <div v-if="goldenSample" class="sample-display-toggle" aria-label="完整位置顯示樣本">
             <button
               type="button"
               :class="{ active: gridDisplayTarget === 'analysis' }"
@@ -461,42 +469,48 @@
         </div>
 
         <div class="nine-grid-wrapper">
-          <div class="ng-header-row">
+          <div class="ng-header-row" :style="dynamicTableGridStyle(reportPositionMatrix.columnCount)">
             <div class="ng-corner"></div>
-            <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="ng-col-header">
-              {{ colLabel }}<br/><small>({{ colKey }})</small>
+            <div v-for="column in reportPositionMatrix.columns" :key="column" class="ng-col-header">
+              {{ column }}
             </div>
           </div>
-          <div v-for="(rowLabel, rowKey) in ROW_LABELS" :key="rowKey" class="ng-data-row">
-            <div class="ng-row-header">{{ rowLabel }}</div>
+          <div
+            v-for="row in reportPositionMatrix.rows"
+            :key="row"
+            class="ng-data-row"
+            :style="dynamicTableGridStyle(reportPositionMatrix.columnCount)"
+          >
+            <div class="ng-row-header">{{ row }}</div>
             <div
-              v-for="(_, colKey) in COL_LABELS"
-              :key="colKey"
+              v-for="column in reportPositionMatrix.columns"
+              :key="column"
               class="ng-cell"
               :class="{
-                'ng-cell-retest': isGridPosRetestedNext(`${colKey}-${rowKey}`),
-                ...gridPositionStatusClass(`${colKey}-${rowKey}`),
+                'ng-cell-retest': isGridPosRetestedNext(positionKey(column, row)),
+                ...gridPositionStatusClass(positionKey(column, row)),
               }"
             >
               <div class="ng-cell-inner">
-                <div v-if="!getGridPosData(`${colKey}-${rowKey}`)" class="cell-status-tag muted">無數據</div>
+                <div class="ng-position-label">{{ positionKey(column, row) }}</div>
+                <div v-if="!getGridPosData(positionKey(column, row))" class="cell-status-tag muted">無數據</div>
                 <div class="stat-block">
                   <div class="stat-title">Grain Size (μm)</div>
                   <div class="stat-row">
                     <span class="stat-key">Mean</span>
-                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'mean') }}</span>
+                    <span class="stat-val">{{ fmtGrain(positionKey(column, row), 'mean') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Max</span>
-                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'max') }}</span>
+                    <span class="stat-val">{{ fmtGrain(positionKey(column, row), 'max') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">P75</span>
-                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'p75') }}</span>
+                    <span class="stat-val">{{ fmtGrain(positionKey(column, row), 'p75') }}</span>
                   </div>
                   <div class="stat-row">
                     <span class="stat-key">Count</span>
-                    <span class="stat-val">{{ fmtGrain(`${colKey}-${rowKey}`, 'count') }}</span>
+                    <span class="stat-val">{{ fmtGrain(positionKey(column, row), 'count') }}</span>
                   </div>
                 </div>
                 <div class="stat-block orient-block">
@@ -511,11 +525,11 @@
                     <tbody>
                       <tr>
                         <td class="dev-label">20°</td>
-                        <td v-for="(_, idx) in currentOrientationLabels" :key="`20-${idx}`">{{ fmtOrient(`${colKey}-${rowKey}`, '20%', idx) }}%</td>
+                        <td v-for="(_, idx) in currentOrientationLabels" :key="`20-${idx}`">{{ fmtOrient(positionKey(column, row), '20%', idx) }}%</td>
                       </tr>
                       <tr>
                         <td class="dev-label">15°</td>
-                        <td v-for="(_, idx) in currentOrientationLabels" :key="`15-${idx}`">{{ fmtOrient(`${colKey}-${rowKey}`, '15%', idx) }}%</td>
+                        <td v-for="(_, idx) in currentOrientationLabels" :key="`15-${idx}`">{{ fmtOrient(positionKey(column, row), '15%', idx) }}%</td>
                       </tr>
                     </tbody>
                   </table>
@@ -527,15 +541,17 @@
       </section>
 
       <!-- ── Section 3a: Orientation triangles 20° ── -->
-      <section id="orientation-triangle-20" class="card" data-pdf-page="orientation-triangle-20">
+      <section id="orientation-triangle-20" class="card">
         <h2 class="section-title">晶粒取向比例 — Misorientation 20°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
             <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
-            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
-            <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
+            <template v-if="goldenSample">
+              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+              <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
+            </template>
+            <template v-for="info in rowSeriesInfo" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
@@ -544,7 +560,7 @@
             <div class="row-toggle-group">
               <span class="toggle-label">顯示位置:</span>
               <button
-                v-for="info in ROW_SERIES_INFO"
+                v-for="info in rowSeriesInfo"
                 :key="info.rowKey"
                 class="row-toggle-btn"
                 :class="{ active: visibleRows.has(info.rowKey) }"
@@ -559,23 +575,25 @@
           </div>
         </div>
         <div class="triangle-row">
-          <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
-            <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+          <div v-for="column in reportPositionMatrix.columns" :key="column" class="triangle-panel">
+            <div class="tri-col-title">欄 {{ column }}</div>
+            <TriangleChart :series="buildOrientSeries(column, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
 
       <!-- ── Section 3b: Orientation triangles 15° ── -->
-      <section id="orientation-triangle-15" class="card" data-pdf-page="orientation-triangle-15">
+      <section id="orientation-triangle-15" class="card">
         <h2 class="section-title">晶粒取向比例 — Misorientation 15°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
             <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
-            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
-            <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
-            <template v-for="info in ROW_SERIES_INFO" :key="info.rowKey">
+            <template v-if="goldenSample">
+              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+              <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
+            </template>
+            <template v-for="info in rowSeriesInfo" :key="info.rowKey">
               <span class="color-dot" :style="{ background: info.color }"></span>
               <span class="legend-lbl">{{ info.label }}</span>
             </template>
@@ -584,7 +602,7 @@
             <div class="row-toggle-group">
               <span class="toggle-label">顯示位置:</span>
               <button
-                v-for="info in ROW_SERIES_INFO"
+                v-for="info in rowSeriesInfo"
                 :key="info.rowKey"
                 class="row-toggle-btn"
                 :class="{ active: visibleRows.has(info.rowKey) }"
@@ -599,51 +617,31 @@
           </div>
         </div>
         <div class="triangle-row">
-          <div v-for="(colLabel, colKey) in COL_LABELS" :key="colKey" class="triangle-panel">
-            <div class="tri-col-title">{{ colLabel }} ({{ colKey }})</div>
-            <TriangleChart :series="buildOrientSeries(colKey, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+          <div v-for="column in reportPositionMatrix.columns" :key="column" class="triangle-panel">
+            <div class="tri-col-title">欄 {{ column }}</div>
+            <TriangleChart :series="buildOrientSeries(column, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
 
       <!-- Section 3c: Orientation line charts 20度 -->
-      <section id="orientation-line-20" class="card" data-pdf-page="orientation-line-20">
+      <section id="orientation-line-20" class="card">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 20°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <div class="orient-line-legend-group">
-              <span class="orient-line-legend-title">方向</span>
-              <span v-for="info in orientLineSeriesInfo" :key="info.orientationKey" class="orient-line-legend-item">
-                <svg width="28" height="12">
-                  <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
-                </svg>
-                <span class="legend-lbl">{{ info.label }}</span>
-              </span>
-            </div>
             <div class="orient-line-legend-group sample-style">
               <span class="orient-line-legend-title">樣本</span>
               <span class="orient-line-style-chip analysis">
                 <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#409eff" stroke-width="2.75" stroke-linecap="round" /></svg>
                 <span>分析樣本 · {{ currentSelectedVersionLabel || selectedSample }}</span>
               </span>
-              <span class="orient-line-style-chip golden">
+              <span v-if="goldenSample" class="orient-line-style-chip golden">
                 <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#e6a23c" stroke-width="2.75" stroke-linecap="round" stroke-dasharray="5 4" /></svg>
                 <span>Golden 樣本 · {{ currentGoldenVersionLabel || goldenSample }}</span>
               </span>
             </div>
           </div>
           <div class="orient-toggle-bar">
-            <div class="row-toggle-group">
-              <span class="toggle-label">線條顯示:</span>
-              <button
-                v-for="info in orientLineSeriesInfo"
-                :key="info.orientationKey"
-                class="row-toggle-btn"
-                :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
-                :style="visibleLineOrientations.has(info.orientationKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleLineOrientation(info.orientationKey)"
-              >{{ info.label }}</button>
-            </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
@@ -651,56 +649,57 @@
           </div>
         </div>
         <div class="orient-line-grid">
-          <div v-for="rowInfo in orientLineCharts20" :key="rowInfo.rowKey" class="orient-line-panel">
-            <div class="tri-col-title">{{ rowInfo.title }}</div>
+          <div v-for="chartInfo in orientLineCharts20" :key="chartInfo.key" class="orient-line-panel">
+            <div class="tri-col-title">{{ chartInfo.title }}</div>
             <svg
               class="orient-line-svg"
-              :viewBox="rowInfo.chart.viewBox"
+              :viewBox="chartInfo.chart.viewBox"
+              :style="{ minWidth: `${chartInfo.chart.width}px` }"
               role="img"
-              :aria-label="`Misorientation 20度 ${rowInfo.title} 晶粒取向折線圖`"
+              :aria-label="`Misorientation 20度 ${chartInfo.title} 晶粒取向折線圖`"
             >
               <line
-                v-for="tick in rowInfo.chart.yTicks"
-                :key="`grid-20-${rowInfo.rowKey}-${tick.label}`"
-                :x1="rowInfo.chart.plot.left"
+                v-for="tick in chartInfo.chart.yTicks"
+                :key="`grid-20-${chartInfo.key}-${tick.label}`"
+                :x1="chartInfo.chart.plot.left"
                 :y1="tick.y"
-                :x2="rowInfo.chart.plot.right"
+                :x2="chartInfo.chart.plot.right"
                 :y2="tick.y"
                 class="orient-line-gridline"
               />
               <line
-                :x1="rowInfo.chart.plot.left"
-                :y1="rowInfo.chart.plot.top"
-                :x2="rowInfo.chart.plot.left"
-                :y2="rowInfo.chart.plot.bottom"
+                :x1="chartInfo.chart.plot.left"
+                :y1="chartInfo.chart.plot.top"
+                :x2="chartInfo.chart.plot.left"
+                :y2="chartInfo.chart.plot.bottom"
                 class="orient-line-axis"
               />
               <line
-                :x1="rowInfo.chart.plot.left"
-                :y1="rowInfo.chart.plot.bottom"
-                :x2="rowInfo.chart.plot.right"
-                :y2="rowInfo.chart.plot.bottom"
+                :x1="chartInfo.chart.plot.left"
+                :y1="chartInfo.chart.plot.bottom"
+                :x2="chartInfo.chart.plot.right"
+                :y2="chartInfo.chart.plot.bottom"
                 class="orient-line-axis"
               />
               <text
-                v-for="tick in rowInfo.chart.yTicks"
-                :key="`ylabel-20-${rowInfo.rowKey}-${tick.label}`"
-                :x="rowInfo.chart.plot.left - 8"
+                v-for="tick in chartInfo.chart.yTicks"
+                :key="`ylabel-20-${chartInfo.key}-${tick.label}`"
+                :x="chartInfo.chart.plot.left - 8"
                 :y="tick.y + 1"
                 class="orient-line-ytext"
               >{{ tick.label }}</text>
               <text
-                v-for="tick in rowInfo.chart.xTicks"
-                :key="`xlabel-20-${rowInfo.rowKey}-${tick.label}`"
+                v-for="tick in chartInfo.chart.xTicks"
+                :key="`xlabel-20-${chartInfo.key}-${tick.label}`"
                 :x="tick.x"
-                :y="rowInfo.chart.plot.bottom + 20"
+                :y="chartInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-20-${rowInfo.rowKey}-${series.key}`">
+              <g v-for="series in chartInfo.chart.series" :key="`series-20-${chartInfo.key}-${series.key}`">
                 <polyline :points="series.polyline" :stroke="series.color" :stroke-dasharray="series.dashed ? '5 4' : undefined" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-20-${rowInfo.rowKey}-${series.key}-${point.x}`"
+                  :key="`point-20-${chartInfo.key}-${series.key}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -710,7 +709,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-20-${rowInfo.rowKey}-${series.key}-${point.x}`"
+                  :key="`label-20-${chartInfo.key}-${series.key}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -723,43 +722,23 @@
       </section>
 
       <!-- Section 3d: Orientation line charts 15度 -->
-      <section id="orientation-line-15" class="card" data-pdf-page="orientation-line-15">
+      <section id="orientation-line-15" class="card">
         <h2 class="section-title">晶粒取向折線圖 · Misorientation 15°</h2>
         <div class="orient-controls orient-line-controls">
           <div class="orient-legend-row">
-            <div class="orient-line-legend-group">
-              <span class="orient-line-legend-title">方向</span>
-              <span v-for="info in orientLineSeriesInfo" :key="info.orientationKey" class="orient-line-legend-item">
-                <svg width="28" height="12">
-                  <line x1="1" y1="6" x2="27" y2="6" :stroke="info.color" stroke-width="2.75" stroke-linecap="round" />
-                </svg>
-                <span class="legend-lbl">{{ info.label }}</span>
-              </span>
-            </div>
             <div class="orient-line-legend-group sample-style">
               <span class="orient-line-legend-title">樣本</span>
               <span class="orient-line-style-chip analysis">
                 <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#409eff" stroke-width="2.75" stroke-linecap="round" /></svg>
                 <span>分析樣本 · {{ currentSelectedVersionLabel || selectedSample }}</span>
               </span>
-              <span class="orient-line-style-chip golden">
+              <span v-if="goldenSample" class="orient-line-style-chip golden">
                 <svg width="28" height="12"><line x1="1" y1="6" x2="27" y2="6" stroke="#e6a23c" stroke-width="2.75" stroke-linecap="round" stroke-dasharray="5 4" /></svg>
                 <span>Golden 樣本 · {{ currentGoldenVersionLabel || goldenSample }}</span>
               </span>
             </div>
           </div>
           <div class="orient-toggle-bar">
-            <div class="row-toggle-group">
-              <span class="toggle-label">線條顯示:</span>
-              <button
-                v-for="info in orientLineSeriesInfo"
-                :key="info.orientationKey"
-                class="row-toggle-btn"
-                :class="{ active: visibleLineOrientations.has(info.orientationKey) }"
-                :style="visibleLineOrientations.has(info.orientationKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleLineOrientation(info.orientationKey)"
-              >{{ info.label }}</button>
-            </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
@@ -767,56 +746,57 @@
           </div>
         </div>
         <div class="orient-line-grid">
-          <div v-for="rowInfo in orientLineCharts15" :key="rowInfo.rowKey" class="orient-line-panel">
-            <div class="tri-col-title">{{ rowInfo.title }}</div>
+          <div v-for="chartInfo in orientLineCharts15" :key="chartInfo.key" class="orient-line-panel">
+            <div class="tri-col-title">{{ chartInfo.title }}</div>
             <svg
               class="orient-line-svg"
-              :viewBox="rowInfo.chart.viewBox"
+              :viewBox="chartInfo.chart.viewBox"
+              :style="{ minWidth: `${chartInfo.chart.width}px` }"
               role="img"
-              :aria-label="`Misorientation 15度 ${rowInfo.title} 晶粒取向折線圖`"
+              :aria-label="`Misorientation 15度 ${chartInfo.title} 晶粒取向折線圖`"
             >
               <line
-                v-for="tick in rowInfo.chart.yTicks"
-                :key="`grid-15-${rowInfo.rowKey}-${tick.label}`"
-                :x1="rowInfo.chart.plot.left"
+                v-for="tick in chartInfo.chart.yTicks"
+                :key="`grid-15-${chartInfo.key}-${tick.label}`"
+                :x1="chartInfo.chart.plot.left"
                 :y1="tick.y"
-                :x2="rowInfo.chart.plot.right"
+                :x2="chartInfo.chart.plot.right"
                 :y2="tick.y"
                 class="orient-line-gridline"
               />
               <line
-                :x1="rowInfo.chart.plot.left"
-                :y1="rowInfo.chart.plot.top"
-                :x2="rowInfo.chart.plot.left"
-                :y2="rowInfo.chart.plot.bottom"
+                :x1="chartInfo.chart.plot.left"
+                :y1="chartInfo.chart.plot.top"
+                :x2="chartInfo.chart.plot.left"
+                :y2="chartInfo.chart.plot.bottom"
                 class="orient-line-axis"
               />
               <line
-                :x1="rowInfo.chart.plot.left"
-                :y1="rowInfo.chart.plot.bottom"
-                :x2="rowInfo.chart.plot.right"
-                :y2="rowInfo.chart.plot.bottom"
+                :x1="chartInfo.chart.plot.left"
+                :y1="chartInfo.chart.plot.bottom"
+                :x2="chartInfo.chart.plot.right"
+                :y2="chartInfo.chart.plot.bottom"
                 class="orient-line-axis"
               />
               <text
-                v-for="tick in rowInfo.chart.yTicks"
-                :key="`ylabel-15-${rowInfo.rowKey}-${tick.label}`"
-                :x="rowInfo.chart.plot.left - 8"
+                v-for="tick in chartInfo.chart.yTicks"
+                :key="`ylabel-15-${chartInfo.key}-${tick.label}`"
+                :x="chartInfo.chart.plot.left - 8"
                 :y="tick.y + 1"
                 class="orient-line-ytext"
               >{{ tick.label }}</text>
               <text
-                v-for="tick in rowInfo.chart.xTicks"
-                :key="`xlabel-15-${rowInfo.rowKey}-${tick.label}`"
+                v-for="tick in chartInfo.chart.xTicks"
+                :key="`xlabel-15-${chartInfo.key}-${tick.label}`"
                 :x="tick.x"
-                :y="rowInfo.chart.plot.bottom + 20"
+                :y="chartInfo.chart.plot.bottom + 20"
                 class="orient-line-xtext"
               >{{ tick.label }}</text>
-              <g v-for="series in rowInfo.chart.series" :key="`series-15-${rowInfo.rowKey}-${series.key}`">
+              <g v-for="series in chartInfo.chart.series" :key="`series-15-${chartInfo.key}-${series.key}`">
                 <polyline :points="series.polyline" :stroke="series.color" :stroke-dasharray="series.dashed ? '5 4' : undefined" class="orient-line-path" />
                 <circle
                   v-for="point in series.points"
-                  :key="`point-15-${rowInfo.rowKey}-${series.key}-${point.x}`"
+                  :key="`point-15-${chartInfo.key}-${series.key}-${point.x}`"
                   :cx="point.x"
                   :cy="point.y"
                   r="3.25"
@@ -826,7 +806,7 @@
                 <text
                   v-if="showOrientLineLabels"
                   v-for="point in series.points"
-                  :key="`label-15-${rowInfo.rowKey}-${series.key}-${point.x}`"
+                  :key="`label-15-${chartInfo.key}-${series.key}-${point.x}`"
                   :x="point.x"
                   :y="point.labelY"
                   :fill="series.color"
@@ -839,7 +819,7 @@
       </section>
 
       <!-- ── Section 4: Python Analysis ──────── -->
-      <section id="feature-analysis" class="card" :data-pdf-page="analysisRes ? 'feature-analysis' : undefined">
+      <section v-if="goldenSample" id="feature-analysis" class="card">
         <h2 class="section-title">④ 特徵分析 </h2>
         <div class="feature-selector-head">
           <div class="feat-label">選擇分析項目</div>
@@ -870,9 +850,37 @@
         <el-button type="primary" @click="analysis">套用分析</el-button>
         <div v-if="analysisRes" class="analysis-result-wrap">
           <h3>分析結果</h3>
-          <div v-for="(sampleData, sampleName) in analysisRes" :key="sampleName" style="margin-bottom: 2rem;">
+          <div v-for="(sampleData, sampleName) in analysisRes" :key="sampleName" class="analysis-sample-result">
             <h4>{{ sampleName }}</h4>
-            <ninepos :blocks="convertToNineposFormat(sampleData)" />
+            <div class="analysis-table-wrap">
+              <div
+                class="analysis-table-row analysis-table-head"
+                :style="dynamicAnalysisGridStyle(analysisPositionMatrix(sampleData).columnCount)"
+              >
+                <div class="analysis-axis-cell"></div>
+                <div v-for="column in analysisPositionMatrix(sampleData).columns" :key="column" class="analysis-axis-cell">
+                  {{ column }}
+                </div>
+              </div>
+              <div
+                v-for="row in analysisPositionMatrix(sampleData).rows"
+                :key="row"
+                class="analysis-table-row"
+                :style="dynamicAnalysisGridStyle(analysisPositionMatrix(sampleData).columnCount)"
+              >
+                <div class="analysis-axis-cell">{{ row }}</div>
+                <div
+                  v-for="column in analysisPositionMatrix(sampleData).columns"
+                  :key="column"
+                  class="analysis-value-cell"
+                  :class="{ empty: sampleData[positionKey(column, row)] == null }"
+                  :style="analysisCellStyle(sampleData[positionKey(column, row)])"
+                >
+                  <strong>{{ positionKey(column, row) }}</strong>
+                  <span>{{ formatAnalysisValue(sampleData[positionKey(column, row)]) }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -880,10 +888,9 @@
     </template>
 
     <aside
-      class="report-anchor-dock pdf-exclude"
+      class="report-anchor-dock"
       :class="{ 'report-anchor-dock--raised': reportData && !versionDockCollapsed }"
       aria-label="報表章節導覽"
-      data-html2canvas-ignore="true"
     >
       <div class="report-anchor-dock__title">章節導覽</div>
       <el-anchor :offset="80">
@@ -891,12 +898,12 @@
         <template v-if="reportData">
           <el-anchor-link href="#grain-distribution" title="Grain 粒徑" />
           <el-anchor-link v-if="pairs.length" href="#ipf-map" title="IPF 取向圖" />
-          <el-anchor-link href="#nine-grid-data" title="九宮格數據" />
+          <el-anchor-link href="#nine-grid-data" title="完整位置數據" />
           <el-anchor-link href="#orientation-triangle-20" title="取向比例 20°" />
           <el-anchor-link href="#orientation-triangle-15" title="取向比例 15°" />
           <el-anchor-link href="#orientation-line-20" title="取向折線 20°" />
           <el-anchor-link href="#orientation-line-15" title="取向折線 15°" />
-          <el-anchor-link href="#feature-analysis" title="特徵分析" />
+          <el-anchor-link v-if="goldenSample" href="#feature-analysis" title="特徵分析" />
         </template>
       </el-anchor>
     </aside>
@@ -904,6 +911,9 @@
 </template>
 
 <script setup lang="ts">
+import type { PositionMatrix } from '~/utils/positions'
+import { buildPositionMatrix, comparePositions, positionKey } from '~/utils/positions'
+
 definePageMeta({
   middleware: 'auth'
 })
@@ -977,29 +987,21 @@ type StoredEbsdPair = {
   updated_at: string
 }
 
-const COL_KEYS = ['C', 'M', 'E'] as const
-const COL_LABELS: Record<string, string> = { C: '內 Center', M: '中 Middle', E: '外 Edge' }
-const ROW_LABELS: Record<string, string> = { U: '上 Up', M: '中 Middle', B: '下 Bottom' }
-const ROW_SERIES_INFO = [
-  { rowKey: 'U', color: '#EF4444', label: '上 (U)' },
-  { rowKey: 'M', color: '#3B82F6', label: '中 (M)' },
-  { rowKey: 'B', color: '#10B981', label: '下 (B)' },
-]
+const POSITION_SERIES_COLORS = [
+  '#EF4444',
+  '#3B82F6',
+  '#10B981',
+  '#8B5CF6',
+  '#F59E0B',
+  '#06B6D4',
+  '#EC4899',
+  '#84CC16',
+  '#6366F1',
+  '#F97316',
+] as const
 const DEFAULT_ORIENTATION_LABELS = ['[001]', '[011]', '[111]'] as const
-const ORIENTATION_COLORS = ['#409EFF', '#67C23A', '#E6A23C'] as const
-const ORIENT_LINE_ROWS = [
-  { rowKey: 'U', title: ROW_LABELS.U },
-  { rowKey: 'M', title: ROW_LABELS.M },
-  { rowKey: 'B', title: ROW_LABELS.B },
-] as const
-const ORIENT_LINE_X_TICKS = [
-  { colKey: 'C', label: '內' },
-  { colKey: 'M', label: '中' },
-  { colKey: 'E', label: '外' },
-] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
-  width: 320,
   height: 220,
   left: 42,
   right: 16,
@@ -1017,12 +1019,12 @@ const UNKNOWN_MATERIAL = {
   element: '',
 }
 
-const visibleRows = ref(new Set<string>(['U', 'M', 'B']))
+const visibleRows = ref(new Set<number>())
 const showTriangleLabels = ref(true)
 function toggleTriangleLabels() {
   showTriangleLabels.value = !showTriangleLabels.value
 }
-function toggleRow(rowKey: string) {
+function toggleRow(rowKey: number) {
   if (visibleRows.value.has(rowKey)) {
     if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey)
   } else {
@@ -1030,18 +1032,9 @@ function toggleRow(rowKey: string) {
   }
   visibleRows.value = new Set(visibleRows.value)
 }
-const visibleLineOrientations = ref(new Set<string>(DEFAULT_ORIENTATION_LABELS.map(orientationLabelKey)))
 const showOrientLineLabels = ref(true)
 function toggleOrientLineLabels() {
   showOrientLineLabels.value = !showOrientLineLabels.value
-}
-function toggleLineOrientation(orientationKey: string) {
-  if (visibleLineOrientations.value.has(orientationKey)) {
-    if (visibleLineOrientations.value.size > 1) visibleLineOrientations.value.delete(orientationKey)
-  } else {
-    visibleLineOrientations.value.add(orientationKey)
-  }
-  visibleLineOrientations.value = new Set(visibleLineOrientations.value)
 }
 
 const pairs = ref<FilePair[]>([])
@@ -1058,11 +1051,8 @@ const loading = ref(false)
 const doneCount = ref(0)
 const loadingTotal = ref(0)
 const error = ref('')
-const pdfError = ref('')
 const pptError = ref('')
-const exportingPdf = ref(false)
 const exportingPpt = ref(false)
-const pdfExportProgress = ref('')
 const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
@@ -1091,14 +1081,9 @@ const orientLineSeriesInfo = computed(() =>
   currentOrientationLabels.value.map((label, index) => ({
     orientationKey: orientationLabelKey(label),
     index,
-    color: ORIENTATION_COLORS[index] ?? '#6b7280',
     label,
   })),
 )
-
-watch(currentOrientationLabels, (labels) => {
-  visibleLineOrientations.value = new Set(labels.map(orientationLabelKey))
-})
 
 const DEFAULT_FEATURE_OPTIONS = [
   'overall distribution : wasserstein_distance / mean',
@@ -1145,6 +1130,7 @@ const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
 const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
+const histogramYMode = ref<'count' | 'ratio'>('count')
 const histogramSettingsOpen = ref(false)
 const ipfSettingsOpen = ref(false)
 const grainSettingsApplying = ref(false)
@@ -1183,9 +1169,6 @@ watch(ipfVectorDraft, () => {
 }, { deep: true })
 
 const reportVersionIndex = ref(0)
-const PDF_CAPTURE_WIDTH = 1120
-const PDF_CAPTURE_SCALE = 1.35
-const PDF_MARGIN_MM = 8
 const featureOptionsList = computed(() =>
   featuresOptions.value?.length ? featuresOptions.value : [...DEFAULT_FEATURE_OPTIONS],
 )
@@ -1220,12 +1203,16 @@ const visibleFeatureOptionValues = computed(() =>
 const canGenerate = computed(
   () =>
     selectedSample.value !== '' &&
-    goldenSample.value !== '' &&
-    selectedSample.value !== goldenSample.value &&
-    selectedAndGoldenSameMetal.value,
+    (
+      goldenSample.value === '' ||
+      (
+        selectedSample.value !== goldenSample.value &&
+        selectedAndGoldenSameMetal.value
+      )
+    ),
 )
 const selectedLibraryPairs = computed(() => {
-  const needed = new Set([selectedSample.value, goldenSample.value])
+  const needed = new Set([selectedSample.value, goldenSample.value].filter(Boolean))
   return libraryPairs.value.filter((pair) => needed.has(pair.sample))
 })
 const librarySampleCards = computed(() => {
@@ -1297,7 +1284,8 @@ const materialMismatchMessage = computed(() => {
 const selectedSampleSummary = computed(() => formatSampleSummary(selectedSampleCard.value))
 const goldenSampleSummary = computed(() => formatSampleSummary(goldenSampleCard.value))
 const comparablePositionCount = computed(() => {
-  if (!selectedSampleCard.value || !goldenSampleCard.value) return 0
+  if (!selectedSampleCard.value) return 0
+  if (!goldenSampleCard.value) return selectedSampleCard.value.positions.size
   const goldenPositions = goldenSampleCard.value.positions
   return Array.from(selectedSampleCard.value.positions).filter((pos) => goldenPositions.has(pos)).length
 })
@@ -1310,6 +1298,11 @@ watch(selectedSample, (sample) => {
 watch(goldenSample, (sample) => {
   if (sample && sample === selectedSample.value) selectedSample.value = ''
   if (sample && selectedSample.value && !selectedAndGoldenSameMetal.value) goldenSample.value = ''
+  if (!sample) {
+    ipfDisplayTarget.value = 'analysis'
+    gridDisplayTarget.value = 'analysis'
+    analysisRes.value = null
+  }
 })
 
 function formatSampleSummary(card: typeof librarySampleCards.value[number] | undefined): string {
@@ -1434,7 +1427,6 @@ async function refreshLibrary() {
   versionedReportData.value = null
   analysisRes.value = null
   error.value = ''
-  pdfError.value = ''
   pptError.value = ''
   grainSettingsError.value = ''
   pairs.value = []
@@ -1659,7 +1651,6 @@ async function generateReport() {
   if (!canGenerate.value) return
   loading.value = true
   error.value = ''
-  pdfError.value = ''
   pptError.value = ''
   grainSettingsError.value = ''
   reportData.value = null
@@ -1842,23 +1833,57 @@ const selectedDisplayedPositions = computed(() =>
 const goldenDisplayedPositions = computed(() =>
   Object.keys(getDisplayedSampleSnapshot(goldenSample.value)).sort(sortPositionKeys),
 )
+const reportPositionMatrix = computed(() =>
+  buildPositionMatrix([
+    ...selectedDisplayedPositions.value,
+    ...goldenDisplayedPositions.value,
+  ]),
+)
+const rowSeriesInfo = computed(() =>
+  reportPositionMatrix.value.rows.map((row, index) => ({
+    rowKey: row,
+    color: POSITION_SERIES_COLORS[index % POSITION_SERIES_COLORS.length],
+    label: `列 ${row}`,
+  })),
+)
+const orientLineRows = computed(() =>
+  reportPositionMatrix.value.rows.map((row) => ({
+    rowKey: row,
+    title: `列 ${row}`,
+  })),
+)
+
+watch(
+  () => reportPositionMatrix.value.rows,
+  (rows) => {
+    visibleRows.value = new Set(rows)
+  },
+  { immediate: true },
+)
+
 const comparablePositions = computed(() => {
+  if (!goldenSample.value) return selectedDisplayedPositions.value
   const goldenSet = new Set(goldenDisplayedPositions.value)
   return selectedDisplayedPositions.value.filter((pos) => goldenSet.has(pos))
 })
 const missingGoldenPositions = computed(() => {
+  if (!goldenSample.value) return []
   const goldenSet = new Set(goldenDisplayedPositions.value)
   return selectedDisplayedPositions.value.filter((pos) => !goldenSet.has(pos))
 })
 const missingSelectedPositions = computed(() => {
+  if (!goldenSample.value) return []
   const selectedSet = new Set(selectedDisplayedPositions.value)
   return goldenDisplayedPositions.value.filter((pos) => !selectedSet.has(pos))
 })
-const positionStatusCards = computed(() => [
-  { kind: 'ok', title: '可比較', items: comparablePositions.value },
-  { kind: 'warning', title: 'Sample 有資料但 Golden 缺少', items: missingGoldenPositions.value },
-  { kind: 'muted', title: 'Golden 有資料但 Sample 未上傳', items: missingSelectedPositions.value },
-])
+const positionStatusCards = computed(() => goldenSample.value
+  ? [
+      { kind: 'ok', title: '可比較', items: comparablePositions.value },
+      { kind: 'warning', title: 'Sample 有資料但 Golden 缺少', items: missingGoldenPositions.value },
+      { kind: 'muted', title: 'Golden 有資料但 Sample 未上傳', items: missingSelectedPositions.value },
+    ]
+  : [{ kind: 'ok', title: '樣本位置', items: selectedDisplayedPositions.value }],
+)
 
 const currentReportData = computed<AllDataResult>(() => {
   const sampleNames = new Set([
@@ -1882,7 +1907,7 @@ function getGridPosData(pos: string): CppFeatures | undefined {
 }
 
 function sortPositionKeys(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  return comparePositions(a, b)
 }
 
 function isMissingGoldenPos(pos: string): boolean {
@@ -1890,7 +1915,7 @@ function isMissingGoldenPos(pos: string): boolean {
 }
 
 function isMissingSelectedPos(pos: string): boolean {
-  return missingSelectedPositions.value.includes(pos) || !getGridPosData(pos)
+  return missingSelectedPositions.value.includes(pos) || !getDisplayedPosData(selectedSample.value, pos)
 }
 
 function positionStatusClass(pos: string): Record<string, boolean> {
@@ -1961,17 +1986,18 @@ function fmtOrient(pos: string, dev: '20%' | '15%', idx: number): string {
   return (arr[idx] * 100).toFixed(1)
 }
 
-function getOrientLineValues(sample: string, rowKey: string, dev: OrientDev, orientationIndex: number): number[] {
+function getOrientLineValues(sample: string, rowKey: number, dev: OrientDev, orientationIndex: number): number[] {
   const key = `orientation_ratio(${dev})` as keyof CppFeatures
-  return ORIENT_LINE_X_TICKS.map((tick) => {
-    const arr = getDisplayedPosData(sample, `${tick.colKey}-${rowKey}`)?.[key] as number[] | undefined
+  return reportPositionMatrix.value.columns.map((column) => {
+    const arr = getDisplayedPosData(sample, positionKey(column, rowKey))?.[key] as number[] | undefined
     return Number(((arr?.[orientationIndex] ?? 0) * 100).toFixed(1))
   })
 }
 
-function orientLineX(index: number): number {
-  const plotWidth = ORIENT_LINE_LAYOUT.width - ORIENT_LINE_LAYOUT.left - ORIENT_LINE_LAYOUT.right
-  const segments = Math.max(1, ORIENT_LINE_X_TICKS.length - 1)
+function orientLineX(index: number, width: number, pointCount: number): number {
+  const plotWidth = width - ORIENT_LINE_LAYOUT.left - ORIENT_LINE_LAYOUT.right
+  if (pointCount <= 1) return ORIENT_LINE_LAYOUT.left + plotWidth / 2
+  const segments = pointCount - 1
   return ORIENT_LINE_LAYOUT.left + (plotWidth * index) / segments
 }
 
@@ -1981,67 +2007,72 @@ function orientLineY(value: number): number {
   return ORIENT_LINE_LAYOUT.top + plotHeight * (1 - clampedValue / ORIENT_LINE_LAYOUT.maxValue)
 }
 
-function orientLineLabelY(y: number): number {
-  return Math.max(ORIENT_LINE_LAYOUT.top + 11, y - 8)
-}
-
-function buildOrientLineChart(rowKey: string, dev: OrientDev) {
+function buildOrientLineChart(rowKey: number, dev: OrientDev, orientationIndex: number) {
+  const columns = reportPositionMatrix.value.columns
+  const width = Math.max(320, columns.length * 76 + ORIENT_LINE_LAYOUT.left + ORIENT_LINE_LAYOUT.right)
   const plot = {
     left: ORIENT_LINE_LAYOUT.left,
-    right: ORIENT_LINE_LAYOUT.width - ORIENT_LINE_LAYOUT.right,
+    right: width - ORIENT_LINE_LAYOUT.right,
     top: ORIENT_LINE_LAYOUT.top,
     bottom: ORIENT_LINE_LAYOUT.height - ORIENT_LINE_LAYOUT.bottom,
   }
   return {
-    viewBox: `0 0 ${ORIENT_LINE_LAYOUT.width} ${ORIENT_LINE_LAYOUT.height}`,
+    width,
+    viewBox: `0 0 ${width} ${ORIENT_LINE_LAYOUT.height}`,
     plot,
-    xTicks: ORIENT_LINE_X_TICKS.map((tick, index) => ({
-      label: tick.label,
-      x: orientLineX(index),
+    xTicks: columns.map((column, index) => ({
+      label: column,
+      x: orientLineX(index, width, columns.length),
     })),
     yTicks: ORIENT_LINE_Y_TICKS.map((value) => ({
       label: String(value),
       y: orientLineY(value),
     })),
-    series: orientLineSeriesInfo.value
-      .filter((info) => visibleLineOrientations.value.has(info.orientationKey))
-      .flatMap((info) => [
-        { source: 'analysis' as const, sample: selectedSample.value, dashed: false, labelOffset: -8 },
-        { source: 'golden' as const, sample: goldenSample.value, dashed: true, labelOffset: 10 },
-      ].filter((spec) => spec.sample).map((spec) => {
-        const points = getOrientLineValues(spec.sample, rowKey, dev, info.index).map((value, index) => {
-          const y = orientLineY(value)
-          return {
-            x: orientLineX(index),
-            y,
-            labelY: Math.min(ORIENT_LINE_LAYOUT.height - 6, Math.max(ORIENT_LINE_LAYOUT.top + 11, y + spec.labelOffset)),
-            label: `${value.toFixed(1)}%`,
-          }
-        })
+    series: [
+      { source: 'analysis' as const, sample: selectedSample.value, color: '#409eff', dashed: false, labelOffset: -8 },
+      { source: 'golden' as const, sample: goldenSample.value, color: '#e6a23c', dashed: true, labelOffset: 10 },
+    ].filter((spec) => spec.sample).map((spec) => {
+      const points = getOrientLineValues(spec.sample, rowKey, dev, orientationIndex).map((value, index) => {
+        const y = orientLineY(value)
         return {
-          ...info,
-          key: `${info.orientationKey}-${spec.source}`,
-          source: spec.source,
-          dashed: spec.dashed,
-          points,
-          polyline: points.map((point) => `${point.x},${point.y}`).join(' '),
+          x: orientLineX(index, width, columns.length),
+          y,
+          labelY: Math.min(ORIENT_LINE_LAYOUT.height - 6, Math.max(ORIENT_LINE_LAYOUT.top + 11, y + spec.labelOffset)),
+          label: `${value.toFixed(1)}%`,
         }
-      })),
+      })
+      return {
+        key: spec.source,
+        source: spec.source,
+        color: spec.color,
+        dashed: spec.dashed,
+        points,
+        polyline: points.map((point) => `${point.x},${point.y}`).join(' '),
+      }
+    }),
   }
 }
 
 const orientLineCharts20 = computed(() =>
-  ORIENT_LINE_ROWS.map((row) => ({
-    ...row,
-    chart: buildOrientLineChart(row.rowKey, '20%'),
-  })),
+  orientLineRows.value.flatMap((row) =>
+    orientLineSeriesInfo.value.map((info) => ({
+      ...row,
+      key: `${row.rowKey}-${info.orientationKey}`,
+      title: `${row.title} · ${info.label}`,
+      chart: buildOrientLineChart(row.rowKey, '20%', info.index),
+    })),
+  ),
 )
 
 const orientLineCharts15 = computed(() =>
-  ORIENT_LINE_ROWS.map((row) => ({
-    ...row,
-    chart: buildOrientLineChart(row.rowKey, '15%'),
-  })),
+  orientLineRows.value.flatMap((row) =>
+    orientLineSeriesInfo.value.map((info) => ({
+      ...row,
+      key: `${row.rowKey}-${info.orientationKey}`,
+      title: `${row.title} · ${info.label}`,
+      chart: buildOrientLineChart(row.rowKey, '15%', info.index),
+    })),
+  ),
 )
 
 function isGridPosRetestedNext(pos: string): boolean {
@@ -2065,107 +2096,6 @@ function safeFileName(value: string): string {
   return value.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') || 'report'
 }
 
-async function waitForImages(root: HTMLElement) {
-  const images = Array.from(root.querySelectorAll('img'))
-  await Promise.all(images.map((img) => {
-    if (img.complete) return Promise.resolve()
-    return new Promise<void>((resolve) => {
-      img.onload = () => resolve()
-      img.onerror = () => resolve()
-    })
-  }))
-}
-
-function createPdfCaptureClone(section: HTMLElement) {
-  const root = document.createElement('div')
-  root.className = 'report-pdf-capture-root'
-  root.style.width = `${PDF_CAPTURE_WIDTH}px`
-
-  const clone = section.cloneNode(true) as HTMLElement
-  clone.style.margin = '0'
-  root.appendChild(clone)
-  document.body.appendChild(root)
-
-  return { root, clone }
-}
-
-function waitForNextFrame() {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve())
-  })
-}
-
-async function exportReportPdf() {
-  if (!reportData.value || exportingPdf.value) return
-  pdfError.value = ''
-  pdfExportProgress.value = ''
-  exportingPdf.value = true
-  document.body.classList.add('report-pdf-exporting')
-
-  try {
-    await nextTick()
-
-    const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-pdf-page]'))
-    if (!sections.length) {
-      throw new Error('找不到可輸出的報表區塊')
-    }
-
-    const [{ jsPDF }, html2canvasModule] = await Promise.all([
-      import('jspdf'),
-      import('html2canvas'),
-    ])
-    const html2canvas = html2canvasModule.default
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const maxImageWidth = pageWidth - PDF_MARGIN_MM * 2
-    const maxImageHeight = pageHeight - PDF_MARGIN_MM * 2
-
-    for (const [index, section] of sections.entries()) {
-      pdfExportProgress.value = `${index + 1}/${sections.length}`
-      await waitForNextFrame()
-
-      const { root, clone } = createPdfCaptureClone(section)
-      try {
-        await waitForImages(clone)
-        await nextTick()
-
-        const canvas = await html2canvas(clone, {
-          backgroundColor: '#ffffff',
-          scale: PDF_CAPTURE_SCALE,
-          useCORS: true,
-          allowTaint: false,
-          width: clone.scrollWidth,
-          height: clone.scrollHeight,
-          windowWidth: PDF_CAPTURE_WIDTH,
-          ignoreElements: (element) => element.classList?.contains('pdf-exclude') ?? false,
-        })
-
-        if (index > 0) pdf.addPage()
-        const imageData = canvas.toDataURL('image/jpeg', 0.95)
-        const ratio = Math.min(maxImageWidth / canvas.width, maxImageHeight / canvas.height)
-        const imageWidth = canvas.width * ratio
-        const imageHeight = canvas.height * ratio
-        const x = (pageWidth - imageWidth) / 2
-        const y = (pageHeight - imageHeight) / 2
-        pdf.addImage(imageData, 'JPEG', x, y, imageWidth, imageHeight, undefined, 'FAST')
-      } finally {
-        root.remove()
-      }
-    }
-
-    const stamp = new Date().toISOString().slice(0, 10)
-    pdf.save(`EBSD-report-${safeFileName(selectedSample.value)}-${stamp}.pdf`)
-  } catch (e: unknown) {
-    const err = e as { message?: string }
-    pdfError.value = err.message || 'PDF 輸出失敗'
-  } finally {
-    document.body.classList.remove('report-pdf-exporting')
-    exportingPdf.value = false
-    pdfExportProgress.value = ''
-  }
-}
-
 async function exportReportPpt() {
   if (!reportData.value || exportingPpt.value) return
   pptError.value = ''
@@ -2184,6 +2114,12 @@ async function exportReportPpt() {
         ipf_reference_vector: ipfReferenceVector.value,
         ipf_denoindex_threshold: toBackendDenoindexThreshold(ipfDenoindexThreshold.value),
         ipf_denoindex_misorientation_threshold: ipfDenoindexMisorientationThreshold.value,
+        hist_bin_start_mode: grainSettings.value.histBinStartMode,
+        hist_bin_width_mode: grainSettings.value.histBinWidthMode,
+        hist_bin_width_ratio: grainSettings.value.histBinWidthRatio,
+        hist_bin_width_absolute: grainSettings.value.histBinWidthAbsolute,
+        selected_features: selectedFeatures.value,
+        color_thresholds: colorThresholds.value,
       },
     })
     const stamp = new Date().toISOString().slice(0, 10)
@@ -2203,29 +2139,22 @@ async function exportReportPpt() {
   }
 }
 
-function convertToNineposFormat(sampleData: Record<string, number>) {
-  const positionMap: Record<string, { col: string; row: string }> = {
-    'C-U': { col: 'center', row: 'up' },
-    'C-M': { col: 'center', row: 'mid' },
-    'C-B': { col: 'center', row: 'bottom' },
-    'M-U': { col: 'middle', row: 'up' },
-    'M-M': { col: 'middle', row: 'mid' },
-    'M-B': { col: 'middle', row: 'bottom' },
-    'E-U': { col: 'edge', row: 'up' },
-    'E-M': { col: 'edge', row: 'mid' },
-    'E-B': { col: 'edge', row: 'bottom' },
+function analysisPositionMatrix(sampleData: Record<string, number>): PositionMatrix {
+  return buildPositionMatrix(Object.keys(sampleData))
+}
+
+function formatAnalysisValue(value: number | undefined): string {
+  if (!Number.isFinite(value)) return '—'
+  return `${(Number(value) * 100).toFixed(1)}%`
+}
+
+function analysisCellStyle(value: number | undefined): Record<string, string> {
+  if (!Number.isFinite(value)) return {}
+  const valuePercent = Number(value) * 100
+  return {
+    backgroundColor: getColorForValue(valuePercent),
+    color: Math.abs(valuePercent) > colorThresholds.value[1] ? '#ffffff' : '#111827',
   }
-  const result: Record<string, Record<string, { value: number; color: string }>> = {
-    center: {}, middle: {}, edge: {},
-  }
-  for (const [posKey, value] of Object.entries(sampleData)) {
-    const mapping = positionMap[posKey]
-    if (mapping) {
-      const valuePercent = Number((value * 100).toFixed(1))
-      result[mapping.col][mapping.row] = { value: valuePercent, color: getColorForValue(valuePercent) }
-    }
-  }
-  return result
 }
 
 async function analysis() {
@@ -2264,35 +2193,53 @@ watch(reportVersionIndex, async () => {
   }
 })
 
-function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
+function buildOrientSeries(column: string, dev: '20%' | '15%') {
   const ratioKey = `orientation_ratio(${dev})` as keyof CppFeatures
   const series: Array<{ name: string; color: string; dashed: boolean; values: [number, number, number] }> = []
 
-  for (const { rowKey, color } of ROW_SERIES_INFO) {
+  for (const { rowKey, color } of rowSeriesInfo.value) {
     if (!visibleRows.value.has(rowKey)) continue
-    const pos = `${colKey}-${rowKey}`
+    const pos = positionKey(column, rowKey)
 
     const sampleArr = getDisplayedPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
-    series.push({
-      name: `${pos} (${selectedSample.value})`,
-      color,
-      dashed: false,
-      values: sampleArr
-        ? [(sampleArr[0] ?? 0) * 100, (sampleArr[1] ?? 0) * 100, (sampleArr[2] ?? 0) * 100]
-        : [0, 0, 0],
-    })
+    if (sampleArr) {
+      series.push({
+        name: `${pos} (${selectedSample.value})`,
+        color,
+        dashed: false,
+        values: [(sampleArr[0] ?? 0) * 100, (sampleArr[1] ?? 0) * 100, (sampleArr[2] ?? 0) * 100],
+      })
+    }
 
     const goldenArr = getDisplayedPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
-    series.push({
-      name: `${pos} (${goldenSample.value})`,
-      color,
-      dashed: true,
-      values: goldenArr
-        ? [(goldenArr[0] ?? 0) * 100, (goldenArr[1] ?? 0) * 100, (goldenArr[2] ?? 0) * 100]
-        : [0, 0, 0],
-    })
+    if (goldenArr) {
+      series.push({
+        name: `${pos} (${goldenSample.value})`,
+        color,
+        dashed: true,
+        values: [(goldenArr[0] ?? 0) * 100, (goldenArr[1] ?? 0) * 100, (goldenArr[2] ?? 0) * 100],
+      })
+    }
   }
   return series
+}
+
+function dynamicCardGridStyle(columnCount: number): Record<string, string> {
+  return {
+    gridTemplateColumns: `repeat(${Math.max(1, columnCount)}, minmax(250px, 1fr))`,
+  }
+}
+
+function dynamicTableGridStyle(columnCount: number): Record<string, string> {
+  return {
+    gridTemplateColumns: `64px repeat(${Math.max(1, columnCount)}, minmax(260px, 1fr))`,
+  }
+}
+
+function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
+  return {
+    gridTemplateColumns: `64px repeat(${Math.max(1, columnCount)}, minmax(120px, 1fr))`,
+  }
 }
 </script>
 
@@ -2664,7 +2611,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   gap: .75rem;
   margin: 0 0 1rem;
 }
-.pdf-btn {
+.export-btn {
   padding: .52rem 1.25rem;
   background: #ecf5ff;
   color: #409eff;
@@ -2675,11 +2622,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   cursor: pointer;
   transition: background .15s;
 }
-.pdf-btn:hover:not(:disabled) {
+.export-btn:hover:not(:disabled) {
   background: #d9ecff;
   border-color: #79bbff;
 }
-.pdf-btn:disabled {
+.export-btn:disabled {
   background: #ecf5ff;
   cursor: not-allowed;
 }
@@ -3196,6 +3143,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   overflow-x: hidden;
   overflow-y: auto;
 }
+.grain-mode-divider {
+  align-self: stretch;
+  border-left: 1px solid #d1d5db;
+  margin: 0 .2rem;
+}
 .report-anchor-dock {
   position: fixed;
   right: 18px;
@@ -3423,8 +3375,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 
 .nine-cdf-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+  overflow-x: auto;
 }
 .cdf-cell {
   background: #f9fafb;
@@ -3452,7 +3404,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .nine-grid-wrapper { overflow-x: auto; }
 .ng-header-row {
   display: grid;
-  grid-template-columns: 80px repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 4px;
 }
@@ -3470,7 +3421,6 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 .ng-data-row {
   display: grid;
-  grid-template-columns: 80px repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -3515,6 +3465,11 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.ng-position-label {
+  color: #1f2937;
+  font-size: .78rem;
+  font-weight: 850;
 }
 .cell-status-tag {
   border-radius: 999px;
@@ -3627,7 +3582,7 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 .triangle-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
 .triangle-panel {
@@ -3703,13 +3658,14 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 }
 .orient-line-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .orient-line-panel {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
+  overflow-x: auto;
   padding: 12px 10px 10px;
 }
 .orient-line-svg {
@@ -3882,6 +3838,55 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
 .analysis-result-wrap { margin-top: 1.5rem; }
 .analysis-result-wrap h3 { font-size: 1rem; margin-bottom: 1rem; color: #1f2937; }
 .analysis-result-wrap h4 { font-size: .9rem; font-weight: 700; color: #374151; margin-bottom: .5rem; }
+.analysis-sample-result {
+  margin-bottom: 2rem;
+}
+.analysis-table-wrap {
+  overflow-x: auto;
+}
+.analysis-table-row {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-width: max-content;
+}
+.analysis-axis-cell {
+  align-items: center;
+  background: #f0f9eb;
+  border: 1px solid #b3e19d;
+  border-radius: 6px;
+  color: #4f9f32;
+  display: flex;
+  font-size: .8rem;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 42px;
+  min-width: 64px;
+}
+.analysis-value-cell {
+  align-items: center;
+  border: 1px solid rgba(15, 23, 42, .12);
+  border-radius: 8px;
+  display: grid;
+  gap: .25rem;
+  justify-items: center;
+  min-height: 76px;
+  min-width: 120px;
+  padding: .65rem .75rem;
+}
+.analysis-value-cell strong {
+  font-size: .76rem;
+}
+.analysis-value-cell span {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+}
+.analysis-value-cell.empty {
+  background: #f3f4f6;
+  border-style: dashed;
+  color: #9ca3af;
+}
 
 @media (max-width: 900px) {
   .setup-grid,
@@ -3953,28 +3958,8 @@ function buildOrientSeries(colKey: string, dev: '20%' | '15%') {
     width: 100%;
   }
   .grain-dock-number { width: 100%; }
-  .nine-cdf-grid { grid-template-columns: repeat(2, 1fr); }
   .triangle-row { grid-template-columns: 1fr; }
   .orient-line-grid { grid-template-columns: 1fr; }
-  .ng-header-row, .ng-data-row { grid-template-columns: 60px repeat(3, 1fr); }
 }
 
-:global(.report-pdf-capture-root) {
-  position: fixed;
-  left: -12000px;
-  top: 0;
-  width: 1120px;
-  background: #fff;
-  color: #111827;
-  pointer-events: none;
-  z-index: -1;
-}
-:global(.report-pdf-capture-root .card) {
-  margin: 0;
-  box-shadow: none;
-}
-:global(.report-pdf-capture-root .pdf-exclude),
-:global(body.report-pdf-exporting .pdf-exclude) {
-  display: none !important;
-}
 </style>

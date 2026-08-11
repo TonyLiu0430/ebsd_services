@@ -1,5 +1,5 @@
 // #include <EbsdLib/IO/EbsdImporter.h>
-#include <EbsdLib/IO/HKL/CprReader.h>
+#include "ebsd_data.h"
 // #include <vector>
 // #include <memory>
 // #include <EbsdLib/Core/OrientationTransformation.hpp>
@@ -19,6 +19,8 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <map>
@@ -58,42 +60,6 @@ bool is_hcp_lattice(const std::vector<T>& lattice)
         && std::fabs(alpha - 90.0) <= 3.0
         && std::fabs(beta - 90.0) <= 3.0
         && std::fabs(gamma - 120.0) <= 3.0;
-}
-
-LaueOps::Pointer select_ipf_ops(CprReader& reader, const uint8_t* phase = nullptr, int totalPoints = 0)
-{
-    int primaryPhaseIndex = 0;
-    if(phase != nullptr && totalPoints > 0) {
-        std::map<int, int> phaseCounts;
-        for(int i = 0; i < totalPoints; ++i) {
-            const int phaseIndex = static_cast<int>(phase[i]);
-            if(phaseIndex > 0) phaseCounts[phaseIndex] += 1;
-        }
-        int primaryPhaseCount = 0;
-        for(const auto& item : phaseCounts) {
-            if(item.second > primaryPhaseCount) {
-                primaryPhaseIndex = item.first;
-                primaryPhaseCount = item.second;
-            }
-        }
-    }
-
-    for(const auto& phaseInfo : reader.getPhaseVector()) {
-        if(!phaseInfo) continue;
-        if(primaryPhaseIndex > 0 && phaseInfo->getPhaseIndex() != primaryPhaseIndex) continue;
-        if(is_hcp_lattice(phaseInfo->getLatticeConstants())) {
-            return LaueOps::GetOrientationOpsFromSpaceGroupNumber(static_cast<size_t>(phaseInfo->getSpaceGroup()));
-        }
-    }
-    return LaueOps::GetAllOrientationOps()[1]; // CubicOps fallback
-}
-
-bool reader_has_hcp_lattice(CprReader& reader)
-{
-    for(const auto& phaseInfo : reader.getPhaseVector()) {
-        if(phaseInfo && is_hcp_lattice(phaseInfo->getLatticeConstants())) return true;
-    }
-    return false;
 }
 
 struct HcpSectorPoint {
@@ -234,21 +200,101 @@ void save_hcp_ipf_legend(const std::filesystem::path& img_path, int dim)
     if(!ok) std::cout << "failed" << std::endl;
 }
 
+const std::array<uint8_t, 7>& glyph_for(char ch)
+{
+    static const std::unordered_map<char, std::array<uint8_t, 7>> glyphs = {
+        {'0', {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}},
+        {'1', {0x04, 0x0C, 0x14, 0x04, 0x04, 0x04, 0x1F}},
+        {'2', {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}},
+        {'3', {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E}},
+        {'4', {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}},
+        {'5', {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E}},
+        {'6', {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E}},
+        {'7', {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}},
+        {'8', {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}},
+        {'9', {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E}},
+        {'.', {0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C}},
+        {'u', {0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0D}},
+        {'m', {0x00, 0x00, 0x1A, 0x15, 0x15, 0x15, 0x15}},
+        {' ', {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    };
+    static const std::array<uint8_t, 7> unknown = {0x1F, 0x11, 0x02, 0x04, 0x00, 0x04, 0x00};
+    const auto it = glyphs.find(ch);
+    return it == glyphs.end() ? unknown : it->second;
+}
+
+void set_rgb_pixel(std::vector<uint8_t>& image, int width, int height, int x, int y, uint8_t value)
+{
+    if(x < 0 || y < 0 || x >= width || y >= height) return;
+    const size_t index = (static_cast<size_t>(y) * width + x) * 3;
+    image[index] = value;
+    image[index + 1] = value;
+    image[index + 2] = value;
+}
+
+void fill_rgb_rect(std::vector<uint8_t>& image, int width, int height, int x, int y, int rect_width, int rect_height, uint8_t value)
+{
+    for(int py = y; py < y + rect_height; ++py) {
+        for(int px = x; px < x + rect_width; ++px) {
+            set_rgb_pixel(image, width, height, px, py, value);
+        }
+    }
+}
+
+void draw_text(std::vector<uint8_t>& image, int width, int height, int x, int y, const std::string& text, int pixel_scale)
+{
+    int cursor = x;
+    for(char ch : text) {
+        const auto& glyph = glyph_for(ch);
+        for(int row = 0; row < 7; ++row) {
+            for(int col = 0; col < 5; ++col) {
+                if((glyph[row] & (1U << (4 - col))) == 0) continue;
+                fill_rgb_rect(
+                    image,
+                    width,
+                    height,
+                    cursor + col * pixel_scale,
+                    y + row * pixel_scale,
+                    pixel_scale,
+                    pixel_scale,
+                    20
+                );
+            }
+        }
+        cursor += 6 * pixel_scale;
+    }
+}
+
+double nice_scale_length(double maximum)
+{
+    if(!std::isfinite(maximum) || maximum <= 0.0) return 0.0;
+    const double exponent = std::pow(10.0, std::floor(std::log10(maximum)));
+    const double normalized = maximum / exponent;
+    const double multiplier = normalized >= 5.0 ? 5.0 : normalized >= 2.0 ? 2.0 : 1.0;
+    return multiplier * exponent;
+}
+
+std::string format_scale_length(double micrometers)
+{
+    if(micrometers >= 10.0 || std::fabs(micrometers - std::round(micrometers)) < 1e-6) {
+        return std::to_string(static_cast<long long>(std::llround(micrometers))) + " um";
+    }
+    std::string value = std::to_string(micrometers);
+    value.erase(value.find_last_not_of('0') + 1);
+    if(!value.empty() && value.back() == '.') value.pop_back();
+    return value + " um";
+}
+
 } // namespace
 
-vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<vector<QuatF>> &orientations, const std::filesystem::path& cpr_path, std::array<double, 3> ref_dir) {
+vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<vector<QuatF>> &orientations, unsigned int orientation_ops_index, bool is_hcp, std::array<double, 3> ref_dir) {
     int x = orientations.size();
     if(x == 0) return {};
     int y = orientations[0].size();
     
     vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> img(x, vector<std::tuple<uint8_t, uint8_t, uint8_t>>(y));
-    CprReader headerReader;
-    headerReader.setFileName(cpr_path);
-    if(headerReader.readHeaderOnly() < 0) {
-        throw std::runtime_error("Failed to read CPR header for IPF map: " + headerReader.getErrorMessage());
-    }
-    const bool isHcp = reader_has_hcp_lattice(headerReader);
-    auto ops = select_ipf_ops(headerReader);
+    const auto all_ops = LaueOps::GetAllOrientationOps();
+    auto ops = orientation_ops_index < all_ops.size() ? all_ops[orientation_ops_index] : all_ops[1];
     const std::array<double, 3> refDir = normalize_ref_dir(ref_dir);
     const EbsdLib::Matrix3X1D refDirVec(refDir[0], refDir[1], refDir[2]);
 
@@ -259,7 +305,7 @@ vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<v
                 continue;
             }
             std::vector<float> eulen = OrientationTransformation::qu2eu<QuatF, std::vector<float>>(orientations[i][j]);
-            if(isHcp) {
+            if(is_hcp) {
                 OrientationD eu(eulen[0], eulen[1], eulen[2]);
                 OrientationD om = OrientationTransformation::eu2om<OrientationD, OrientationD>(eu);
                 EbsdLib::Matrix3X3D mat(om.data());
@@ -274,19 +320,14 @@ vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<v
     return img;
 }
 
-void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir, double denoindex_threshold, double denoindex_misorientation_threshold) {
-    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
-    reader->setFileName(cpr_path);
-    if(reader->readFile() < 0) {
-        std::cout << "failed" << std::endl;
-    }
-    int xDim = reader->getXDimension();
-    int yDim = reader->getYDimension();
-    int totalPoints = xDim * yDim;
-    auto phase = reader->getPhasePointer();
-    auto euler1 = reader->getEuler1Pointer();
-    auto euler2 = reader->getEuler2Pointer();
-    auto euler3 = reader->getEuler3Pointer();
+void save_ipf_map(const std::filesystem::path& ebsd_path, const std::filesystem::path& img_path, std::array<double, 3> ref_dir, double denoindex_threshold, double denoindex_misorientation_threshold, bool include_scale_bar) {
+    EbsdData data = load_ebsd_data(ebsd_path);
+    int xDim = data.x_dim;
+    int yDim = data.y_dim;
+    auto phase = data.phase.data();
+    auto euler1 = data.euler1.data();
+    auto euler2 = data.euler2.data();
+    auto euler3 = data.euler3.data();
     denoindex(euler1, euler2, euler3, phase, xDim, yDim, denoindex_threshold, denoindex_misorientation_threshold);
     
     vector<vector<QuatF>> orientations(yDim, vector<QuatF>(xDim));
@@ -303,22 +344,72 @@ void save_ipf_map(const std::filesystem::path& cpr_path, const std::filesystem::
     }
 
 
-    auto pixels = gen_ipf_map(orientations, cpr_path, ref_dir);
-    std::vector<uint8_t> img;
-    int w = xDim, h = yDim;
-    img.reserve((size_t)w * h * 3);
+    auto pixels = gen_ipf_map(orientations, data.primary_orientation_ops_index, data.hcp, ref_dir);
+    const int minimum_output_dimension = 900;
+    const int shortest_dimension = std::max(1, std::min(xDim, yDim));
+    const int upscale = std::clamp(
+        static_cast<int>(std::ceil(static_cast<double>(minimum_output_dimension) / shortest_dimension)),
+        1,
+        8
+    );
+    const int map_width = xDim * upscale;
+    const int map_height = yDim * upscale;
+    const int scale_region_height = include_scale_bar ? std::max(76, 24 * upscale) : 0;
+    const int output_height = map_height + scale_region_height;
+    std::vector<uint8_t> img(static_cast<size_t>(map_width) * output_height * 3, 255);
 
-    for (const auto& row : pixels) {
-        for (const auto& px : row) {
+    for (int source_y = 0; source_y < yDim; ++source_y) {
+        for (int source_x = 0; source_x < xDim; ++source_x) {
+            const auto& px = pixels[source_y][source_x];
             auto [r, g, b] = px;
-
-            img.push_back(static_cast<uint8_t>(r));
-            img.push_back(static_cast<uint8_t>(g));
-            img.push_back(static_cast<uint8_t>(b));
+            for(int dy = 0; dy < upscale; ++dy) {
+                for(int dx = 0; dx < upscale; ++dx) {
+                    const int target_x = source_x * upscale + dx;
+                    const int target_y = source_y * upscale + dy;
+                    const size_t index = (static_cast<size_t>(target_y) * map_width + target_x) * 3;
+                    img[index] = r;
+                    img[index + 1] = g;
+                    img[index + 2] = b;
+                }
+            }
         }
     }
+
+    if(include_scale_bar) {
+        const double x_step_um = data.x_step;
+        const double map_width_um = x_step_um * xDim;
+        const double bar_um = nice_scale_length(map_width_um * 0.28);
+        if(bar_um > 0.0 && x_step_um > 0.0) {
+            const int bar_width = std::clamp(
+                static_cast<int>(std::llround((bar_um / x_step_um) * upscale)),
+                1,
+                std::max(1, map_width - 40)
+            );
+            const int bar_height = std::max(3, upscale);
+            const int tick_height = std::max(10, 4 * upscale);
+            const int bar_x = (map_width - bar_width) / 2;
+            const int bar_y = map_height + std::max(14, 5 * upscale);
+            fill_rgb_rect(img, map_width, output_height, bar_x, bar_y, bar_width, bar_height, 20);
+            fill_rgb_rect(img, map_width, output_height, bar_x, bar_y - tick_height / 2, bar_height, tick_height, 20);
+            fill_rgb_rect(img, map_width, output_height, bar_x + bar_width - bar_height, bar_y - tick_height / 2, bar_height, tick_height, 20);
+
+            const std::string label = format_scale_length(bar_um);
+            const int text_scale = std::max(2, std::min(4, upscale));
+            const int text_width = static_cast<int>(label.size()) * 6 * text_scale - text_scale;
+            draw_text(
+                img,
+                map_width,
+                output_height,
+                std::max(0, (map_width - text_width) / 2),
+                bar_y + tick_height,
+                label,
+                text_scale
+            );
+        }
+    }
+
     std::filesystem::create_directories(img_path.parent_path());
-    int ok = stbi_write_png(img_path.string().c_str(), w, h, 3, img.data(), w * 3);
+    int ok = stbi_write_png(img_path.string().c_str(), map_width, output_height, 3, img.data(), map_width * 3);
     if(!ok) std::cout << "failed" << std::endl;
 }
 
@@ -328,26 +419,18 @@ void save_ipf_legend(const std::filesystem::path& img_path, int size) {
     save_ipf_legend_for_ops(img_path, dim, ops, {0.0, 0.0, 1.0}, {1.0 / std::sqrt(2.0), 0.0, 1.0 / std::sqrt(2.0)}, {1.0 / std::sqrt(3.0), 1.0 / std::sqrt(3.0), 1.0 / std::sqrt(3.0)});
 }
 
-void save_ipf_legend(const std::filesystem::path& cpr_path, const std::filesystem::path& img_path, int size) {
-    CprReader reader;
-    reader.setFileName(cpr_path);
-    if(reader.readHeaderOnly() < 0) {
-        throw std::runtime_error("Failed to read CPR header for IPF legend: " + reader.getErrorMessage());
-    }
+void save_ipf_legend(const std::filesystem::path& ebsd_path, const std::filesystem::path& img_path, int size) {
+    EbsdData data = load_ebsd_data(ebsd_path, true);
     const int dim = std::max(80, size);
-    auto ops = select_ipf_ops(reader);
-    bool isHcp = false;
-    for(const auto& phaseInfo : reader.getPhaseVector()) {
-        if(phaseInfo && is_hcp_lattice(phaseInfo->getLatticeConstants())) {
-            isHcp = true;
-            break;
-        }
-    }
-    if(isHcp) {
+    const auto all_ops = LaueOps::GetAllOrientationOps();
+    auto ops = data.primary_orientation_ops_index < all_ops.size()
+        ? all_ops[data.primary_orientation_ops_index]
+        : all_ops[1];
+    if(data.hcp) {
         save_hcp_ipf_legend(img_path, dim);
         return;
     }
-    save_ipf_legend(img_path, size);
+    save_ipf_legend_for_ops(img_path, dim, ops, {0.0, 0.0, 1.0}, {1.0 / std::sqrt(2.0), 0.0, 1.0 / std::sqrt(2.0)}, {1.0 / std::sqrt(3.0), 1.0 / std::sqrt(3.0), 1.0 / std::sqrt(3.0)});
 }
 
 void save_ipf_legend_for_ops(const std::filesystem::path& img_path, int dim, LaueOps::Pointer ops, std::array<double, 3> dirA, std::array<double, 3> dirB, std::array<double, 3> dirC) {

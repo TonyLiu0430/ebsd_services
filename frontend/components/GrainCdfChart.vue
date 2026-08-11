@@ -5,6 +5,7 @@ const props = withDefaults(defineProps<{
   sampleLabel?: string
   goldenLabel?: string
   mode?: 'cdf' | 'hist' | 'areaHist'
+  histYMode?: 'count' | 'ratio'
   fixedXMin?: number | null
   fixedXMax?: number | null
   binCount?: number
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
   sampleLabel: 'Sample',
   goldenLabel: 'Golden',
   mode: 'cdf',
+  histYMode: 'count',
   fixedXMin: null,
   fixedXMax: null,
   binCount: 20,
@@ -136,16 +138,25 @@ function makeAreaWeightedHistogram(arr: number[], bins: number, minV: number, ma
 
 const sampleSeries = computed(() => {
   if (props.mode === 'areaHist') return makeAreaWeightedHistogram(props.sample, HIST_BINS.value, histBinXMin.value, histXMax.value)
-  return makeHistogram(props.sample, HIST_BINS.value, histBinXMin.value, histXMax.value)
+  const counts = makeHistogram(props.sample, HIST_BINS.value, histBinXMin.value, histXMax.value)
+  if (props.mode === 'hist' && props.histYMode === 'ratio' && props.sample.length) {
+    return counts.map((count) => (count / props.sample.length) * 100)
+  }
+  return counts
 })
 const goldenSeries = computed(() => {
   if (props.mode === 'areaHist') return makeAreaWeightedHistogram(props.golden, HIST_BINS.value, histBinXMin.value, histXMax.value)
-  return makeHistogram(props.golden, HIST_BINS.value, histBinXMin.value, histXMax.value)
+  const counts = makeHistogram(props.golden, HIST_BINS.value, histBinXMin.value, histXMax.value)
+  if (props.mode === 'hist' && props.histYMode === 'ratio' && props.golden.length) {
+    return counts.map((count) => (count / props.golden.length) * 100)
+  }
+  return counts
 })
 
 const ySeriesMax = computed(() => Math.max(1, ...sampleSeries.value, ...goldenSeries.value))
 const yAxisMax = computed(() => {
   if (props.mode === 'cdf') return 100
+  if (props.mode === 'hist' && props.histYMode === 'ratio') return 100
   if (props.mode === 'areaHist') {
     const step = Math.max(1, Math.ceil(ySeriesMax.value / 4))
     return step * 4
@@ -218,15 +229,19 @@ function formatXTick(v: number) {
 }
 
 function formatYTick(v: number) {
-  if (props.mode === 'areaHist') return Number.isInteger(v) ? String(v) : v.toFixed(1)
+  if (props.mode === 'areaHist' || props.histYMode === 'ratio') return Number.isInteger(v) ? String(v) : v.toFixed(1)
   return String(Math.round(v))
 }
 
 const yAxisLabel = computed(() => {
   if (props.mode === 'cdf') return '累積 %'
   if (props.mode === 'areaHist') return '面積占比 %'
+  if (props.histYMode === 'ratio') return '比例 %'
   return 'Counts'
 })
+const sampleBarColor = '#DC2626'
+const goldenBarColor = '#2563EB'
+const sampleBarDash = '2.2,1.4'
 </script>
 
 <template>
@@ -259,17 +274,17 @@ const yAxisLabel = computed(() => {
       <text :x="W / 2" :y="H + PAD_B - 3" text-anchor="middle" font-size="8" fill="#6b7280">粒徑 (μm)</text>
 
       <template v-if="props.mode === 'cdf'">
-        <polyline v-if="goldenPoints" :points="goldenPoints" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-dasharray="5,2.5" stroke-linejoin="round" />
-        <polyline v-if="samplePoints" :points="samplePoints" fill="none" stroke="#3B82F6" stroke-width="1.8" stroke-linejoin="round" />
+        <polyline v-if="goldenPoints" :points="goldenPoints" fill="none" stroke="#2563EB" stroke-width="1.8" stroke-linejoin="round" />
+        <polyline v-if="samplePoints" :points="samplePoints" fill="none" stroke="#DC2626" stroke-width="1.8" stroke-dasharray="5,2.5" stroke-linejoin="round" />
       </template>
       <template v-else>
         <g class="hist-fill-layer">
-          <rect v-for="(b, i) in goldenBars" :key="'golden-fill-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="#F59E0B" fill-opacity="0.28" stroke="none" />
-          <rect v-for="(b, i) in sampleBars" :key="'sample-fill-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="#0f766e" fill-opacity="0.28" stroke="none" />
+          <rect v-for="(b, i) in goldenBars" :key="'golden-fill-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" :fill="goldenBarColor" fill-opacity="0.24" stroke="none" />
+          <rect v-for="(b, i) in sampleBars" :key="'sample-fill-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" :fill="sampleBarColor" fill-opacity="0.22" stroke="none" />
         </g>
         <g class="hist-stroke-layer">
-          <rect v-for="(b, i) in goldenBars" :key="'golden-stroke-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="none" stroke="#F59E0B" stroke-opacity="0.95" stroke-width="0.9" stroke-dasharray="2.2,1.4" />
-          <rect v-for="(b, i) in sampleBars" :key="'sample-stroke-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="none" stroke="#0f766e" stroke-opacity="0.95" stroke-width="0.9" />
+          <rect v-for="(b, i) in goldenBars" :key="'golden-stroke-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="none" :stroke="goldenBarColor" stroke-opacity="0.95" stroke-width="0.9" />
+          <rect v-for="(b, i) in sampleBars" :key="'sample-stroke-'+i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="none" :stroke="sampleBarColor" stroke-opacity="0.95" stroke-width="0.9" :stroke-dasharray="sampleBarDash" />
         </g>
       </template>
     </g>

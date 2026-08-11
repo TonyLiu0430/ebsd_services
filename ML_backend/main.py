@@ -16,7 +16,7 @@ import defdap.ebsd as ebsd # type: ignore
 import tempfile
 import numpy as np
 import joblib
-from pydantic import BaseModel, TypeAdapter, ValidationError # type: ignore
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError # type: ignore
 from ebsd_utils import *
 from typing import Callable, Any
 from sqlalchemy.orm import Session, load_only, selectinload
@@ -34,7 +34,7 @@ from ebsd_store import (
     upsert_user_target,
     create_user_pair,
 )
-from ppt_report import build_pptx_report
+from template_ppt_report import build_pptx_report
 from sqlalchemy import func, select
 
 app = FastAPI()
@@ -78,7 +78,7 @@ def cleanup_orphan_pair_and_files(db: Session, pair: EbsdPair) -> Dict[str, int]
     if pair_ref_count > 0:
         return {"pairs": 0, "files": 0}
 
-    file_ids = [pair.crc_file_id, pair.cpr_file_id]
+    file_ids = {pair.crc_file_id, pair.cpr_file_id}
     db.delete(pair)
     db.flush()
 
@@ -370,6 +370,9 @@ def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
         row.version_label,
         row.version_num,
     )
+    primary_file = row.pair.cpr_file
+    file_format = primary_file.extension.lstrip(".").lower()
+    is_paired = file_format == "cpr"
     return {
         "id": row.id,
         "target_id": row.target_id,
@@ -381,6 +384,11 @@ def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
         "cpr_filename": row.pair.cpr_file.original_filename,
         "cpr_size_bytes": row.pair.cpr_file.size_bytes,
         "cpr_hash": row.pair.cpr_file.content_hash,
+        "file_format": "cpr+crc" if is_paired else file_format,
+        "is_paired_format": is_paired,
+        "primary_filename": primary_file.original_filename,
+        "primary_size_bytes": primary_file.size_bytes,
+        "primary_hash": primary_file.content_hash,
         "sample": sample,
         "position": row.position,
         "name": row.display_name,
@@ -515,8 +523,9 @@ async def create_ebsd_target(
 @app.post('/ebsd/pairs')
 async def save_ebsd_pair(
     request: Request,
-    crc: UploadFile = File(...),
-    cpr: UploadFile = File(...),
+    crc: Optional[UploadFile] = File(None),
+    cpr: Optional[UploadFile] = File(None),
+    ebsd: Optional[UploadFile] = File(None),
     sample: str = Form(...),
     position: str = Form(...),
     name: str = Form(""),
@@ -527,8 +536,21 @@ async def save_ebsd_pair(
     db: Session = Depends(get_db),
 ):
     user = current_user_from_go_session(request)
-    crc_content, crc_filename = await read_upload(crc, ".crc")
-    cpr_content, cpr_filename = await read_upload(cpr, ".cpr")
+    if ebsd is not None:
+        filename = ebsd.filename or ""
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in {".ang", ".ctf"}:
+            raise HTTPException(status_code=400, detail="single EBSD file must be .ang or .ctf")
+        content, filename = await read_upload(ebsd, extension)
+        crc_content = cpr_content = content
+        crc_filename = cpr_filename = filename
+        crc_extension = cpr_extension = extension
+    elif crc is not None and cpr is not None:
+        crc_content, crc_filename = await read_upload(crc, ".crc")
+        cpr_content, cpr_filename = await read_upload(cpr, ".cpr")
+        crc_extension, cpr_extension = ".crc", ".cpr"
+    else:
+        raise HTTPException(status_code=400, detail="upload .cpr + .crc, a single .ang, or a single .ctf file")
 
     if not sample.strip() or not position.strip():
         raise HTTPException(status_code=400, detail="sample and position are required")
@@ -541,8 +563,8 @@ async def save_ebsd_pair(
     )
 
     target, _ = upsert_user_target(db, user["id"], clean_sample)
-    crc_file, crc_created = get_or_create_ebsd_file(db, crc_content, crc_filename, ".crc")
-    cpr_file, cpr_created = get_or_create_ebsd_file(db, cpr_content, cpr_filename, ".cpr")
+    crc_file, crc_created = get_or_create_ebsd_file(db, crc_content, crc_filename, crc_extension)
+    cpr_file, cpr_created = get_or_create_ebsd_file(db, cpr_content, cpr_filename, cpr_extension)
     pair, pair_created = get_or_create_pair(db, crc_file, cpr_file)
     material = detect_material_from_metadata(
         cpp_material_metadata_from_files(crc_filename, crc_content, cpr_filename, cpr_content)
@@ -569,6 +591,7 @@ async def save_ebsd_pair(
         "pair_hash": pair.pair_hash,
         "crc_hash": crc_file.content_hash,
         "cpr_hash": cpr_file.content_hash,
+        "file_format": "cpr+crc" if cpr_extension == ".cpr" else cpr_extension.lstrip("."),
         "material": material,
         "created": {
             "crc_file": crc_created,
@@ -612,12 +635,14 @@ def get_ebsd_pair_file(
     if not row:
         raise HTTPException(status_code=404, detail="file pair not found")
 
-    if kind == "crc":
+    if kind == "primary":
+        stored_file = row.pair.cpr_file
+    elif kind == "crc":
         stored_file = row.pair.crc_file
     elif kind == "cpr":
         stored_file = row.pair.cpr_file
     else:
-        raise HTTPException(status_code=400, detail="kind must be crc or cpr")
+        raise HTTPException(status_code=400, detail="kind must be primary, crc, or cpr")
 
     return Response(
         content=stored_file.content,
@@ -695,12 +720,18 @@ def delete_ebsd_target(target_name: str, request: Request, db: Session = Depends
 
 class ReportPptRequest(BaseModel):
     sample: str
-    golden: str
+    golden: Optional[str] = None
     version_key: Optional[str] = None
     min_grain_size: Optional[int] = None
     ipf_reference_vector: Optional[List[float]] = None
     ipf_denoindex_threshold: Optional[float] = None
     ipf_denoindex_misorientation_threshold: Optional[float] = None
+    hist_bin_start_mode: str = "min"
+    hist_bin_width_mode: str = "ratio"
+    hist_bin_width_ratio: float = 10.0
+    hist_bin_width_absolute: float = 10.0
+    selected_features: List[str] = Field(default_factory=list)
+    color_thresholds: List[float] = Field(default_factory=lambda: [30.0, 70.0])
 
 
 def validate_min_grain_size(value: Optional[int]) -> Optional[int]:
@@ -785,6 +816,7 @@ def post_cpp_files(
     ipf_reference_vector: Optional[List[float]] = None,
     ipf_denoindex_threshold: Optional[float] = None,
     ipf_denoindex_misorientation_threshold: Optional[float] = None,
+    include_scale_bar: Optional[bool] = None,
 ) -> bytes:
     body, boundary = multipart_body([
         ("crc", crc_filename, "application/octet-stream", crc_content),
@@ -806,6 +838,8 @@ def post_cpp_files(
             query_params["denoindex_threshold"] = ipf_denoindex_threshold
         if ipf_denoindex_misorientation_threshold is not None:
             query_params["denoindex_misorientation_threshold"] = ipf_denoindex_misorientation_threshold
+        if include_scale_bar is not None:
+            query_params["include_scale_bar"] = str(include_scale_bar).lower()
         if query_params:
             url = f"{url}?{urlencode(query_params)}"
         req = urllib.request.Request(
@@ -836,6 +870,7 @@ def post_cpp_pair(
     ipf_reference_vector: Optional[List[float]] = None,
     ipf_denoindex_threshold: Optional[float] = None,
     ipf_denoindex_misorientation_threshold: Optional[float] = None,
+    include_scale_bar: Optional[bool] = None,
 ) -> bytes:
     return post_cpp_files(
         endpoint,
@@ -848,6 +883,7 @@ def post_cpp_pair(
         ipf_reference_vector=ipf_reference_vector,
         ipf_denoindex_threshold=ipf_denoindex_threshold,
         ipf_denoindex_misorientation_threshold=ipf_denoindex_misorientation_threshold,
+        include_scale_bar=include_scale_bar,
     )
 
 
@@ -901,6 +937,7 @@ def cpp_ipf_map(
     ipf_reference_vector: Optional[List[float]] = None,
     ipf_denoindex_threshold: Optional[float] = None,
     ipf_denoindex_misorientation_threshold: Optional[float] = None,
+    include_scale_bar: bool = True,
 ) -> bytes:
     return post_cpp_pair(
         "/ipf_map",
@@ -909,6 +946,7 @@ def cpp_ipf_map(
         ipf_reference_vector=ipf_reference_vector,
         ipf_denoindex_threshold=ipf_denoindex_threshold,
         ipf_denoindex_misorientation_threshold=ipf_denoindex_misorientation_threshold,
+        include_scale_bar=include_scale_bar,
     )
 
 
@@ -929,6 +967,7 @@ def get_ebsd_pair_ipf_map(
     reference_z: Optional[float] = None,
     denoindex_threshold: Optional[float] = None,
     denoindex_misorientation_threshold: Optional[float] = None,
+    include_scale_bar: bool = True,
     db: Session = Depends(get_db),
 ):
     user = current_user_from_go_session(request)
@@ -949,7 +988,10 @@ def get_ebsd_pair_ipf_map(
     threshold = validate_ipf_denoindex_threshold(denoindex_threshold)
     misorientation_threshold = validate_ipf_denoindex_misorientation_threshold(denoindex_misorientation_threshold)
 
-    return Response(content=cpp_ipf_map(row, reference_vector, threshold, misorientation_threshold), media_type="image/png")
+    return Response(
+        content=cpp_ipf_map(row, reference_vector, threshold, misorientation_threshold, include_scale_bar),
+        media_type="image/png",
+    )
 
 
 @app.get('/ebsd/ipf_legend')
@@ -996,16 +1038,16 @@ def collect_report_data(
     include_ipf_images: bool = False,
 ) -> Dict[str, Any]:
     selected_sample = req.sample.strip()
-    golden_sample = req.golden.strip()
+    golden_sample = (req.golden or "").strip()
     min_grain_size = validate_min_grain_size(req.min_grain_size)
     ipf_reference_vector = normalize_reference_vector(req.ipf_reference_vector)
     ipf_denoindex_threshold = validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold)
     ipf_denoindex_misorientation_threshold = validate_ipf_denoindex_misorientation_threshold(
         req.ipf_denoindex_misorientation_threshold
     )
-    if not selected_sample or not golden_sample:
-        raise HTTPException(status_code=400, detail="sample and golden are required")
-    if selected_sample == golden_sample:
+    if not selected_sample:
+        raise HTTPException(status_code=400, detail="sample is required")
+    if golden_sample and selected_sample == golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden must be different")
 
     user = current_user_from_go_session(request)
@@ -1015,7 +1057,9 @@ def collect_report_data(
         .order_by(UserEbsdPair.created_at.desc())
     ).scalars().all()
 
-    needed = {selected_sample, golden_sample}
+    needed = {selected_sample}
+    if golden_sample:
+        needed.add(golden_sample)
     entries: List[Dict[str, Any]] = []
     for row in rows:
         sample, version_key, version_label, version_num = resolve_retest_version(
@@ -1037,7 +1081,7 @@ def collect_report_data(
 
     if not any(entry["sample"] == selected_sample for entry in entries):
         raise HTTPException(status_code=404, detail="analysis sample not found in file library")
-    if not any(entry["sample"] == golden_sample for entry in entries):
+    if golden_sample and not any(entry["sample"] == golden_sample for entry in entries):
         raise HTTPException(status_code=404, detail="golden sample not found in file library")
 
     version_options = version_options_for_rows(entries)
@@ -1049,7 +1093,7 @@ def collect_report_data(
     golden_option = next((opt for opt in golden_options if opt["key"] == golden_key), None)
     if not selected_option:
         raise HTTPException(status_code=400, detail="invalid sample version_key")
-    if not golden_option:
+    if golden_sample and not golden_option:
         raise HTTPException(status_code=400, detail="invalid golden sample")
 
     raw_data: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
@@ -1112,7 +1156,7 @@ def collect_report_data(
         "selected_version_key": selected_key,
         "golden_version_key": golden_key,
         "selected_version_label": selected_option["label"],
-        "golden_version_label": golden_option["label"],
+        "golden_version_label": golden_option["label"] if golden_option else "",
         "report_data": merged_latest,
         "versioned_report_data": cumulative,
         "raw_version_positions": raw_version_positions,
@@ -1132,24 +1176,87 @@ def generate_report_data(req: ReportPptRequest, request: Request, db: Session = 
 
 
 def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Session) -> Dict[str, Any]:
-    context = collect_report_data(req, request, db, include_ipf_images=True)
+    context = collect_report_data(req, request, db)
     selected_sample = context["selected_sample"]
     golden_sample = context["golden_sample"]
     selected_key = context["selected_version_key"]
     golden_key = context["golden_version_key"]
     selected_pairs = context["cumulative_pairs"].get(selected_sample, {}).get(selected_key, {})
     selected_pair_for_legend = next(iter(selected_pairs.values()), None)
+    selected_snapshot = context["versioned_report_data"].get(selected_sample, {}).get(selected_key, {})
+    golden_snapshot = context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}) if golden_sample else {}
+
+    requested_min_size = validate_min_grain_size(req.min_grain_size) or 10
+    statistics_by_min_grain_size: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    for threshold in sorted({5, 10, requested_min_size}):
+        if threshold == requested_min_size:
+            statistics_by_min_grain_size[threshold] = selected_snapshot
+            continue
+        statistics_by_min_grain_size[threshold] = {
+            position: cpp_features(row, threshold)
+            for position, row in selected_pairs.items()
+        }
+
+    vectors: Dict[str, List[float]] = {
+        "X": [1.0, 0.0, 0.0],
+        "Y": [0.0, 1.0, 0.0],
+        "Z": [0.0, 0.0, 1.0],
+    }
+    custom_vector = normalize_reference_vector(req.ipf_reference_vector)
+    if custom_vector and not any(
+        all(abs(custom_vector[index] - axis[index]) <= 1e-6 for index in range(3))
+        for axis in vectors.values()
+    ):
+        vectors[f"Custom ({custom_vector[0]:.3g}, {custom_vector[1]:.3g}, {custom_vector[2]:.3g})"] = custom_vector
+
+    ipf_images_by_direction: Dict[str, Dict[str, bytes]] = {}
+    for direction, vector in vectors.items():
+        images: Dict[str, bytes] = {}
+        for position, row in selected_pairs.items():
+            try:
+                images[position] = cpp_ipf_map(
+                    row,
+                    vector,
+                    validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold),
+                    validate_ipf_denoindex_misorientation_threshold(req.ipf_denoindex_misorientation_threshold),
+                )
+            except HTTPException:
+                continue
+        ipf_images_by_direction[direction] = images
+
+    report_data = {
+        sample: snapshot
+        for sample, snapshot in ((selected_sample, selected_snapshot), (golden_sample, golden_snapshot))
+        if sample
+    }
+    analysis_data: Dict[str, Dict[str, float]] = {}
+    if golden_sample and req.selected_features:
+        analysis_data = compute_analysis(req.selected_features, golden_sample, report_data)
+
+    if req.hist_bin_start_mode not in {"min", "zero"}:
+        raise HTTPException(status_code=400, detail="hist_bin_start_mode must be min or zero")
+    if req.hist_bin_width_mode not in {"ratio", "absolute"}:
+        raise HTTPException(status_code=400, detail="hist_bin_width_mode must be ratio or absolute")
+    if len(req.color_thresholds) != 2 or not 0 <= req.color_thresholds[0] <= req.color_thresholds[1] <= 100:
+        raise HTTPException(status_code=400, detail="color_thresholds must contain two ascending values between 0 and 100")
     return {
         "selected_sample": selected_sample,
         "golden_sample": golden_sample,
         "selected_version_label": context["selected_version_label"],
         "golden_version_label": context["golden_version_label"],
-        "report_data": {
-            selected_sample: context["versioned_report_data"].get(selected_sample, {}).get(selected_key, {}),
-            golden_sample: context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}),
-        },
-        "ipf_images": context["ipf_images"],
+        "report_data": report_data,
+        "ipf_images_by_direction": ipf_images_by_direction,
         "ipf_legend": cpp_pair_ipf_legend(selected_pair_for_legend) if selected_pair_for_legend else cpp_ipf_legend(),
+        "statistics_by_min_grain_size": statistics_by_min_grain_size,
+        "analysis_data": analysis_data,
+        "analysis_features": req.selected_features,
+        "color_thresholds": req.color_thresholds,
+        "histogram_settings": {
+            "start_mode": req.hist_bin_start_mode,
+            "width_mode": req.hist_bin_width_mode,
+            "width_ratio": req.hist_bin_width_ratio,
+            "width_absolute": req.hist_bin_width_absolute,
+        },
     }
 
 
@@ -1175,22 +1282,30 @@ class AnalysisRequest(BaseModel):
 
 @app.post('/analysis')
 def analysis(req: AnalysisRequest):
-    for feat in req.features:
+    return compute_analysis(req.features, req.golden, req.data)
+
+
+def compute_analysis(
+    features: List[str],
+    golden: str,
+    data: Dict[str, Dict[str, Dict[str, Any]]],
+) -> Dict[str, Dict[str, float]]:
+    for feat in features:
         if feat not in GRAIN_FEATURES and feat not in ORIENTATION_FEATURES:
             raise HTTPException(status_code=400, detail="Invalid feature options")
-    if req.golden not in req.data:
+    if golden not in data:
         raise HTTPException(status_code=400, detail="Invalid golden sample")
-    res: Any = {}
-    for (sample, posdata) in req.data.items():
-        if sample == req.golden:
+    res: Dict[str, Dict[str, float]] = {}
+    for (sample, posdata) in data.items():
+        if sample == golden:
             continue
         for (pos, cur_data) in posdata.items():
-            golden_data = req.data[req.golden].get(pos)
+            golden_data = data[golden].get(pos)
             if not golden_data:
                 continue
 
             statRes: List[float] = []
-            for feat in req.features:
+            for feat in features:
                 if feat in GRAIN_FEATURES:
                     if "grains" not in golden_data or "grains" not in cur_data:
                         continue

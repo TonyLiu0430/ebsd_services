@@ -29,6 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
 COPY . /app
+RUN chmod 0644 /app/assets/ebsd_report_template.pptx
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 

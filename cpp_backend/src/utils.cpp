@@ -5,9 +5,9 @@
 #include <map>
 #include <stdexcept>
 #include "utils.h"
+#include "ebsd_data.h"
 #include "grains.h"
 #include "orientations.h"
-#include "EbsdLib/IO/HKL/CprReader.h"
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include <memory>
@@ -85,48 +85,6 @@ bool is_hcp_lattice(const std::vector<T>& lattice)
         && std::fabs(gamma - 120.0) <= 3.0;
 }
 
-OrientationFamilySet orientation_family_set_from_cpr(CprReader& reader, const uint8_t* phase, int totalPoints)
-{
-    std::map<int, int> phaseCounts;
-    for(int i = 0; i < totalPoints; ++i) {
-        const int phaseIndex = static_cast<int>(phase[i]);
-        if(phaseIndex > 0) {
-            phaseCounts[phaseIndex] += 1;
-        }
-    }
-
-    int primaryPhaseIndex = 0;
-    int primaryPhaseCount = 0;
-    for(const auto& item : phaseCounts) {
-        if(item.second > primaryPhaseCount) {
-            primaryPhaseIndex = item.first;
-            primaryPhaseCount = item.second;
-        }
-    }
-
-    for(const auto& phaseInfo : reader.getPhaseVector()) {
-        if(!phaseInfo) {
-            continue;
-        }
-        if(primaryPhaseIndex > 0 && phaseInfo->getPhaseIndex() != primaryPhaseIndex) {
-            continue;
-        }
-        if(is_hcp_lattice(phaseInfo->getLatticeConstants())) {
-            return OrientationFamilySet::Hcp;
-        }
-    }
-
-    if(primaryPhaseIndex == 0) {
-        for(const auto& phaseInfo : reader.getPhaseVector()) {
-            if(phaseInfo && is_hcp_lattice(phaseInfo->getLatticeConstants())) {
-                return OrientationFamilySet::Hcp;
-            }
-        }
-    }
-
-    return OrientationFamilySet::Cubic;
-}
-
 nlohmann::json orientation_labels_for_family_set(OrientationFamilySet familySet)
 {
     if(familySet == OrientationFamilySet::Hcp) {
@@ -135,30 +93,40 @@ nlohmann::json orientation_labels_for_family_set(OrientationFamilySet familySet)
     return {"[001]", "[011]", "[111]"};
 }
 
+std::tuple<double, double, double> safe_grain_orientation_ratio(
+    const std::vector<Grain>& grains,
+    double threshold,
+    OrientationFamilySet familySet
+)
+{
+    if(grains.empty()) return {0.0, 0.0, 0.0};
+    try {
+        Orientations_finder finder(grains);
+        return finder.ratio(threshold, {0.0, 0.0, 1.0}, familySet);
+    } catch(const std::exception&) {
+        return {0.0, 0.0, 0.0};
+    }
+}
+
 } // namespace
 
-nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
-    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
-    reader->setFileName(cpr_file_path);
-    int err_code = reader->readFile();
-    if(err_code < 0) {
-        throw std::runtime_error("Failed to read CPR file: " + reader->getErrorMessage());
-    }
-    int xDim = reader->getXDimension();
-    int yDim = reader->getYDimension();
+nlohmann::json features(const std::string &ebsd_file_path, int min_grain_size) {
+    EbsdData data = load_ebsd_data(ebsd_file_path);
+    int xDim = data.x_dim;
+    int yDim = data.y_dim;
     int totalPoints = xDim * yDim;
-    auto phase = reader->getPhasePointer();
-    auto euler1 = reader->getEuler1Pointer();
-    auto euler2 = reader->getEuler2Pointer();
-    auto euler3 = reader->getEuler3Pointer();
-    const OrientationFamilySet orientationFamilySet = orientation_family_set_from_cpr(*reader, phase, totalPoints);
+    auto phase = data.phase.data();
+    auto euler1 = data.euler1.data();
+    auto euler2 = data.euler2.data();
+    auto euler3 = data.euler3.data();
+    const OrientationFamilySet orientationFamilySet = data.hcp ? OrientationFamilySet::Hcp : OrientationFamilySet::Cubic;
     denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
     GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
     std::vector<Grain> grains = grainSegmenter.find_grains(min_grain_size);
-    if(reader->getXStep() != reader->getYStep()) {
+    if(std::fabs(data.x_step - data.y_step) > 1e-9) {
         throw std::invalid_argument("X and Y step sizes are not equal");
     }
-    double step_size = reader->getXStep();
+    double step_size = data.x_step;
     std::vector<double> grain_sizes;
     double pixel_area = step_size * step_size;
     for(auto &g : grains) {
@@ -170,37 +138,32 @@ nlohmann::json features(const std::string &cpr_file_path, int min_grain_size) {
     Orientations_finder_by_pixel orientations_finder(euler1, euler2, euler3, phase, xDim, yDim);
     auto ratio20 = orientations_finder.ratio(20, {0.0, 0.0, 1.0}, orientationFamilySet);
     auto ratio15 = orientations_finder.ratio(15, {0.0, 0.0, 1.0}, orientationFamilySet);
+    auto grainRatio20 = safe_grain_orientation_ratio(grains, 20, orientationFamilySet);
+    auto grainRatio15 = safe_grain_orientation_ratio(grains, 15, orientationFamilySet);
     nlohmann::json j = {
         {"grains", grain_sizes},
         {"noindexed", noindexed(phase, xDim, yDim)},
         {"orientation_family", orientationFamilySet == OrientationFamilySet::Hcp ? "hcp" : "cubic"},
         {"orientation_labels", orientation_labels_for_family_set(orientationFamilySet)},
         {"orientation_ratio(20%)", {std::get<0>(ratio20), std::get<1>(ratio20), std::get<2>(ratio20)}},
-        {"orientation_ratio(15%)", {std::get<0>(ratio15), std::get<1>(ratio15), std::get<2>(ratio15)}}
+        {"orientation_ratio(15%)", {std::get<0>(ratio15), std::get<1>(ratio15), std::get<2>(ratio15)}},
+        {"orientation_ratio_by_grains(20%)", {std::get<0>(grainRatio20), std::get<1>(grainRatio20), std::get<2>(grainRatio20)}},
+        {"orientation_ratio_by_grains(15%)", {std::get<0>(grainRatio15), std::get<1>(grainRatio15), std::get<2>(grainRatio15)}}
     };
     return j;
 }
 
-nlohmann::json material_metadata(const std::string &cpr_file_path) {
-    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
-    reader->setFileName(cpr_file_path);
-    int err_code = reader->readHeaderOnly();
-    if(err_code < 0) {
-        throw std::runtime_error("Failed to read CPR header: " + reader->getErrorMessage());
-    }
-
+nlohmann::json material_metadata(const std::string &ebsd_file_path) {
+    EbsdData data = load_ebsd_data(ebsd_file_path, true);
     nlohmann::json phases = nlohmann::json::array();
-    for(const auto& phase : reader->getPhaseVector()) {
-        if(!phase) {
-            continue;
-        }
+    for(const auto& phase : data.phases) {
         phases.push_back({
-            {"phase_index", phase->getPhaseIndex()},
-            {"structure_name", phase->getPhaseName()},
-            {"material_name", phase->getMaterialName()},
-            {"lattice_constants", phase->getLatticeConstants()},
-            {"laue_group", static_cast<int>(phase->getLaueGroup())},
-            {"space_group", phase->getSpaceGroup()}
+            {"phase_index", phase.phase_index},
+            {"structure_name", phase.structure_name},
+            {"material_name", phase.material_name},
+            {"lattice_constants", phase.lattice_constants},
+            {"laue_group", phase.laue_group},
+            {"space_group", phase.space_group}
         });
     }
 

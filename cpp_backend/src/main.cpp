@@ -7,6 +7,7 @@
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <ranges>
 #include <map>
@@ -242,6 +243,84 @@ public:
     }
 };
 
+class PreparedEbsdUpload {
+public:
+    std::filesystem::path primary_path;
+    std::vector<std::filesystem::path> temporary_paths;
+
+    PreparedEbsdUpload() = default;
+    PreparedEbsdUpload(const PreparedEbsdUpload&) = delete;
+    PreparedEbsdUpload& operator=(const PreparedEbsdUpload&) = delete;
+    PreparedEbsdUpload(PreparedEbsdUpload&& other) noexcept
+    : primary_path(std::move(other.primary_path))
+    , temporary_paths(std::move(other.temporary_paths))
+    {
+        other.temporary_paths.clear();
+    }
+    ~PreparedEbsdUpload() {
+        for(const auto& path : temporary_paths) {
+            if(std::filesystem::exists(path)) std::filesystem::remove(path);
+        }
+    }
+};
+
+std::string lower_file_extension(const std::string& filename) {
+    std::string extension = std::filesystem::path(filename).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return extension;
+}
+
+PreparedEbsdUpload prepare_ebsd_upload(const httplib::Request& req, const std::string& prefix) {
+    const char* primary_field = req.has_file("ebsd") ? "ebsd" : "cpr";
+    if(!req.has_file(primary_field)) {
+        throw std::invalid_argument("Missing EBSD file field (expected ebsd or cpr)");
+    }
+    const auto& primary_file = req.get_file_value(primary_field);
+    const std::string primary_extension = lower_file_extension(primary_file.filename);
+    const bool is_single_file = primary_extension == ".ang" || primary_extension == ".ctf";
+    const bool is_cpr_pair = primary_extension == ".cpr";
+    if(!is_cpr_pair && !is_single_file) {
+        throw std::invalid_argument("Expected .cpr + .crc, a single .ang, or a single .ctf file");
+    }
+
+    if(is_cpr_pair) {
+        if(!req.has_file("crc")) {
+            throw std::invalid_argument("A .cpr upload requires its matching .crc file");
+        }
+    }
+
+    std::filesystem::path temp_dir = "./temp";
+    std::filesystem::create_directories(temp_dir);
+    std::random_device rd;
+    thread_local std::mt19937 rng(rd());
+    uuids::uuid_random_generator generator(rng);
+    const std::string random_name = uuids::to_string(generator());
+
+    PreparedEbsdUpload upload;
+    upload.primary_path = temp_dir / (prefix + "_" + random_name + primary_extension);
+    upload.temporary_paths.push_back(upload.primary_path);
+    {
+        std::ofstream stream(upload.primary_path, std::ios::binary);
+        stream.write(primary_file.content.data(), static_cast<std::streamsize>(primary_file.content.size()));
+        if(!stream) throw std::runtime_error("Failed to store uploaded EBSD file");
+    }
+
+    if(is_cpr_pair) {
+        const auto secondary_file = req.get_file_value("crc");
+        if(lower_file_extension(secondary_file.filename) != ".crc") {
+            throw std::invalid_argument("A .cpr upload requires its matching .crc file");
+        }
+        const std::filesystem::path secondary_path = temp_dir / (prefix + "_" + random_name + ".crc");
+        upload.temporary_paths.push_back(secondary_path);
+        std::ofstream stream(secondary_path, std::ios::binary);
+        stream.write(secondary_file.content.data(), static_cast<std::streamsize>(secondary_file.content.size()));
+        if(!stream) throw std::runtime_error("Failed to store uploaded CRC file");
+    }
+    return upload;
+}
+
 int parse_min_grain_size(const httplib::Request& req) {
     if(!req.has_param("min_grain_size")) {
         return 10;
@@ -327,6 +406,19 @@ double parse_ipf_denoindex_misorientation_threshold(const httplib::Request& req)
     }
 }
 
+bool parse_include_scale_bar(const httplib::Request& req) {
+    if(!req.has_param("include_scale_bar")) {
+        return true;
+    }
+    std::string value = req.get_param_value("include_scale_bar");
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if(value == "1" || value == "true" || value == "yes" || value == "on") return true;
+    if(value == "0" || value == "false" || value == "no" || value == "off") return false;
+    throw std::invalid_argument("include_scale_bar must be true or false");
+}
+
 void test() {
     
     std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
@@ -406,45 +498,16 @@ int main() {
             return;
         }
 
-        const auto& cpr_file = req.get_file_value("cpr");
-        const auto& crc_file = req.get_file_value("crc");
-
-        if(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc")) {
-            // ok
-        } else {
-            res.status = 400;
-            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
-            return;
-        }
-
-        // save file temp
-        std::filesystem::path temp_dir = "./temp";
-        std::filesystem::create_directories(temp_dir);
-        std::random_device rd;
-        thread_local std::mt19937 rng(rd());
-        uuids::uuid_random_generator generator(rng);
-        std::string rand_name = uuids::to_string(generator());
-        std::string cpr_filename = "upload_" + rand_name + ".cpr";
-        std::string crc_filename = "upload_" + rand_name + ".crc";
-        std::filesystem::path cpr_path = temp_dir / cpr_filename;
-        std::filesystem::path crc_path = temp_dir / crc_filename;
-        TempFile cpr(cpr_path);
-        TempFile crc(crc_path);
-        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
-        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
-
         int min_grain_size = 10;
         try {
             min_grain_size = parse_min_grain_size(req);
+            auto upload = prepare_ebsd_upload(req, "features");
+            nlohmann::json j = features(upload.primary_path.string(), min_grain_size);
+            res.set_content(j.dump(4), "application/json");
         } catch(const std::exception& exc) {
             res.status = 400;
             res.set_content(exc.what(), "text/plain");
-            return;
         }
-
-        nlohmann::json j = features(cpr_path.string(), min_grain_size);
-
-        res.set_content(j.dump(4), "application/json");
     });
 
     svr.Post("/material_metadata", [](const httplib::Request& req, httplib::Response& res) {
@@ -454,34 +517,9 @@ int main() {
             return;
         }
 
-        const auto& cpr_file = req.get_file_value("cpr");
-        const auto& crc_file = req.get_file_value("crc");
-
-        if(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc")) {
-            // ok
-        } else {
-            res.status = 400;
-            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
-            return;
-        }
-
-        std::filesystem::path temp_dir = "./temp";
-        std::filesystem::create_directories(temp_dir);
-        std::random_device rd;
-        thread_local std::mt19937 rng(rd());
-        uuids::uuid_random_generator generator(rng);
-        std::string rand_name = uuids::to_string(generator());
-        std::string cpr_filename = "upload_" + rand_name + ".cpr";
-        std::string crc_filename = "upload_" + rand_name + ".crc";
-        std::filesystem::path cpr_path = temp_dir / cpr_filename;
-        std::filesystem::path crc_path = temp_dir / crc_filename;
-        TempFile cpr(cpr_path);
-        TempFile crc(crc_path);
-        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
-        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
-
         try {
-            nlohmann::json j = material_metadata(cpr_path.string());
+            auto upload = prepare_ebsd_upload(req, "metadata");
+            nlohmann::json j = material_metadata(upload.primary_path.string());
             res.set_content(j.dump(4), "application/json");
         } catch(const std::exception& exc) {
             res.status = 500;
@@ -490,49 +528,32 @@ int main() {
     });
 
     svr.Post("/ipf_map", [](const httplib::Request& req, httplib::Response& res) {
-        const auto& cpr_file = req.get_file_value("cpr");
-        const auto& crc_file = req.get_file_value("crc");
-
-        if(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc")) {
-            // ok
-        } else {
-            res.status = 400;
-            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
-            return;
-        }
-
         std::filesystem::path temp_dir = "./temp";
         std::filesystem::create_directories(temp_dir);
         std::random_device rd;
         thread_local std::mt19937 rng(rd());
         uuids::uuid_random_generator generator(rng);
         std::string rand_name = uuids::to_string(generator());
-        std::string cpr_filename = "upload_" + rand_name + ".cpr";
-        std::string crc_filename = "upload_" + rand_name + ".crc";
         std::string ipf_filename = "tempsaved_" + rand_name + ".png";
-        std::filesystem::path cpr_path = temp_dir / cpr_filename;
-        std::filesystem::path crc_path = temp_dir / crc_filename;
         std::filesystem::path ipf_path = temp_dir / ipf_filename;
-        TempFile cpr(cpr_path);
-        TempFile crc(crc_path);
         TempFile ipf(ipf_path);
-        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
-        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         std::array<double, 3> reference_dir = {0.0, 0.0, 1.0};
         double denoindex_threshold = 0.0;
         double denoindex_misorientation_threshold = 10.0;
+        bool include_scale_bar = true;
         try {
+            auto upload = prepare_ebsd_upload(req, "ipf");
             reference_dir = parse_ipf_reference_dir(req);
             denoindex_threshold = parse_ipf_denoindex_threshold(req);
             denoindex_misorientation_threshold = parse_ipf_denoindex_misorientation_threshold(req);
+            include_scale_bar = parse_include_scale_bar(req);
+            save_ipf_map(upload.primary_path, ipf_path, reference_dir, denoindex_threshold, denoindex_misorientation_threshold, include_scale_bar);
         } catch(const std::exception& exc) {
             res.status = 400;
             res.set_content(exc.what(), "text/plain");
             return;
         }
-
-        save_ipf_map(cpr_path.string(), ipf_path, reference_dir, denoindex_threshold, denoindex_misorientation_threshold);
 
         std::ifstream ipf_fs(ipf_path, std::ios::binary);
         std::string buffer;
@@ -583,28 +604,14 @@ int main() {
             return;
         }
 
-        const auto& cpr_file = req.get_file_value("cpr");
-        const auto& crc_file = req.get_file_value("crc");
-        if(!(cpr_file.filename.ends_with(".cpr") && crc_file.filename.ends_with(".crc"))) {
-            res.status = 400;
-            res.set_content("Expected files with .cpr and .crc extensions", "text/plain");
-            return;
-        }
-
         std::filesystem::path temp_dir = "./temp";
         std::filesystem::create_directories(temp_dir);
         std::random_device rd;
         thread_local std::mt19937 rng(rd());
         uuids::uuid_random_generator generator(rng);
         std::string rand_name = uuids::to_string(generator());
-        std::filesystem::path cpr_path = temp_dir / ("legend_" + rand_name + ".cpr");
-        std::filesystem::path crc_path = temp_dir / ("legend_" + rand_name + ".crc");
         std::filesystem::path legend_path = temp_dir / ("ipf_legend_" + rand_name + ".png");
-        TempFile cpr(cpr_path);
-        TempFile crc(crc_path);
         TempFile legend(legend_path);
-        std::ofstream(cpr_path, std::ios::binary).write(cpr_file.content.data(), cpr_file.content.size());
-        std::ofstream(crc_path, std::ios::binary).write(crc_file.content.data(), crc_file.content.size());
 
         int size = 220;
         if(req.has_param("size")) {
@@ -619,7 +626,8 @@ int main() {
         size = std::max(80, std::min(size, 640));
 
         try {
-            save_ipf_legend(cpr_path, legend_path, size);
+            auto upload = prepare_ebsd_upload(req, "legend");
+            save_ipf_legend(upload.primary_path, legend_path, size);
         } catch(const std::exception& exc) {
             res.status = 500;
             res.set_content(exc.what(), "text/plain");

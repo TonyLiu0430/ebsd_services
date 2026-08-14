@@ -1,0 +1,22 @@
+# Build and test output
+bin/
+build/
+dist/
+coverage/
+*.out
+*.test
+*.log
+
+# Local configuration and tooling
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+
+# Repository and Docker metadata
+.git/
+.gitignore
+.dockerignore
+Dockerfile*
+README*

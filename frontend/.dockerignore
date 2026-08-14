@@ -1,0 +1,22 @@
+# Dependencies and generated Nuxt output
+node_modules/
+.nuxt/
+.output/
+dist/
+coverage/
+.cache/
+
+# Local configuration and tooling
+.env
+.env.*
+*.log
+.idea/
+.vscode/
+.DS_Store
+
+# Repository and Docker metadata
+.git/
+.gitignore
+.dockerignore
+Dockerfile*
+README*

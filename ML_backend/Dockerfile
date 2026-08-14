@@ -1,5 +1,5 @@
 # Use a Python image with uv pre-installed
-FROM ghcr.io/astral-sh/uv:python3.9-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.9.30-python3.9-bookworm-slim
 
 # Setup a non-root user
 RUN groupadd --system --gid 999 nonroot \

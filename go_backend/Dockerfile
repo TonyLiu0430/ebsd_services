@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine3.24 AS builder
 WORKDIR /app
 
 RUN apk add --no-cache build-base git ca-certificates
@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 \
     go build -trimpath -ldflags='-s -w' -o /out/app .
 
-FROM alpine:3.23
+FROM alpine:3.23.5
 RUN apk add --no-cache ca-certificates
 WORKDIR /
 COPY --from=builder /out/app /app

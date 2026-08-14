@@ -1,0 +1,35 @@
+# Virtual environments and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Packaging, coverage, and generated output
+build/
+dist/
+wheels/
+*.egg-info/
+.coverage
+htmlcov/
+coverage.xml
+ppt_render/
+temp_data/
+gen_data/
+*.log
+
+# Local configuration and tooling
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+
+# Repository and Docker metadata
+.git/
+.gitignore
+.dockerignore
+Dockerfile*

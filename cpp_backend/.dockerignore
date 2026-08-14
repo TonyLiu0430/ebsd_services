@@ -1,0 +1,26 @@
+# CMake and dependency output
+build/
+vcpkg_installed/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Generated data and runtime output
+_data/
+_out/
+temp/
+*.log
+
+# Local tooling
+.idea/
+.vscode/
+.codex/
+.DS_Store
+
+# Repository and Docker metadata
+.git/
+.gitignore
+.dockerignore
+Dockerfile*
+README*

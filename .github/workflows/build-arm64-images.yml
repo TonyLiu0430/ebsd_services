@@ -1,0 +1,89 @@
+name: Build ARM64 images
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: arm64-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            context: ./frontend
+            image: ebsd-services-frontend
+          - service: go_backend
+            context: ./go_backend
+            image: ebsd-services-go-backend
+          - service: ml_backend
+            context: ./ML_backend
+            image: ebsd-services-ml-backend
+          - service: cpp_backend
+            context: ./cpp_backend
+            image: ebsd-services-cpp-backend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/arm64
+          push: true
+          network: host
+          allow: network.host
+          tags: |
+            ghcr.io/tonyliu0430/${{ matrix.image }}:main
+            ghcr.io/tonyliu0430/${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-arm64
+
+  deploy:
+    name: Trigger Coolify deployment
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+    steps:
+      - name: Call Coolify deploy webhook
+        if: ${{ env.COOLIFY_WEBHOOK != '' && env.COOLIFY_TOKEN != '' }}
+        run: >-
+          curl --fail-with-body --silent --show-error
+          --request GET "$COOLIFY_WEBHOOK"
+          --header "Authorization: Bearer $COOLIFY_TOKEN"
+
+      - name: Skip Coolify deployment
+        if: ${{ env.COOLIFY_WEBHOOK == '' || env.COOLIFY_TOKEN == '' }}
+        run: echo "Coolify deploy secrets are not configured; images were published only."

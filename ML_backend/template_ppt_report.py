@@ -660,9 +660,15 @@ def _add_statistics(
                     )
 
 
-def _triangle_chart(column: str, rows: Sequence[int], selected: Snapshot, golden: Snapshot, deviation: str, labels: List[str]) -> io.BytesIO:
-    """Render the same equilateral-triangle coordinate system as TriangleChart.vue."""
-    figure = Figure(figsize=(3.25, 4.35), dpi=220)
+def _triangle_chart(
+    position: str,
+    selected_item: Optional[Dict[str, Any]],
+    golden_item: Optional[Dict[str, Any]],
+    deviation: str,
+    labels: List[str],
+) -> io.BytesIO:
+    """Render one scan position using the same triangle system as TriangleChart.vue."""
+    figure = Figure(figsize=(3.75, 2.5), dpi=220)
     canvas = FigureCanvasAgg(figure)
     axis = figure.add_subplot(111)
     vertices = [(0.0, 1.0), (math.sqrt(3) / 2, -0.5), (-math.sqrt(3) / 2, -0.5)]
@@ -683,36 +689,36 @@ def _triangle_chart(column: str, rows: Sequence[int], selected: Snapshot, golden
         axis.plot([0, vertex[0]], [0, vertex[1]], color="#9ca3af", linewidth=0.8)
         axis.text(vertex[0] * 1.18, vertex[1] * 1.18, label, fontsize=8, fontweight="bold", color="#374151", ha="center", va="center")
 
-    palette = ("#ef4444", "#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16")
-    for row_index, row in enumerate(rows):
-        position = f"{column}-{row}"
-        color = palette[row_index % len(palette)]
-        for source, snapshot, dashed in (("Sample", selected, False), ("Golden", golden, True)):
-            if position not in snapshot:
-                continue
-            values = _orientation_values(snapshot.get(position), deviation)
-            polygon = points(values)
-            closed = polygon + polygon[:1]
-            axis.plot(
-                [point[0] for point in closed],
-                [point[1] for point in closed],
-                color=color,
-                linewidth=1.15,
-                linestyle="--" if dashed else "-",
-                label=f"{position} {source}",
-            )
-            axis.fill([point[0] for point in closed], [point[1] for point in closed], color=color, alpha=0.025)
-            axis.scatter([point[0] for point in polygon], [point[1] for point in polygon], color=color, s=7)
+    series = (
+        ("Sample", selected_item, ORIENTATION_SAMPLE, False),
+        ("Golden", golden_item, ORIENTATION_GOLDEN, True),
+    )
+    for source, item, color, dashed in series:
+        if item is None:
+            continue
+        values = _orientation_values(item, deviation)
+        polygon = points(values)
+        closed = polygon + polygon[:1]
+        axis.plot(
+            [point[0] for point in closed],
+            [point[1] for point in closed],
+            color=color,
+            linewidth=1.35,
+            linestyle="--" if dashed else "-",
+            label=source,
+        )
+        axis.fill([point[0] for point in closed], [point[1] for point in closed], color=color, alpha=0.06)
+        axis.scatter([point[0] for point in polygon], [point[1] for point in polygon], color=color, s=8)
 
-    axis.set_title(f"Column {column}", fontsize=10, fontweight="bold", pad=5)
+    axis.set_title(position, fontsize=9, fontweight="bold", pad=2)
     axis.set_aspect("equal", adjustable="box")
-    axis.set_xlim(-1.48, 1.48)
-    axis.set_ylim(-1.35, 1.38)
+    axis.set_xlim(-1.42, 1.42)
+    axis.set_ylim(-1.18, 1.34)
     axis.axis("off")
     handles, legend_labels = axis.get_legend_handles_labels()
     if handles:
-        axis.legend(handles, legend_labels, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=2, fontsize=5.2, frameon=False)
-    figure.tight_layout(pad=0.25)
+        axis.legend(handles, legend_labels, loc="upper center", bbox_to_anchor=(0.5, -0.01), ncol=2, fontsize=5.5, frameon=False)
+    figure.tight_layout(pad=0.18)
     output = io.BytesIO()
     canvas.print_png(output)
     output.seek(0)
@@ -720,20 +726,41 @@ def _triangle_chart(column: str, rows: Sequence[int], selected: Snapshot, golden
 
 
 def _add_triangle_pages(deck: TemplateDeck, selected: Snapshot, golden: Snapshot) -> None:
+    positions = _positions(selected, golden)
     labels = _orientation_labels(selected)
-    columns, rows = _matrix_positions(_positions(selected, golden))
-    if not columns:
+    columns, rows = _matrix_positions(positions)
+    if not columns or not rows:
         return
+    position_set = set(positions)
     for deviation in ("20%", "15%"):
         slide = deck.add_slide(
-            f"晶粒取向三角圖 - Misorientation {deviation}",
-            "Sample 實線 / Golden 虛線",
+            f"晶粒取向比例 - Misorientation {deviation}",
+            "Sample 藍色實線 / Golden 橘色虛線" if golden else "Sample 藍色實線",
+            kind="ipf",
         )
-        left, top, width, height = deck.content
-        cell_width = width // 3
-        for index, column in enumerate(columns):
-            png = _triangle_chart(column, rows, selected, golden, deviation, labels)
-            _add_picture_contain(slide, png, left + index * cell_width, top, cell_width, height)
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
+            deck, slide, columns, rows
+        )
+        for row_index, row in enumerate(rows):
+            for column_index, column in enumerate(columns):
+                position = f"{column}-{row}"
+                if position not in position_set:
+                    continue
+                png = _triangle_chart(
+                    position,
+                    selected.get(position),
+                    golden.get(position),
+                    deviation,
+                    labels,
+                )
+                _add_picture_contain(
+                    slide,
+                    png,
+                    image_left + column_index * cell_width + pad_x,
+                    image_top + row_index * cell_height + pad_y,
+                    cell_width - 2 * pad_x,
+                    cell_height - 2 * pad_y,
+                )
 
 
 def _line_chart(columns: Sequence[str], selected_values: Sequence[float], golden_values: Optional[Sequence[float]], axis_label: str) -> io.BytesIO:

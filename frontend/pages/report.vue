@@ -545,39 +545,31 @@
         <h2 class="section-title">晶粒取向比例 — Misorientation 20°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
-            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#2563EB" stroke-width="1.5"/></svg>
             <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <template v-if="goldenSample">
-              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
               <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
-            </template>
-            <template v-for="info in rowSeriesInfo" :key="info.rowKey">
-              <span class="color-dot" :style="{ background: info.color }"></span>
-              <span class="legend-lbl">{{ info.label }}</span>
             </template>
           </div>
           <div class="orient-toggle-bar">
-            <div class="row-toggle-group">
-              <span class="toggle-label">顯示位置:</span>
-              <button
-                v-for="info in rowSeriesInfo"
-                :key="info.rowKey"
-                class="row-toggle-btn"
-                :class="{ active: visibleRows.has(info.rowKey) }"
-                :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleRow(info.rowKey)"
-              >{{ info.label }}</button>
-            </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="toggleTriangleLabels()">{{ showTriangleLabels ? '隱藏' : '顯示' }}</button>
             </div>
           </div>
         </div>
-        <div class="triangle-row">
-          <div v-for="column in reportPositionMatrix.columns" :key="column" class="triangle-panel">
-            <div class="tri-col-title">欄 {{ column }}</div>
-            <TriangleChart :series="buildOrientSeries(column, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+        <div class="triangle-row" :style="dynamicCardGridStyle(reportPositionMatrix.columnCount)">
+          <div
+            v-for="pos in reportPositionMatrix.positions"
+            :key="pos"
+            class="triangle-panel"
+            :class="positionStatusClass(pos)"
+          >
+            <div class="tri-col-title">{{ pos }}</div>
+            <div v-if="isMissingGoldenPos(pos)" class="cell-status-tag warning">缺 Golden</div>
+            <div v-else-if="isMissingSelectedPos(pos)" class="cell-status-tag muted">未上傳</div>
+            <TriangleChart :series="buildOrientSeries(pos, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -587,39 +579,31 @@
         <h2 class="section-title">晶粒取向比例 — Misorientation 15°</h2>
         <div class="orient-controls">
           <div class="orient-legend-row">
-            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5"/></svg>
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#2563EB" stroke-width="1.5"/></svg>
             <span class="legend-lbl">{{ selectedSample }} · {{ currentSelectedVersionLabel }}（實線）</span>
             <template v-if="goldenSample">
-              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+              <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
               <span class="legend-lbl">{{ goldenSample }} · {{ currentGoldenVersionLabel }}（虛線）</span>
-            </template>
-            <template v-for="info in rowSeriesInfo" :key="info.rowKey">
-              <span class="color-dot" :style="{ background: info.color }"></span>
-              <span class="legend-lbl">{{ info.label }}</span>
             </template>
           </div>
           <div class="orient-toggle-bar">
-            <div class="row-toggle-group">
-              <span class="toggle-label">顯示位置:</span>
-              <button
-                v-for="info in rowSeriesInfo"
-                :key="info.rowKey"
-                class="row-toggle-btn"
-                :class="{ active: visibleRows.has(info.rowKey) }"
-                :style="visibleRows.has(info.rowKey) ? { background: info.color, borderColor: info.color } : {}"
-                @click="toggleRow(info.rowKey)"
-              >{{ info.label }}</button>
-            </div>
             <div class="label-toggle-group">
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showTriangleLabels }" @click="toggleTriangleLabels()">{{ showTriangleLabels ? '隱藏' : '顯示' }}</button>
             </div>
           </div>
         </div>
-        <div class="triangle-row">
-          <div v-for="column in reportPositionMatrix.columns" :key="column" class="triangle-panel">
-            <div class="tri-col-title">欄 {{ column }}</div>
-            <TriangleChart :series="buildOrientSeries(column, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+        <div class="triangle-row" :style="dynamicCardGridStyle(reportPositionMatrix.columnCount)">
+          <div
+            v-for="pos in reportPositionMatrix.positions"
+            :key="pos"
+            class="triangle-panel"
+            :class="positionStatusClass(pos)"
+          >
+            <div class="tri-col-title">{{ pos }}</div>
+            <div v-if="isMissingGoldenPos(pos)" class="cell-status-tag warning">缺 Golden</div>
+            <div v-else-if="isMissingSelectedPos(pos)" class="cell-status-tag muted">未上傳</div>
+            <TriangleChart :series="buildOrientSeries(pos, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
           </div>
         </div>
       </section>
@@ -987,18 +971,6 @@ type StoredEbsdPair = {
   updated_at: string
 }
 
-const POSITION_SERIES_COLORS = [
-  '#EF4444',
-  '#3B82F6',
-  '#10B981',
-  '#8B5CF6',
-  '#F59E0B',
-  '#06B6D4',
-  '#EC4899',
-  '#84CC16',
-  '#6366F1',
-  '#F97316',
-] as const
 const DEFAULT_ORIENTATION_LABELS = ['[001]', '[011]', '[111]'] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
@@ -1019,18 +991,9 @@ const UNKNOWN_MATERIAL = {
   element: '',
 }
 
-const visibleRows = ref(new Set<number>())
 const showTriangleLabels = ref(true)
 function toggleTriangleLabels() {
   showTriangleLabels.value = !showTriangleLabels.value
-}
-function toggleRow(rowKey: number) {
-  if (visibleRows.value.has(rowKey)) {
-    if (visibleRows.value.size > 1) visibleRows.value.delete(rowKey)
-  } else {
-    visibleRows.value.add(rowKey)
-  }
-  visibleRows.value = new Set(visibleRows.value)
 }
 const showOrientLineLabels = ref(true)
 function toggleOrientLineLabels() {
@@ -1839,26 +1802,11 @@ const reportPositionMatrix = computed(() =>
     ...goldenDisplayedPositions.value,
   ]),
 )
-const rowSeriesInfo = computed(() =>
-  reportPositionMatrix.value.rows.map((row, index) => ({
-    rowKey: row,
-    color: POSITION_SERIES_COLORS[index % POSITION_SERIES_COLORS.length],
-    label: `列 ${row}`,
-  })),
-)
 const orientLineRows = computed(() =>
   reportPositionMatrix.value.rows.map((row) => ({
     rowKey: row,
     title: `列 ${row}`,
   })),
-)
-
-watch(
-  () => reportPositionMatrix.value.rows,
-  (rows) => {
-    visibleRows.value = new Set(rows)
-  },
-  { immediate: true },
 )
 
 const comparablePositions = computed(() => {
@@ -2193,33 +2141,28 @@ watch(reportVersionIndex, async () => {
   }
 })
 
-function buildOrientSeries(column: string, dev: '20%' | '15%') {
+function buildOrientSeries(pos: string, dev: '20%' | '15%') {
   const ratioKey = `orientation_ratio(${dev})` as keyof CppFeatures
   const series: Array<{ name: string; color: string; dashed: boolean; values: [number, number, number] }> = []
 
-  for (const { rowKey, color } of rowSeriesInfo.value) {
-    if (!visibleRows.value.has(rowKey)) continue
-    const pos = positionKey(column, rowKey)
+  const sampleArr = getDisplayedPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
+  if (sampleArr) {
+    series.push({
+      name: `分析 · ${currentSelectedVersionLabel.value || selectedSample.value}`,
+      color: '#2563EB',
+      dashed: false,
+      values: [(sampleArr[0] ?? 0) * 100, (sampleArr[1] ?? 0) * 100, (sampleArr[2] ?? 0) * 100],
+    })
+  }
 
-    const sampleArr = getDisplayedPosData(selectedSample.value, pos)?.[ratioKey] as number[] | undefined
-    if (sampleArr) {
-      series.push({
-        name: `${pos} (${selectedSample.value})`,
-        color,
-        dashed: false,
-        values: [(sampleArr[0] ?? 0) * 100, (sampleArr[1] ?? 0) * 100, (sampleArr[2] ?? 0) * 100],
-      })
-    }
-
-    const goldenArr = getDisplayedPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
-    if (goldenArr) {
-      series.push({
-        name: `${pos} (${goldenSample.value})`,
-        color,
-        dashed: true,
-        values: [(goldenArr[0] ?? 0) * 100, (goldenArr[1] ?? 0) * 100, (goldenArr[2] ?? 0) * 100],
-      })
-    }
+  const goldenArr = getDisplayedPosData(goldenSample.value, pos)?.[ratioKey] as number[] | undefined
+  if (goldenArr) {
+    series.push({
+      name: `Golden · ${currentGoldenVersionLabel.value || goldenSample.value}`,
+      color: '#F59E0B',
+      dashed: true,
+      values: [(goldenArr[0] ?? 0) * 100, (goldenArr[1] ?? 0) * 100, (goldenArr[2] ?? 0) * 100],
+    })
   }
   return series
 }
@@ -3527,12 +3470,6 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   gap: .6rem 1.4rem;
   margin-bottom: 1rem;
 }
-.row-toggle-group {
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-  flex-wrap: wrap;
-}
 .orient-toggle-bar {
   display: flex;
   align-items: center;
@@ -3549,20 +3486,6 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   font-size: .8rem;
   font-weight: 600;
   color: #374151;
-}
-.row-toggle-btn {
-  padding: .28rem .75rem;
-  border: 1.5px solid #d1d5db;
-  border-radius: 20px;
-  background: #f9fafb;
-  color: #6b7280;
-  font-size: .78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s, color .15s, border-color .15s;
-}
-.row-toggle-btn.active {
-  color: #fff;
 }
 .simple-toggle-btn {
   padding: .28rem .75rem;
@@ -3584,12 +3507,22 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
+  overflow-x: auto;
 }
 .triangle-panel {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 12px 8px 8px;
+}
+.triangle-panel.pos-missing-golden {
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+.triangle-panel.pos-missing-selected {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  opacity: .82;
 }
 .orient-line-controls {
   margin-bottom: .85rem;
@@ -3721,13 +3654,6 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   color: #1e40af;
   margin-bottom: 4px;
 }
-.color-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
 .feature-selector-head {
   display: flex;
   align-items: center;

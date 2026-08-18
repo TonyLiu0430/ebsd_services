@@ -20,11 +20,16 @@ ENV UV_NO_DEV=1
 # Ensure installed tools can be executed out of the box
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
-# Install the project's dependencies using the lockfile and settings
+# PyCifRW (pulled in by orix/diffpy-structure on Python 3.9) is built from
+# source, so install and remove the compiler toolchain in the same layer.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project
+    apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && uv sync --locked --no-install-project \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching

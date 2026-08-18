@@ -50,13 +50,4 @@ if(BUILD_TESTING)
     target_include_directories(band_contrast_map_test PRIVATE include)
     add_test(NAME band_contrast_map_test COMMAND band_contrast_map_test)
 
-    add_executable(
-        texture_figures_test
-        tests/texture_figures_test.cpp
-        src/texture_figures.cpp
-        include/texture_figures.h
-        include/ebsd_data.h
-    )
-    target_include_directories(texture_figures_test PRIVATE include)
-    add_test(NAME texture_figures_test COMMAND texture_figures_test)
 endif()

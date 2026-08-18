@@ -35,6 +35,7 @@ from ebsd_store import (
     create_user_pair,
 )
 from template_ppt_report import build_pptx_report
+from python_ebsd_figures import generate_python_scan_figures
 from sqlalchemy import func, select
 
 app = FastAPI()
@@ -950,6 +951,15 @@ def cpp_ipf_map(
     )
 
 
+def cpp_band_contrast_map(row: UserEbsdPair, include_scale_bar: bool = True) -> bytes:
+    return post_cpp_pair(
+        "/band_contrast_map",
+        row,
+        "image/png",
+        include_scale_bar=include_scale_bar,
+    )
+
+
 def cpp_ipf_legend() -> bytes:
     return get_cpp_bytes("/ipf_legend", "image/png")
 
@@ -1233,6 +1243,33 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
                 continue
         ipf_images_by_direction[direction] = images
 
+    scan_report_images: Dict[str, Dict[str, Any]] = {}
+    for position, row in selected_pairs.items():
+        features = selected_snapshot.get(position, {})
+        try:
+            python_images = generate_python_scan_figures(
+                crc_content=row.pair.crc_file.content,
+                cpr_content=row.pair.cpr_file.content,
+                min_grain_size=requested_min_size,
+                orientation_family=str(features.get("orientation_family", "cubic")),
+            )
+            scan_report_images[position] = {
+                **python_images,
+                "band_contrast": cpp_band_contrast_map(row),
+                "ipf_maps": {
+                    direction: images[position]
+                    for direction, images in ipf_images_by_direction.items()
+                    if position in images
+                },
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Python PF/IPF generation failed for {position}: {exc}",
+            ) from exc
+
     report_data = {
         sample: snapshot
         for sample, snapshot in ((selected_sample, selected_snapshot), (golden_sample, golden_snapshot))
@@ -1256,6 +1293,7 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
         "report_data": report_data,
         "ipf_images_by_direction": ipf_images_by_direction,
         "ipf_legend": cpp_pair_ipf_legend(selected_pair_for_legend) if selected_pair_for_legend else cpp_ipf_legend(),
+        "scan_report_images": scan_report_images,
         "statistics_by_min_grain_size": statistics_by_min_grain_size,
         "analysis_data": analysis_data,
         "analysis_features": req.selected_features,

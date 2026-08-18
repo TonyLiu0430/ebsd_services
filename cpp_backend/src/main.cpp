@@ -15,7 +15,6 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include "band_contrast_map.h"
-#include "texture_figures.h"
 #include "utils.h"
 #include <future>
 
@@ -493,46 +492,6 @@ int main() {
     // ml_feature();
     // return 0;
     httplib::Server svr;
-    auto register_texture_figure_api = [&svr](
-        const std::string& route,
-        const std::string& upload_prefix,
-        void (*render)(const std::filesystem::path&, const std::filesystem::path&)
-    ) {
-        svr.Post(route, [upload_prefix, render](const httplib::Request& req, httplib::Response& res) {
-            if(!req.is_multipart_form_data()) {
-                res.status = 400;
-                res.set_content("Content-Type must be multipart/form-data", "text/plain");
-                return;
-            }
-
-            std::filesystem::path temp_dir = "./temp";
-            std::filesystem::create_directories(temp_dir);
-            std::random_device rd;
-            thread_local std::mt19937 rng(rd());
-            uuids::uuid_random_generator generator(rng);
-            const std::filesystem::path image_path = temp_dir / (upload_prefix + "_" + uuids::to_string(generator()) + ".png");
-            TempFile image(image_path);
-
-            try {
-                auto upload = prepare_ebsd_upload(req, upload_prefix);
-                render(upload.primary_path, image_path);
-
-                std::ifstream image_stream(image_path, std::ios::binary);
-                if(!image_stream) throw std::runtime_error("Failed to read generated texture figure PNG");
-                std::string buffer;
-                buffer.resize(std::filesystem::file_size(image_path));
-                image_stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-                if(!image_stream) throw std::runtime_error("Failed to read generated texture figure PNG");
-                res.set_content(buffer, "image/png");
-            } catch(const std::exception& exc) {
-                res.status = 400;
-                res.set_content(exc.what(), "text/plain");
-            }
-        });
-    };
-    register_texture_figure_api("/pole_figure", "pole_figure", save_pole_figure);
-    register_texture_figure_api("/inverse_pole_figure", "inverse_pole_figure", save_inverse_pole_figure);
-
     svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
         if (!req.is_multipart_form_data()) {
             res.status = 400;

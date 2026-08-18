@@ -177,6 +177,26 @@ def _replace_shape_text(shape, text: str) -> None:
     shape.text_frame.text = str(text)
 
 
+def _set_scan_title(deck: TemplateDeck, slide, sample: str, position: str, reanalysis: bool) -> None:
+    shape = deck.shape(slide, "EBSD_TITLE")
+    frame = shape.text_frame
+    frame.clear()
+    paragraph = frame.paragraphs[0]
+    base = paragraph.add_run()
+    base.text = f"{sample} {position}"
+    base.font.name = FONT_FACE
+    base.font.size = Pt(24)
+    base.font.bold = True
+    base.font.color.rgb = INK
+    if reanalysis:
+        suffix = paragraph.add_run()
+        suffix.text = " (Reanalysis)"
+        suffix.font.name = FONT_FACE
+        suffix.font.size = Pt(24)
+        suffix.font.bold = True
+        suffix.font.color.rgb = RGBColor(0, 0, 255)
+
+
 def _add_text(slide, text: str, left: int, top: int, width: int, height: int, *, size: int = 10, bold: bool = False, color: RGBColor = INK, align=PP_ALIGN.LEFT):
     shape = slide.shapes.add_textbox(left, top, width, height)
     frame = shape.text_frame
@@ -259,6 +279,117 @@ def _add_picture_contain(slide, data: Union[bytes, io.BytesIO], left: int, top: 
     draw_width = int(image_width * ratio)
     draw_height = int(image_height * ratio)
     slide.shapes.add_picture(stream, left + (width - draw_width) // 2, top + (height - draw_height) // 2, draw_width, draw_height)
+
+
+def _add_captioned_picture(slide, caption: str, image: Optional[bytes], left: float, top: float, width: float, height: float) -> None:
+    _add_text(
+        slide,
+        caption,
+        Inches(left),
+        Inches(top),
+        Inches(width),
+        Inches(0.28),
+        size=12,
+        bold=True,
+        align=PP_ALIGN.CENTER,
+    )
+    if image:
+        _add_picture_contain(
+            slide,
+            image,
+            Inches(left),
+            Inches(top + 0.30),
+            Inches(width),
+            Inches(height - 0.30),
+        )
+
+
+def _add_grain_summary_table(slide, item: Dict[str, Any], left: float, top: float, width: float, height: float) -> None:
+    grains = _finite(item.get("grains"))
+    values = (
+        ("Average", f"{statistics.mean(grains):.3f}" if grains else "—"),
+        ("Max", f"{max(grains):.3f}" if grains else "—"),
+        ("Quantity", str(len(grains))),
+    )
+    table = slide.shapes.add_table(4, 2, Inches(left), Inches(top), Inches(width), Inches(height)).table
+    table.columns[0].width = Inches(width * 0.57)
+    table.columns[1].width = Inches(width * 0.43)
+    _set_cell(table.cell(0, 0), "Grain size", header=True, size=9)
+    _set_cell(table.cell(0, 1), "(um)", header=True, size=9)
+    for row_index, (label, value) in enumerate(values, start=1):
+        _set_cell(table.cell(row_index, 0), label, size=8)
+        _set_cell(table.cell(row_index, 1), value, size=8)
+
+
+def _add_ratio_table(slide, item: Dict[str, Any], deviation: str, left: float, top: float, width: float, height: float) -> None:
+    labels = _orientation_labels({"_": item})
+    values = _orientation_values(item, deviation)
+    table = slide.shapes.add_table(2, 3, Inches(left), Inches(top), Inches(width), Inches(height)).table
+    for column in table.columns:
+        column.width = Inches(width / 3)
+    for column_index in range(3):
+        _set_cell(table.cell(0, column_index), f"<{labels[column_index].strip('[]')}>", header=True, size=9)
+        table.cell(0, column_index).fill.solid()
+        table.cell(0, column_index).fill.fore_color.rgb = RGBColor(70, 167, 193)
+        _set_cell(table.cell(1, column_index), f"{values[column_index]:.1f}%", size=9)
+
+
+def _add_scan_point_pages(
+    deck: TemplateDeck,
+    sample: str,
+    snapshot: Snapshot,
+    images_by_position: Dict[str, Dict[str, Any]],
+    overridden_positions: Sequence[str],
+    ipf_legend: Optional[bytes],
+    histogram_settings: Dict[str, Any],
+) -> None:
+    overridden = set(overridden_positions)
+    for position in sorted(snapshot, key=_position_key):
+        images = images_by_position.get(position)
+        if not images:
+            continue
+        item = snapshot.get(position, {})
+
+        overview = deck.add_slide("", kind="generic")
+        _set_scan_title(deck, overview, sample, position, position in overridden)
+        _add_captioned_picture(overview, "Band contrast", images.get("band_contrast"), 0.45, 0.65, 3.55, 2.45)
+        _add_captioned_picture(overview, "Grain size (D)", images.get("grain_map"), 4.10, 0.65, 3.55, 2.45)
+        grains = _finite(item.get("grains"))
+        histogram = _grain_chart(
+            grains,
+            [],
+            "ratio",
+            _histogram_edges(grains, histogram_settings),
+        )
+        _add_captioned_picture(overview, "Grain-size distribution", histogram.getvalue(), 7.78, 0.65, 3.35, 2.45)
+        _add_grain_summary_table(overview, item, 11.15, 1.02, 1.72, 1.55)
+
+        ipf_maps = images.get("ipf_maps", {})
+        for index, direction in enumerate(("X", "Y", "Z")):
+            _add_captioned_picture(
+                overview,
+                f"IPF-{direction}",
+                ipf_maps.get(direction),
+                0.45 + index * 4.05,
+                3.35,
+                3.75,
+                3.35,
+            )
+        if ipf_legend:
+            _add_captioned_picture(overview, "IPF color key", ipf_legend, 12.10, 5.22, 0.95, 1.20)
+
+        texture = deck.add_slide("", kind="generic")
+        _set_scan_title(deck, texture, sample, position, position in overridden)
+        _add_text(texture, "Preferred orientation ratio", Inches(0.35), Inches(0.58), Inches(3.0), Inches(0.28), size=13, bold=True)
+        _add_text(texture, "Direction: Z", Inches(0.45), Inches(0.88), Inches(1.5), Inches(0.24), size=10)
+        _add_captioned_picture(texture, "Range: 20°", images.get("preferred_20"), 1.95, 0.72, 4.15, 2.55)
+        _add_captioned_picture(texture, "Range: 15°", images.get("preferred_15"), 6.65, 0.72, 4.15, 2.55)
+        _add_ratio_table(texture, item, "20%", 2.25, 3.18, 3.55, 0.72)
+        _add_ratio_table(texture, item, "15%", 6.95, 3.18, 3.55, 0.72)
+        if ipf_legend:
+            _add_captioned_picture(texture, "Orientation key", ipf_legend, 11.25, 1.15, 1.45, 1.75)
+        _add_captioned_picture(texture, "Pole Figure", images.get("pole_figure"), 0.25, 4.05, 6.25, 3.15)
+        _add_captioned_picture(texture, "Inverse Pole Figure", images.get("inverse_pole_figure"), 6.75, 4.05, 6.25, 3.15)
 
 
 def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows: Sequence[int]):
@@ -863,6 +994,7 @@ def build_pptx_report(
     ipf_images_by_direction: Optional[Dict[str, Dict[str, bytes]]] = None,
     ipf_images: Optional[Dict[str, bytes]] = None,
     ipf_legend: Optional[bytes] = None,
+    scan_report_images: Optional[Dict[str, Dict[str, Any]]] = None,
     statistics_by_min_grain_size: Optional[Dict[int, Snapshot]] = None,
     analysis_data: Optional[Dict[str, Dict[str, float]]] = None,
     analysis_features: Optional[List[str]] = None,
@@ -876,9 +1008,18 @@ def build_pptx_report(
     directions = dict(ipf_images_by_direction or {})
     if not directions and ipf_images:
         directions["z"] = ipf_images
+    overwritten = overridden_positions or []
+    _add_scan_point_pages(
+        deck,
+        selected_sample,
+        selected,
+        scan_report_images or {},
+        overwritten,
+        ipf_legend,
+        histogram_settings or {},
+    )
     _add_ipf_pages(deck, selected_sample, selected_version_label, directions, ipf_legend)
     _add_grain_chart_pages(deck, selected, golden, selected_version_label, golden_version_label, histogram_settings or {})
-    overwritten = overridden_positions or []
     _add_complete_table(deck, selected_sample, selected_version_label, selected, overwritten)
     _add_orientation_tables(deck, selected, grains=False, overridden_positions=overwritten)
     _add_orientation_tables(deck, selected, grains=True, overridden_positions=overwritten)

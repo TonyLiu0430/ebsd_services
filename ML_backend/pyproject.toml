@@ -6,12 +6,16 @@ readme = "README.md"
 requires-python = ">=3.9,<3.10"
 dependencies = [
     "defdap>=1.1.2",
+    "diffpy-structure>=3.1,<4",
     "fastapi>=0.128.4",
     "joblib>=1.5.3",
+    "numpy>=1.26,<2",
+    "orix==0.12.1.post0",
     "psycopg2-binary>=2.9.11",
     "python-pptx>=1.0.2",
     "python-multipart>=0.0.20",
     "scikit-learn>=1.6.1",
+    "setuptools>=68,<81",
     "sqlalchemy>=2.0.45",
     "uvicorn>=0.39.0",
 ]

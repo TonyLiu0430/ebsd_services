@@ -11,19 +11,35 @@ import numpy as np
 from defdap import ebsd
 from diffpy.structure import Lattice, Structure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from matplotlib.patches import Circle
 from orix.crystal_map import Phase
 from orix.measure import pole_density_function
 from orix.plot import InversePoleFigurePlot, StereographicPlot  # noqa: F401
 from orix.quaternion import Orientation, symmetry
+from orix.sampling import sample_S2
 from orix.vector import Miller, Vector3d
+from scipy.spatial import cKDTree
 
 
 MAX_TEXTURE_ORIENTATIONS = 60_000
 TEXTURE_GRID_RESOLUTION_DEG = 1.0
 TEXTURE_HALF_WIDTH_DEG = 10.0
+TEXTURE_FWHM_CALIBRATION = 1.025
+TEXTURE_SPHERE_SAMPLING_DEG = 2.0
 TEXTURE_MIN_MRD = 0.1
 TEXTURE_CMAP = "jet"
+TEXTURE_DENSITY_GRID_SIZE = 251
+CHANNEL5_PF_CMAP = LinearSegmentedColormap.from_list(
+    "channel5_pf",
+    (
+        (0.00, (0.0, 0.0, 1.0)),
+        (0.34, (0.0, 1.0, 0.0)),
+        (0.72, (1.0, 1.0, 0.0)),
+        (1.00, (1.0, 0.0, 0.0)),
+    ),
+)
 PREFERRED_COLORS = np.asarray(
     (
         (0.95, 0.36, 0.36),
@@ -157,10 +173,10 @@ def _texture_subset(orientations: Orientation) -> Orientation:
 def _families(family: str, phase: Phase) -> Tuple[List[Miller], List[str]]:
     if family == "hcp":
         indices: Sequence[Tuple[int, ...]] = ((0, 0, 0, 1), (1, 0, -1, 0), (1, 1, -2, 0))
-        labels = [r"$(0001)$", r"$(10\bar{1}0)$", r"$(11\bar{2}0)$"]
+        labels = [r"$\{0001\}$", r"$\{10\bar{1}0\}$", r"$\{11\bar{2}0\}$"]
         return [Miller(hkil=value, phase=phase).symmetrise(unique=True) for value in indices], labels
     indices = ((1, 0, 0), (1, 1, 0), (1, 1, 1))
-    labels = [r"$(100)$", r"$(110)$", r"$(111)$"]
+    labels = [r"$\{100\}$", r"$\{110\}$", r"$\{111\}$"]
     return [Miller(hkl=value, phase=phase).symmetrise(unique=True) for value in indices], labels
 
 
@@ -182,32 +198,125 @@ def _common_density_limits(vectors: Sequence[Vector3d], point_group: Any = None)
     return TEXTURE_MIN_MRD, max(TEXTURE_MIN_MRD, max(maxima, default=TEXTURE_MIN_MRD))
 
 
+def _channel5_plot_coordinates(vectors: Vector3d) -> np.ndarray:
+    """Convert sample coordinates to Channel 5's PF display coordinates."""
+    source_xyz = np.asarray(vectors.unit.data, dtype=float).reshape(-1, 3)
+    return np.column_stack((-source_xyz[:, 0], -source_xyz[:, 2], source_xyz[:, 1]))
+
+
+def _lambert_equal_area_density(vectors: Vector3d) -> np.ma.MaskedArray:
+    """Estimate Channel 5-like upper-hemisphere MRD on the orientation sphere.
+
+    The reference Channel 5 plot uses -X to the right, -Z to the top and +Y as
+    its projection axis. Its 10 degree half-width setting matches a 10 degree
+    Gaussian FWHM for this scan. Doing the smoothing on the sphere is crucial:
+    azimuth is undefined at the pole, so filtering an azimuth/polar histogram
+    creates false radial convergence at the disk centre.
+    """
+    xyz = _channel5_plot_coordinates(vectors)
+    xyz[xyz[:, 2] < 0] *= -1
+
+    cluster_vectors = np.asarray(
+        sample_S2(resolution=TEXTURE_SPHERE_SAMPLING_DEG, method="equal_area").data,
+        dtype=float,
+    )
+    cluster_vectors = cluster_vectors[cluster_vectors[:, 2] >= -1e-10]
+    _, nearest = cKDTree(cluster_vectors).query(xyz, workers=-1)
+    weights = np.bincount(nearest, minlength=cluster_vectors.shape[0]).astype(float)
+    occupied = weights > 0
+    cluster_vectors = cluster_vectors[occupied]
+    weights = weights[occupied]
+
+    grid_size = TEXTURE_DENSITY_GRID_SIZE
+    centers = np.linspace(-1.0 + 1.0 / grid_size, 1.0 - 1.0 / grid_size, grid_size)
+    xx, yy = np.meshgrid(centers, centers)
+    radius_squared = xx * xx + yy * yy
+    disk = radius_squared <= 1.0
+
+    # Inverse normalized Lambert azimuthal equal-area projection. The disk rim
+    # is the equator and its centre is the sample +Y direction.
+    radius = np.sqrt(np.maximum(radius_squared[disk], 0.0))
+    z = 1.0 - radius_squared[disk]
+    equatorial = np.sqrt(np.maximum(1.0 - z * z, 0.0))
+    query_x = np.divide(
+        xx[disk] * equatorial,
+        radius,
+        out=np.zeros_like(radius),
+        where=radius > 1e-12,
+    )
+    query_y = np.divide(
+        yy[disk] * equatorial,
+        radius,
+        out=np.zeros_like(radius),
+        where=radius > 1e-12,
+    )
+    query_vectors = np.column_stack((query_x, query_y, z))
+
+    # FWHM = 2 sigma sqrt(2 ln 2). Four sigma retains all but 0.034% of
+    # the Gaussian peak while keeping the spherical calculation inexpensive.
+    effective_fwhm = TEXTURE_HALF_WIDTH_DEG * TEXTURE_FWHM_CALIBRATION
+    sigma = math.radians(effective_fwhm) / (
+        2.0 * math.sqrt(2.0 * math.log(2.0))
+    )
+    cutoff_angle = 4.0 * sigma
+    cutoff_chord = 2.0 * math.sin(cutoff_angle / 2.0)
+    positive_tree = cKDTree(cluster_vectors)
+    negative_tree = cKDTree(-cluster_vectors)
+    nearby = positive_tree.query_ball_point(query_vectors, cutoff_chord, workers=-1)
+    nearby_antipodal = negative_tree.query_ball_point(
+        query_vectors, cutoff_chord, workers=-1
+    )
+
+    values = np.empty(query_vectors.shape[0], dtype=float)
+    for index, direction in enumerate(query_vectors):
+        candidates = np.asarray(nearby[index] + nearby_antipodal[index], dtype=int)
+        dots = np.clip(np.abs(cluster_vectors[candidates] @ direction), 0.0, 1.0)
+        angles = np.arccos(dots)
+        values[index] = np.sum(
+            np.exp(-0.5 * (angles / sigma) ** 2) * weights[candidates]
+        )
+
+    mean_density = float(np.mean(values))
+    if mean_density > 0:
+        values /= mean_density
+    density = np.zeros_like(xx)
+    density[disk] = values
+    return np.ma.array(density, mask=~disk)
+
+
 def _pole_figure(orientations: Orientation, family: str, phase: Phase) -> bytes:
     orientation_subset = _texture_subset(orientations)
     families, labels = _families(family, phase)
     poles = [orientation_subset.inv().outer(item, lazy=False, progressbar=False) for item in families]
-    vmin, vmax = _common_density_limits(poles)
+    densities = [_lambert_equal_area_density(item) for item in poles]
+    vmin = TEXTURE_MIN_MRD
+    vmax = max(vmin, max(float(np.max(item)) for item in densities))
 
     figure = Figure(figsize=(7.0, 2.35), dpi=180, facecolor="white")
-    axes = [figure.add_subplot(1, 3, index + 1, projection="stereographic", hemisphere="upper") for index in range(3)]
+    axes = [figure.add_subplot(1, 3, index + 1) for index in range(3)]
     meshes = []
-    for axis, values, label in zip(axes, poles, labels):
-        axis.pole_density_function(
-            values,
-            resolution=TEXTURE_GRID_RESOLUTION_DEG,
-            sigma=TEXTURE_HALF_WIDTH_DEG,
-            log=False,
-            colorbar=False,
-            cmap=TEXTURE_CMAP,
+    for axis, density, label in zip(axes, densities, labels):
+        mesh = axis.imshow(
+            density,
+            origin="lower",
+            extent=(-1, 1, -1, 1),
+            interpolation="bicubic",
+            cmap=CHANNEL5_PF_CMAP,
             vmin=vmin,
             vmax=vmax,
         )
+        axis.add_patch(Circle((0, 0), 1, fill=False, edgecolor="black", linewidth=1.0))
+        axis.plot((-1, 1), (0, 0), color="black", linewidth=0.45, alpha=0.8)
+        axis.plot((0, 0), (-1, 1), color="black", linewidth=0.45, alpha=0.8)
         axis.set_title(label, fontsize=8, pad=2)
-        axis.set_labels("X", "Y", None)
-        for text in axis.texts:
-            text.set_fontsize(7)
-        if axis.collections:
-            meshes.append(axis.collections[-1])
+        label_box = {"facecolor": "white", "edgecolor": "none", "pad": 0.5}
+        axis.text(0.96, 0, "X0", ha="left", va="center", fontsize=7, bbox=label_box)
+        axis.text(0, 0.96, "Z0", ha="center", va="bottom", fontsize=7, bbox=label_box)
+        axis.set_xlim(-1.05, 1.05)
+        axis.set_ylim(-1.05, 1.05)
+        axis.set_aspect("equal")
+        axis.axis("off")
+        meshes.append(mesh)
     figure.subplots_adjust(left=0.02, right=0.91, bottom=0.03, top=0.96, wspace=0.20)
     if meshes:
         colorbar = figure.colorbar(meshes[-1], ax=axes, fraction=0.025, pad=0.03)

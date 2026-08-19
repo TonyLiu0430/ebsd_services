@@ -61,6 +61,13 @@ def _position_key(value: str) -> Tuple[int, int, str]:
     return (int(match.group(2)), _excel_number(match.group(1)), str(value))
 
 
+def _scan_position_key(value: str) -> Tuple[int, int, str]:
+    match = POSITION_RE.fullmatch(str(value).strip().upper())
+    if not match:
+        return (10**9, 10**9, str(value))
+    return (_excel_number(match.group(1)), int(match.group(2)), str(value))
+
+
 def _positions(*snapshots: Snapshot) -> List[str]:
     return sorted({pos for snapshot in snapshots for pos in snapshot}, key=_position_key)
 
@@ -344,7 +351,7 @@ def _add_scan_point_pages(
     histogram_settings: Dict[str, Any],
 ) -> None:
     overridden = set(overridden_positions)
-    for position in sorted(snapshot, key=_position_key):
+    for position in sorted(snapshot, key=_scan_position_key):
         images = images_by_position.get(position)
         if not images:
             continue

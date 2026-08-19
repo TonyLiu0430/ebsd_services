@@ -6,10 +6,18 @@ from PIL import Image
 from diffpy.structure import Lattice, Structure
 from orix.crystal_map import Phase
 from orix.quaternion import Orientation, symmetry
+from orix.vector import Vector3d
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from scipy.ndimage import map_coordinates
 
-from python_ebsd_figures import _inverse_pole_figure, _pole_figure
+from python_ebsd_figures import (
+    TEXTURE_DENSITY_GRID_SIZE,
+    _channel5_plot_coordinates,
+    _inverse_pole_figure,
+    _lambert_equal_area_density,
+    _pole_figure,
+)
 from template_ppt_report import build_pptx_report
 
 
@@ -45,8 +53,12 @@ class ScanPointPageTests(unittest.TestCase):
             golden_sample="",
             selected_version_label="2",
             golden_version_label="",
-            report_data={"Cu-U": {"A-1": item, "B-2": item}},
-            scan_report_images={"A-1": _scan_images(), "B-2": _scan_images()},
+            report_data={"Cu-U": {"B-1": item, "A-2": item, "A-1": item}},
+            scan_report_images={
+                "B-1": _scan_images(),
+                "A-2": _scan_images(),
+                "A-1": _scan_images(),
+            },
             overridden_positions=["A-1"],
         )
         presentation = Presentation(io.BytesIO(report))
@@ -56,9 +68,18 @@ class ScanPointPageTests(unittest.TestCase):
             if title is not None and title.text.startswith("Cu-U "):
                 scan_titles.append(title)
 
-        self.assertEqual([title.text for title in scan_titles].count("Cu-U A-1 (Reanalysis)"), 2)
-        self.assertEqual([title.text for title in scan_titles].count("Cu-U B-2"), 2)
-        self.assertFalse(any("Reanalysis" in title.text for title in scan_titles if "B-2" in title.text))
+        self.assertEqual(
+            [title.text for title in scan_titles],
+            [
+                "Cu-U A-1 (Reanalysis)",
+                "Cu-U A-1 (Reanalysis)",
+                "Cu-U A-2",
+                "Cu-U A-2",
+                "Cu-U B-1",
+                "Cu-U B-1",
+            ],
+        )
+        self.assertFalse(any("Reanalysis" in title.text for title in scan_titles if "A-1" not in title.text))
 
         reanalysis_runs = [
             run
@@ -73,7 +94,36 @@ class ScanPointPageTests(unittest.TestCase):
 
 
 class PythonTextureFigureTests(unittest.TestCase):
-    def test_orix_generates_pf_and_ipf_png(self) -> None:
+    def test_channel5_pf_coordinate_basis(self) -> None:
+        sample_directions = Vector3d(
+            [
+                [-1.0, 0.0, 0.0],  # Channel 5 X0, right
+                [0.0, 0.0, -1.0],  # Channel 5 Z0, top
+                [0.0, 1.0, 0.0],   # Projection axis, disk centre
+            ]
+        )
+        np.testing.assert_allclose(
+            _channel5_plot_coordinates(sample_directions),
+            np.eye(3),
+            atol=1e-12,
+        )
+
+    def test_spherical_density_has_no_azimuthal_seam_at_pole(self) -> None:
+        projection_pole = Vector3d(np.tile([0.0, 1.0, 0.0], (500, 1)))
+        density = _lambert_equal_area_density(projection_pole)
+        angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+        center = (TEXTURE_DENSITY_GRID_SIZE - 1) / 2
+        radius_pixels = 0.2 * TEXTURE_DENSITY_GRID_SIZE / 2
+        ring = map_coordinates(
+            density.data,
+            [center + radius_pixels * np.sin(angles), center + radius_pixels * np.cos(angles)],
+            order=1,
+        )
+
+        self.assertGreater(float(np.mean(ring)), 0)
+        self.assertLess(float(np.std(ring) / np.mean(ring)), 0.02)
+
+    def test_python_texture_pipeline_generates_pf_and_ipf_png(self) -> None:
         phase = Phase(
             name="Cu",
             point_group=symmetry.Oh,

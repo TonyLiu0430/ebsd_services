@@ -4,6 +4,8 @@ import colorsys
 import io
 import math
 import tempfile
+from functools import lru_cache
+from itertools import permutations, product
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -27,12 +29,13 @@ MAX_TEXTURE_ORIENTATIONS = 60_000
 TEXTURE_GRID_RESOLUTION_DEG = 1.0
 TEXTURE_HALF_WIDTH_DEG = 10.0
 TEXTURE_FWHM_CALIBRATION = 1.025
+IPF_FWHM_CALIBRATION = 1.085
 TEXTURE_SPHERE_SAMPLING_DEG = 2.0
 TEXTURE_MIN_MRD = 0.1
 TEXTURE_CMAP = "jet"
 TEXTURE_DENSITY_GRID_SIZE = 251
-CHANNEL5_PF_CMAP = LinearSegmentedColormap.from_list(
-    "channel5_pf",
+CHANNEL5_DENSITY_CMAP = LinearSegmentedColormap.from_list(
+    "channel5_density",
     (
         (0.00, (0.0, 0.0, 1.0)),
         (0.34, (0.0, 1.0, 0.0)),
@@ -301,7 +304,7 @@ def _pole_figure(orientations: Orientation, family: str, phase: Phase) -> bytes:
             origin="lower",
             extent=(-1, 1, -1, 1),
             interpolation="bicubic",
-            cmap=CHANNEL5_PF_CMAP,
+            cmap=CHANNEL5_DENSITY_CMAP,
             vmin=vmin,
             vmax=vmax,
         )
@@ -329,6 +332,10 @@ def _inverse_pole_figure(orientations: Orientation, point_group: Any) -> bytes:
     orientation_subset = _texture_subset(orientations)
     directions = (Vector3d.xvector(), Vector3d.yvector(), Vector3d.zvector())
     vectors = [orientation_subset * direction for direction in directions]
+
+    if point_group == symmetry.Oh:
+        return _channel5_cubic_inverse_pole_figure(vectors)
+
     vmin, vmax = _common_density_limits(vectors, point_group)
     figure = Figure(figsize=(7.0, 2.35), dpi=180, facecolor="white")
     axes = [
@@ -357,6 +364,155 @@ def _inverse_pole_figure(orientations: Orientation, point_group: Any) -> bytes:
         colorbar = figure.colorbar(meshes[-1], ax=axes, fraction=0.025, pad=0.03)
         colorbar.ax.tick_params(labelsize=5)
         colorbar.set_label("MRD", fontsize=6)
+    return _png(figure)
+
+
+@lru_cache(maxsize=1)
+def _channel5_cubic_ipf_grid() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return an equal-area cubic IPF grid in Channel 5's display layout."""
+    grid_size = TEXTURE_DENSITY_GRID_SIZE
+    right = math.sqrt((1.0 - 1.0 / math.sqrt(3.0)) / 2.0)
+    down = math.sqrt(1.0 - 1.0 / math.sqrt(2.0))
+    plot_x = np.linspace(-0.015, right + 0.015, grid_size)
+    plot_y = np.linspace(-down - 0.015, 0.015, grid_size)
+    xx, yy = np.meshgrid(plot_x, plot_y)
+
+    # Undo the clockwise rotation used by Channel 5, then invert the
+    # normalized Lambert azimuthal equal-area projection.
+    projected_x = -yy
+    projected_y = xx
+    radius_squared = projected_x * projected_x + projected_y * projected_y
+    z = 1.0 - radius_squared
+    equatorial = np.sqrt(np.maximum(1.0 - z * z, 0.0))
+    radius = np.sqrt(np.maximum(radius_squared, 0.0))
+    x = np.divide(
+        projected_x * equatorial,
+        radius,
+        out=np.zeros_like(radius),
+        where=radius > 1e-12,
+    )
+    y = np.divide(
+        projected_y * equatorial,
+        radius,
+        out=np.zeros_like(radius),
+        where=radius > 1e-12,
+    )
+    query_vectors = np.column_stack((x.ravel(), y.ravel(), z.ravel()))
+    inside = (
+        (y >= -1e-10)
+        & (x >= y - 1e-10)
+        & (z >= x - 1e-10)
+        & (radius_squared <= 1.0)
+    ).ravel()
+    return xx, yy, query_vectors, inside
+
+
+def _channel5_cubic_ipf_density(vectors: Vector3d) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculate cubic IPF MRD with symmetry-safe spherical smoothing."""
+    raw = np.abs(np.asarray(vectors.unit.data, dtype=float).reshape(-1, 3))
+    sphere_vectors = np.asarray(
+        sample_S2(resolution=TEXTURE_SPHERE_SAMPLING_DEG, method="equal_area").data,
+        dtype=float,
+    )
+    sphere_vectors = sphere_vectors[sphere_vectors[:, 2] >= -1e-10]
+    sphere_tree = cKDTree(sphere_vectors)
+    weights = np.zeros(sphere_vectors.shape[0], dtype=float)
+
+    # Cubic m-3m has 24 unique axis directions. Expanding the input before
+    # smoothing mirrors the density correctly across all fundamental-sector
+    # boundaries, including the [001]-[101] edge.
+    xy_signs = tuple(product((-1.0, 1.0), repeat=2))
+    for permutation in permutations(range(3)):
+        permuted = raw[:, permutation]
+        for sign_x, sign_y in xy_signs:
+            signed = permuted * np.asarray((sign_x, sign_y, 1.0))
+            _, nearest = sphere_tree.query(signed, workers=-1)
+            weights += np.bincount(nearest, minlength=sphere_vectors.shape[0])
+
+    occupied = weights > 0
+    sphere_vectors = sphere_vectors[occupied]
+    weights = weights[occupied]
+    xx, yy, query_vectors, inside = _channel5_cubic_ipf_grid()
+    queries = query_vectors[inside]
+
+    effective_fwhm = TEXTURE_HALF_WIDTH_DEG * IPF_FWHM_CALIBRATION
+    sigma = math.radians(effective_fwhm) / (
+        2.0 * math.sqrt(2.0 * math.log(2.0))
+    )
+    cutoff_chord = 2.0 * math.sin(4.0 * sigma / 2.0)
+    nearby = cKDTree(sphere_vectors).query_ball_point(
+        queries, cutoff_chord, workers=-1
+    )
+    values = np.empty(queries.shape[0], dtype=float)
+    for index, direction in enumerate(queries):
+        candidates = np.asarray(nearby[index], dtype=int)
+        angles = np.arccos(
+            np.clip(sphere_vectors[candidates] @ direction, -1.0, 1.0)
+        )
+        values[index] = np.sum(
+            np.exp(-0.5 * (angles / sigma) ** 2) * weights[candidates]
+        )
+    mean_density = float(np.mean(values))
+    if mean_density > 0:
+        values /= mean_density
+
+    density = np.full(xx.shape, np.nan)
+    density.ravel()[inside] = values
+    return xx, yy, density
+
+
+def _channel5_cubic_inverse_pole_figure(vectors: Sequence[Vector3d]) -> bytes:
+    densities = [_channel5_cubic_ipf_density(values) for values in vectors]
+    vmin = min(float(np.nanmin(density)) for _, _, density in densities)
+    vmax = max(float(np.nanmax(density)) for _, _, density in densities)
+    right = math.sqrt((1.0 - 1.0 / math.sqrt(3.0)) / 2.0)
+    down = math.sqrt(1.0 - 1.0 / math.sqrt(2.0))
+
+    figure = Figure(figsize=(7.0, 2.35), dpi=180, facecolor="white")
+    axes = [figure.add_subplot(1, 3, index + 1) for index in range(3)]
+    meshes = []
+    for axis, label, (xx, yy, density) in zip(axes, ("X0", "Y0", "Z0"), densities):
+        mesh = axis.contourf(
+            xx,
+            yy,
+            density,
+            levels=np.linspace(vmin, vmax, 32),
+            cmap=CHANNEL5_DENSITY_CMAP,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        axis.plot((0, 0), (0, -down), color="black", linewidth=0.7)
+        axis.plot((0, right), (0, -right), color="black", linewidth=0.7)
+        boundary_parameter = np.linspace(0.0, 1.0, 100)
+        boundary_vectors = np.column_stack(
+            (
+                np.ones_like(boundary_parameter),
+                boundary_parameter,
+                np.ones_like(boundary_parameter),
+            )
+        )
+        boundary_vectors /= np.linalg.norm(boundary_vectors, axis=1)[:, None]
+        boundary_radius = np.sqrt(1.0 - boundary_vectors[:, 2])
+        boundary_equatorial = np.linalg.norm(boundary_vectors[:, :2], axis=1)
+        boundary_projected_x = boundary_radius * boundary_vectors[:, 0] / boundary_equatorial
+        boundary_projected_y = boundary_radius * boundary_vectors[:, 1] / boundary_equatorial
+        axis.plot(
+            boundary_projected_y,
+            -boundary_projected_x,
+            color="black",
+            linewidth=0.7,
+        )
+        axis.set_title(label, fontsize=8, pad=2)
+        axis.text(0, 0.012, "001", ha="center", va="bottom", fontsize=7)
+        axis.text(0, -down - 0.012, "101", ha="center", va="top", fontsize=7)
+        axis.text(right + 0.008, -right, "111", ha="left", va="center", fontsize=7)
+        axis.set_aspect("equal")
+        axis.axis("off")
+        meshes.append(mesh)
+    figure.subplots_adjust(left=0.02, right=0.91, bottom=0.04, top=0.93, wspace=0.20)
+    colorbar = figure.colorbar(meshes[-1], ax=axes, fraction=0.025, pad=0.03)
+    colorbar.ax.tick_params(labelsize=5)
+    colorbar.set_label("MRD", fontsize=6)
     return _png(figure)
 
 

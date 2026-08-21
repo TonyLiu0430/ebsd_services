@@ -389,8 +389,11 @@ def _add_scan_point_pages(
         _set_scan_title(deck, texture, sample, position, position in overridden)
         _add_text(texture, "Preferred orientation ratio", Inches(0.35), Inches(0.58), Inches(3.0), Inches(0.28), size=13, bold=True)
         _add_text(texture, "Direction: Z", Inches(0.45), Inches(0.88), Inches(1.5), Inches(0.24), size=10)
-        _add_captioned_picture(texture, "Range: 20°", images.get("preferred_20"), 1.95, 0.72, 4.15, 2.55)
-        _add_captioned_picture(texture, "Range: 15°", images.get("preferred_15"), 6.65, 0.72, 4.15, 2.55)
+        # The C++ scale-bar footer makes these maps slightly taller than the
+        # original image. Keep their picture boxes above the ratio tables so
+        # PowerPoint never layers the table over the scale bar.
+        _add_captioned_picture(texture, "Range: 20°", images.get("preferred_20"), 1.95, 0.72, 4.15, 2.40)
+        _add_captioned_picture(texture, "Range: 15°", images.get("preferred_15"), 6.65, 0.72, 4.15, 2.40)
         _add_ratio_table(texture, item, "20%", 2.25, 3.18, 3.55, 0.72)
         _add_ratio_table(texture, item, "15%", 6.95, 3.18, 3.55, 0.72)
         if ipf_legend:

@@ -9,6 +9,8 @@ from orix.quaternion import Orientation, symmetry
 from orix.vector import Vector3d
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.util import Inches
 from scipy.ndimage import map_coordinates
 
 from python_ebsd_figures import (
@@ -94,6 +96,44 @@ class ScanPointPageTests(unittest.TestCase):
         ]
         self.assertEqual(len(reanalysis_runs), 2)
         self.assertTrue(all(run.font.color.rgb == RGBColor(0, 0, 255) for run in reanalysis_runs))
+
+    def test_preferred_orientation_maps_end_above_ratio_tables(self) -> None:
+        item = {
+            "grains": [4.0],
+            "orientation_labels": ["[001]", "[011]", "[111]"],
+            "orientation_ratio(20%)": [0.1, 0.2, 0.3],
+            "orientation_ratio(15%)": [0.05, 0.1, 0.15],
+        }
+        report = build_pptx_report(
+            selected_sample="Cu-U",
+            golden_sample="",
+            selected_version_label="2",
+            golden_version_label="",
+            report_data={"Cu-U": {"A-1": item}},
+            scan_report_images={"A-1": _scan_images()},
+        )
+        presentation = Presentation(io.BytesIO(report))
+        texture_slide = next(
+            slide
+            for slide in presentation.slides
+            if any(
+                shape.has_text_frame and shape.text == "Preferred orientation ratio"
+                for shape in slide.shapes
+            )
+        )
+        preferred_maps = [
+            shape
+            for shape in texture_slide.shapes
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+            and shape.left < Inches(11)
+            and shape.top < Inches(3.5)
+        ]
+        ratio_tables = [shape for shape in texture_slide.shapes if shape.has_table]
+
+        self.assertEqual(len(preferred_maps), 2)
+        self.assertEqual(len(ratio_tables), 2)
+        table_top = min(shape.top for shape in ratio_tables)
+        self.assertTrue(all(shape.top + shape.height < table_top for shape in preferred_maps))
 
 
 class PythonTextureFigureTests(unittest.TestCase):

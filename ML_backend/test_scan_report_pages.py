@@ -23,7 +23,7 @@ from python_ebsd_figures import (
     _pole_figure,
     _raw_rgb_map,
 )
-from template_ppt_report import build_pptx_report
+from template_ppt_report import _deviation_legend, build_pptx_report
 
 
 def _test_png() -> bytes:
@@ -46,6 +46,18 @@ def _scan_images() -> dict:
 
 
 class ScanPointPageTests(unittest.TestCase):
+    def test_deviation_legend_uses_solid_orientation_colours(self) -> None:
+        legend = Image.open(
+            io.BytesIO(_deviation_legend(("[100]", "[110]", "[111]"), 20))
+        ).convert("RGB")
+        colours = legend.getcolors(maxcolors=legend.width * legend.height)
+        self.assertIsNotNone(colours)
+        colour_counts = {colour: count for count, colour in colours or []}
+
+        self.assertGreater(colour_counts.get((242, 92, 92), 0), 100)
+        self.assertGreater(colour_counts.get((89, 209, 99), 0), 100)
+        self.assertGreater(colour_counts.get((102, 115, 230), 0), 100)
+
     def test_each_position_gets_two_pages_and_only_overwrite_is_reanalysis(self) -> None:
         item = {
             "grains": [4.0, 7.0, 11.0],
@@ -124,9 +136,7 @@ class ScanPointPageTests(unittest.TestCase):
         preferred_maps = [
             shape
             for shape in texture_slide.shapes
-            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE
-            and shape.left < Inches(11)
-            and shape.top < Inches(3.5)
+            if shape.name in {"EBSD_PREFERRED_20", "EBSD_PREFERRED_15"}
         ]
         ratio_tables = [shape for shape in texture_slide.shapes if shape.has_table]
 
@@ -134,6 +144,41 @@ class ScanPointPageTests(unittest.TestCase):
         self.assertEqual(len(ratio_tables), 2)
         table_top = min(shape.top for shape in ratio_tables)
         self.assertTrue(all(shape.top + shape.height < table_top for shape in preferred_maps))
+
+    def test_texture_slide_has_deviation_legend_on_each_side(self) -> None:
+        item = {
+            "grains": [4.0],
+            "orientation_labels": ["[100]", "[110]", "[111]"],
+            "orientation_ratio(20%)": [0.1, 0.2, 0.3],
+            "orientation_ratio(15%)": [0.05, 0.1, 0.15],
+        }
+        report = build_pptx_report(
+            selected_sample="Cu-U",
+            golden_sample="",
+            selected_version_label="2",
+            golden_version_label="",
+            report_data={"Cu-U": {"A-1": item}},
+            scan_report_images={"A-1": _scan_images()},
+            ipf_legend=_test_png(),
+        )
+        presentation = Presentation(io.BytesIO(report))
+        texture_slide = next(
+            slide
+            for slide in presentation.slides
+            if any(
+                shape.has_text_frame and shape.text == "Preferred orientation ratio"
+                for shape in slide.shapes
+            )
+        )
+        deviation_20 = next(shape for shape in texture_slide.shapes if shape.name == "EBSD_DEVIATION_20")
+        deviation_15 = next(shape for shape in texture_slide.shapes if shape.name == "EBSD_DEVIATION_15")
+        orientation_key = next(shape for shape in texture_slide.shapes if shape.name == "EBSD_ORIENTATION_KEY")
+
+        self.assertEqual(deviation_20.shape_type, MSO_SHAPE_TYPE.PICTURE)
+        self.assertEqual(deviation_15.shape_type, MSO_SHAPE_TYPE.PICTURE)
+        self.assertLess(deviation_20.left + deviation_20.width, Inches(1.95))
+        self.assertGreater(deviation_15.left, Inches(10.8))
+        self.assertGreater(orientation_key.top, deviation_15.top + deviation_15.height)
 
 
 class PythonTextureFigureTests(unittest.TestCase):

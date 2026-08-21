@@ -7,12 +7,13 @@ import re
 import statistics
 from copy import deepcopy
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
@@ -276,7 +277,7 @@ def _add_native_matrix(
             _set_cell(table.cell(row_index, column_index), value_for_position(position) if position in position_set else "", size=font_size)
 
 
-def _add_picture_contain(slide, data: Union[bytes, io.BytesIO], left: int, top: int, width: int, height: int) -> None:
+def _add_picture_contain(slide, data: Union[bytes, io.BytesIO], left: int, top: int, width: int, height: int):
     stream = data if isinstance(data, io.BytesIO) else io.BytesIO(data)
     stream.seek(0)
     with Image.open(stream) as image:
@@ -285,10 +286,26 @@ def _add_picture_contain(slide, data: Union[bytes, io.BytesIO], left: int, top: 
     ratio = min(width / max(image_width, 1), height / max(image_height, 1))
     draw_width = int(image_width * ratio)
     draw_height = int(image_height * ratio)
-    slide.shapes.add_picture(stream, left + (width - draw_width) // 2, top + (height - draw_height) // 2, draw_width, draw_height)
+    return slide.shapes.add_picture(
+        stream,
+        left + (width - draw_width) // 2,
+        top + (height - draw_height) // 2,
+        draw_width,
+        draw_height,
+    )
 
 
-def _add_captioned_picture(slide, caption: str, image: Optional[bytes], left: float, top: float, width: float, height: float) -> None:
+def _add_captioned_picture(
+    slide,
+    caption: str,
+    image: Optional[bytes],
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    *,
+    picture_name: Optional[str] = None,
+):
     _add_text(
         slide,
         caption,
@@ -301,7 +318,7 @@ def _add_captioned_picture(slide, caption: str, image: Optional[bytes], left: fl
         align=PP_ALIGN.CENTER,
     )
     if image:
-        _add_picture_contain(
+        picture = _add_picture_contain(
             slide,
             image,
             Inches(left),
@@ -309,6 +326,134 @@ def _add_captioned_picture(slide, caption: str, image: Optional[bytes], left: fl
             Inches(width),
             Inches(height - 0.30),
         )
+        if picture_name:
+            picture.name = picture_name
+        return picture
+    return None
+
+
+def _legend_font(size: int, *, bold: bool = False):
+    candidates = (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+@lru_cache(maxsize=16)
+def _deviation_legend(labels: Tuple[str, str, str], deviation: int) -> bytes:
+    """Render solid angular-tolerance regions in the cubic IPF sector."""
+    scale = 3
+    width, height = 380 * scale, 500 * scale
+    image = Image.new("RGB", (width, height), "white")
+    pixels = image.load()
+    origin = (48 * scale, 50 * scale)
+    projection_scale = 570 * scale
+    right = math.sqrt((1.0 - 1.0 / math.sqrt(3.0)) / 2.0)
+    down = math.sqrt(1.0 - 1.0 / math.sqrt(2.0))
+    bottom_left = (origin[0], round(origin[1] + down * projection_scale))
+    right_vertex = (
+        round(origin[0] + right * projection_scale),
+        round(origin[1] + right * projection_scale),
+    )
+    colours = ((242, 92, 92), (89, 209, 99), (102, 115, 230))
+    inverse_sqrt_two = 1.0 / math.sqrt(2.0)
+    inverse_sqrt_three = 1.0 / math.sqrt(3.0)
+    targets = (
+        (0.0, 0.0, 1.0),
+        (inverse_sqrt_two, 0.0, inverse_sqrt_two),
+        (inverse_sqrt_three, inverse_sqrt_three, inverse_sqrt_three),
+    )
+
+    # This is the same normalized Lambert equal-area projection and cubic
+    # fundamental-sector test used by the inverse-pole-figure plot below.
+    # Colour is binary: a point belongs to its nearest family only when its
+    # crystallographic angular distance is within the requested deviation.
+    for pixel_y in range(origin[1], bottom_left[1] + 1):
+        plot_y = -(pixel_y - origin[1]) / projection_scale
+        projected_x = -plot_y
+        for pixel_x in range(origin[0], right_vertex[0] + 1):
+            plot_x = (pixel_x - origin[0]) / projection_scale
+            projected_y = plot_x
+            radius_squared = projected_x * projected_x + projected_y * projected_y
+            if radius_squared > 1.0:
+                continue
+            crystal_z = 1.0 - radius_squared
+            radius = math.sqrt(radius_squared)
+            if radius <= 1e-12:
+                crystal_x, crystal_y = 0.0, 0.0
+            else:
+                equatorial = math.sqrt(max(1.0 - crystal_z * crystal_z, 0.0))
+                crystal_x = projected_x * equatorial / radius
+                crystal_y = projected_y * equatorial / radius
+            if crystal_y < 0.0 or crystal_x < crystal_y or crystal_z < crystal_x:
+                continue
+
+            angles = [
+                math.degrees(
+                    math.acos(
+                        max(
+                            -1.0,
+                            min(
+                                1.0,
+                                crystal_x * target[0]
+                                + crystal_y * target[1]
+                                + crystal_z * target[2],
+                            ),
+                        )
+                    )
+                )
+                for target in targets
+            ]
+            nearest = min(range(3), key=angles.__getitem__)
+            if angles[nearest] <= deviation:
+                pixels[pixel_x, pixel_y] = colours[nearest]
+
+    draw = ImageDraw.Draw(image)
+    line_width = 4 * scale
+    draw.line((origin, bottom_left), fill="black", width=line_width)
+    draw.line((origin, right_vertex), fill="black", width=line_width)
+    curved_boundary = []
+    for step in range(101):
+        parameter = step / 100.0
+        norm = math.sqrt(2.0 + parameter * parameter)
+        crystal_x = 1.0 / norm
+        crystal_y = parameter / norm
+        crystal_z = 1.0 / norm
+        boundary_radius = math.sqrt(1.0 - crystal_z)
+        boundary_equatorial = math.hypot(crystal_x, crystal_y)
+        plot_x = boundary_radius * crystal_y / boundary_equatorial
+        plot_y = -boundary_radius * crystal_x / boundary_equatorial
+        curved_boundary.append(
+            (
+                round(origin[0] + plot_x * projection_scale),
+                round(origin[1] - plot_y * projection_scale),
+            )
+        )
+    draw.line(curved_boundary, fill="black", width=line_width, joint="curve")
+
+    label_font = _legend_font(26 * scale, bold=True)
+    deviation_font = _legend_font(25 * scale, bold=True)
+    cleaned = tuple(str(label).strip().strip("[]<>") for label in labels)
+    draw.text((origin[0], origin[1] - 15 * scale), cleaned[0], fill="black", font=label_font, anchor="ms")
+    draw.text((bottom_left[0], bottom_left[1] + 13 * scale), cleaned[1], fill="black", font=label_font, anchor="lt")
+    draw.text((right_vertex[0] + 10 * scale, right_vertex[1]), cleaned[2], fill="black", font=label_font, anchor="lm")
+    draw.text(
+        (width // 2, 438 * scale),
+        f"Deviation: {deviation}\N{DEGREE SIGN}",
+        fill="black",
+        font=deviation_font,
+        anchor="mm",
+    )
+
+    output = io.BytesIO()
+    image.resize((380, 500), Image.Resampling.LANCZOS).save(output, format="PNG")
+    return output.getvalue()
 
 
 def _add_grain_summary_table(slide, item: Dict[str, Any], left: float, top: float, width: float, height: float) -> None:
@@ -392,12 +537,58 @@ def _add_scan_point_pages(
         # The C++ scale-bar footer makes these maps slightly taller than the
         # original image. Keep their picture boxes above the ratio tables so
         # PowerPoint never layers the table over the scale bar.
-        _add_captioned_picture(texture, "Range: 20°", images.get("preferred_20"), 1.95, 0.72, 4.15, 2.40)
-        _add_captioned_picture(texture, "Range: 15°", images.get("preferred_15"), 6.65, 0.72, 4.15, 2.40)
+        labels = tuple(_orientation_labels({"_": item})[:3])
+        deviation_20 = _add_picture_contain(
+            texture,
+            _deviation_legend(labels, 20),
+            Inches(0.18),
+            Inches(1.05),
+            Inches(1.48),
+            Inches(2.72),
+        )
+        deviation_20.name = "EBSD_DEVIATION_20"
+        _add_captioned_picture(
+            texture,
+            "Range: 20°",
+            images.get("preferred_20"),
+            1.95,
+            0.72,
+            4.15,
+            2.40,
+            picture_name="EBSD_PREFERRED_20",
+        )
+        _add_captioned_picture(
+            texture,
+            "Range: 15°",
+            images.get("preferred_15"),
+            6.65,
+            0.72,
+            4.15,
+            2.40,
+            picture_name="EBSD_PREFERRED_15",
+        )
+        deviation_15 = _add_picture_contain(
+            texture,
+            _deviation_legend(labels, 15),
+            Inches(11.70),
+            Inches(1.05),
+            Inches(1.45),
+            Inches(2.28),
+        )
+        deviation_15.name = "EBSD_DEVIATION_15"
         _add_ratio_table(texture, item, "20%", 2.25, 3.18, 3.55, 0.72)
         _add_ratio_table(texture, item, "15%", 6.95, 3.18, 3.55, 0.72)
         if ipf_legend:
-            _add_captioned_picture(texture, "Orientation key", ipf_legend, 11.25, 1.15, 1.45, 1.75)
+            _add_captioned_picture(
+                texture,
+                "Orientation key",
+                ipf_legend,
+                11.70,
+                3.30,
+                1.45,
+                0.68,
+                picture_name="EBSD_ORIENTATION_KEY",
+            )
         _add_captioned_picture(texture, "Pole Figure", images.get("pole_figure"), 0.25, 4.05, 6.25, 3.15)
         _add_captioned_picture(texture, "Inverse Pole Figure", images.get("inverse_pole_figure"), 6.75, 4.05, 6.25, 3.15)
 

@@ -44,8 +44,10 @@ if(BUILD_TESTING)
         band_contrast_map_test
         tests/band_contrast_map_test.cpp
         src/band_contrast_map.cpp
+        src/scale_bar.cpp
         include/band_contrast_map.h
         include/ebsd_data.h
+        include/scale_bar.h
     )
     target_include_directories(band_contrast_map_test PRIVATE include)
     add_test(NAME band_contrast_map_test COMMAND band_contrast_map_test)

@@ -35,7 +35,7 @@ from ebsd_store import (
     create_user_pair,
 )
 from template_ppt_report import build_pptx_report
-from python_ebsd_figures import generate_python_scan_figures
+from python_ebsd_figures import RawRgbMap, generate_python_scan_figures
 from sqlalchemy import func, select
 
 app = FastAPI()
@@ -805,42 +805,16 @@ def multipart_body(parts: List[Tuple[str, str, str, bytes]]) -> Tuple[bytes, str
     return bytes(body), boundary
 
 
-def post_cpp_files(
+def post_cpp_multipart(
     endpoint: str,
-    *,
-    crc_filename: str,
-    crc_content: bytes,
-    cpr_filename: str,
-    cpr_content: bytes,
+    parts: List[Tuple[str, str, str, bytes]],
     accept: str,
-    min_grain_size: Optional[int] = None,
-    ipf_reference_vector: Optional[List[float]] = None,
-    ipf_denoindex_threshold: Optional[float] = None,
-    ipf_denoindex_misorientation_threshold: Optional[float] = None,
-    include_scale_bar: Optional[bool] = None,
+    query_params: Optional[Dict[str, Any]] = None,
 ) -> bytes:
-    body, boundary = multipart_body([
-        ("crc", crc_filename, "application/octet-stream", crc_content),
-        ("cpr", cpr_filename, "application/octet-stream", cpr_content),
-    ])
+    body, boundary = multipart_body(parts)
     last_error: Optional[Exception] = None
     for base_url in cpp_backend_candidates():
         url = f"{base_url}{endpoint}"
-        query_params: Dict[str, Any] = {}
-        if min_grain_size is not None:
-            query_params["min_grain_size"] = min_grain_size
-        if ipf_reference_vector is not None:
-            query_params.update({
-                "reference_x": ipf_reference_vector[0],
-                "reference_y": ipf_reference_vector[1],
-                "reference_z": ipf_reference_vector[2],
-            })
-        if ipf_denoindex_threshold is not None:
-            query_params["denoindex_threshold"] = ipf_denoindex_threshold
-        if ipf_denoindex_misorientation_threshold is not None:
-            query_params["denoindex_misorientation_threshold"] = ipf_denoindex_misorientation_threshold
-        if include_scale_bar is not None:
-            query_params["include_scale_bar"] = str(include_scale_bar).lower()
         if query_params:
             url = f"{url}?{urlencode(query_params)}"
         req = urllib.request.Request(
@@ -861,6 +835,46 @@ def post_cpp_files(
         except Exception as exc:
             last_error = exc
     raise HTTPException(status_code=502, detail=f"C++ backend unavailable: {last_error}")
+
+
+def post_cpp_files(
+    endpoint: str,
+    *,
+    crc_filename: str,
+    crc_content: bytes,
+    cpr_filename: str,
+    cpr_content: bytes,
+    accept: str,
+    min_grain_size: Optional[int] = None,
+    ipf_reference_vector: Optional[List[float]] = None,
+    ipf_denoindex_threshold: Optional[float] = None,
+    ipf_denoindex_misorientation_threshold: Optional[float] = None,
+    include_scale_bar: Optional[bool] = None,
+) -> bytes:
+    query_params: Dict[str, Any] = {}
+    if min_grain_size is not None:
+        query_params["min_grain_size"] = min_grain_size
+    if ipf_reference_vector is not None:
+        query_params.update({
+            "reference_x": ipf_reference_vector[0],
+            "reference_y": ipf_reference_vector[1],
+            "reference_z": ipf_reference_vector[2],
+        })
+    if ipf_denoindex_threshold is not None:
+        query_params["denoindex_threshold"] = ipf_denoindex_threshold
+    if ipf_denoindex_misorientation_threshold is not None:
+        query_params["denoindex_misorientation_threshold"] = ipf_denoindex_misorientation_threshold
+    if include_scale_bar is not None:
+        query_params["include_scale_bar"] = str(include_scale_bar).lower()
+    return post_cpp_multipart(
+        endpoint,
+        [
+            ("crc", crc_filename, "application/octet-stream", crc_content),
+            ("cpr", cpr_filename, "application/octet-stream", cpr_content),
+        ],
+        accept,
+        query_params,
+    )
 
 
 def post_cpp_pair(
@@ -957,6 +971,20 @@ def cpp_band_contrast_map(row: UserEbsdPair, include_scale_bar: bool = True) -> 
         row,
         "image/png",
         include_scale_bar=include_scale_bar,
+    )
+
+
+def cpp_scale_bar(image: RawRgbMap) -> bytes:
+    return post_cpp_multipart(
+        "/scale_bar",
+        [("image", f"{image.map_name}.rgb", "application/octet-stream", image.pixels)],
+        "image/png",
+        {
+            "width": image.width,
+            "height": image.height,
+            "x_step_um": image.x_step_um,
+            "map_name": image.map_name,
+        },
     )
 
 
@@ -1247,12 +1275,16 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
     for position, row in selected_pairs.items():
         features = selected_snapshot.get(position, {})
         try:
-            python_images = generate_python_scan_figures(
+            python_figures = generate_python_scan_figures(
                 crc_content=row.pair.crc_file.content,
                 cpr_content=row.pair.cpr_file.content,
                 min_grain_size=requested_min_size,
                 orientation_family=str(features.get("orientation_family", "cubic")),
             )
+            python_images = {
+                name: cpp_scale_bar(image) if isinstance(image, RawRgbMap) else image
+                for name, image in python_figures.items()
+            }
             scan_report_images[position] = {
                 **python_images,
                 "band_contrast": cpp_band_contrast_map(row),

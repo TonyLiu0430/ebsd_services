@@ -14,13 +14,12 @@
 #include "EbsdLib/Core/Orientation.hpp"
 #include <EbsdLib/LaueOps/LaueOps.h>
 #include "utils.h"
+#include "scale_bar.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-#include <string>
-#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <map>
@@ -200,106 +199,6 @@ void save_hcp_ipf_legend(const std::filesystem::path& img_path, int dim)
     if(!ok) std::cout << "failed" << std::endl;
 }
 
-const std::array<uint8_t, 7>& glyph_for(char ch)
-{
-    static const std::unordered_map<char, std::array<uint8_t, 7>> glyphs = {
-        {'0', {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}},
-        {'1', {0x04, 0x0C, 0x14, 0x04, 0x04, 0x04, 0x1F}},
-        {'2', {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}},
-        {'3', {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E}},
-        {'4', {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}},
-        {'5', {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E}},
-        {'6', {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E}},
-        {'7', {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}},
-        {'8', {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}},
-        {'9', {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E}},
-        {'.', {0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C}},
-        {';', {0x00, 0x00, 0x00, 0x0C, 0x0C, 0x04, 0x08}},
-        {'=', {0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00, 0x00}},
-        {'B', {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E}},
-        {'C', {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E}},
-        {'F', {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10}},
-        {'G', {0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F}},
-        {'I', {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F}},
-        {'P', {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10}},
-        {'S', {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E}},
-        {'d', {0x01, 0x01, 0x0F, 0x11, 0x11, 0x13, 0x0D}},
-        {'e', {0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0F}},
-        {'i', {0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E}},
-        // Render the ASCII fallback in "um" with the shape of a micro sign.
-        {'u', {0x00, 0x00, 0x11, 0x11, 0x11, 0x1F, 0x10}},
-        {'m', {0x00, 0x00, 0x1A, 0x15, 0x15, 0x15, 0x15}},
-        {'p', {0x00, 0x00, 0x1E, 0x11, 0x1E, 0x10, 0x10}},
-        {'r', {0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10}},
-        {'t', {0x04, 0x04, 0x1F, 0x04, 0x04, 0x04, 0x03}},
-        {'x', {0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11}},
-        {' ', {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
-    };
-    static const std::array<uint8_t, 7> unknown = {0x1F, 0x11, 0x02, 0x04, 0x00, 0x04, 0x00};
-    const auto it = glyphs.find(ch);
-    return it == glyphs.end() ? unknown : it->second;
-}
-
-void set_rgb_pixel(std::vector<uint8_t>& image, int width, int height, int x, int y, uint8_t value)
-{
-    if(x < 0 || y < 0 || x >= width || y >= height) return;
-    const size_t index = (static_cast<size_t>(y) * width + x) * 3;
-    image[index] = value;
-    image[index + 1] = value;
-    image[index + 2] = value;
-}
-
-void fill_rgb_rect(std::vector<uint8_t>& image, int width, int height, int x, int y, int rect_width, int rect_height, uint8_t value)
-{
-    for(int py = y; py < y + rect_height; ++py) {
-        for(int px = x; px < x + rect_width; ++px) {
-            set_rgb_pixel(image, width, height, px, py, value);
-        }
-    }
-}
-
-void draw_text(std::vector<uint8_t>& image, int width, int height, int x, int y, const std::string& text, int pixel_scale)
-{
-    int cursor = x;
-    for(char ch : text) {
-        const auto& glyph = glyph_for(ch);
-        for(int row = 0; row < 7; ++row) {
-            for(int col = 0; col < 5; ++col) {
-                if((glyph[row] & (1U << (4 - col))) == 0) continue;
-                fill_rgb_rect(
-                    image,
-                    width,
-                    height,
-                    cursor + col * pixel_scale,
-                    y + row * pixel_scale,
-                    pixel_scale,
-                    pixel_scale,
-                    20
-                );
-            }
-        }
-        cursor += 6 * pixel_scale;
-    }
-}
-
-std::string format_scale_length(double micrometers)
-{
-    if(micrometers >= 10.0 || std::fabs(micrometers - std::round(micrometers)) < 1e-6) {
-        return std::to_string(static_cast<long long>(std::llround(micrometers))) + " um";
-    }
-    std::string value = std::to_string(micrometers);
-    value.erase(value.find_last_not_of('0') + 1);
-    if(!value.empty() && value.back() == '.') value.pop_back();
-    return value + " um";
-}
-
-std::string format_scale_footer(const std::string& map_name, double bar_um, double x_step_um, int x_dim, int y_dim)
-{
-    return format_scale_length(bar_um)
-        + "; " + map_name + "; Step=" + format_scale_length(x_step_um)
-        + "; Grid" + std::to_string(x_dim) + "x" + std::to_string(y_dim);
-}
-
 } // namespace
 
 vector<vector<std::tuple<uint8_t, uint8_t, uint8_t>>> gen_ipf_map(const vector<vector<QuatF>> &orientations, unsigned int orientation_ops_index, bool is_hcp, std::array<double, 3> ref_dir) {
@@ -359,69 +258,43 @@ void save_ipf_map(const std::filesystem::path& ebsd_path, const std::filesystem:
     }
 
 
-    auto pixels = gen_ipf_map(orientations, data.primary_orientation_ops_index, data.hcp, ref_dir);
-    const int minimum_output_dimension = 900;
-    const int shortest_dimension = std::max(1, std::min(xDim, yDim));
-    const int upscale = std::clamp(
-        static_cast<int>(std::ceil(static_cast<double>(minimum_output_dimension) / shortest_dimension)),
-        1,
-        8
-    );
-    const int map_width = xDim * upscale;
-    const int map_height = yDim * upscale;
-    // Compact footer matching the reference EBSD map: a filled bar on the left
-    // with its value alongside it.
-    const int scale_region_height = include_scale_bar ? std::max(24, 8 * upscale) : 0;
-    const int output_height = map_height + scale_region_height;
-    std::vector<uint8_t> img(static_cast<size_t>(map_width) * output_height * 3, 255);
-
-    for (int source_y = 0; source_y < yDim; ++source_y) {
-        for (int source_x = 0; source_x < xDim; ++source_x) {
-            const auto& px = pixels[source_y][source_x];
-            auto [r, g, b] = px;
-            for(int dy = 0; dy < upscale; ++dy) {
-                for(int dx = 0; dx < upscale; ++dx) {
-                    const int target_x = source_x * upscale + dx;
-                    const int target_y = source_y * upscale + dy;
-                    const size_t index = (static_cast<size_t>(target_y) * map_width + target_x) * 3;
-                    img[index] = r;
-                    img[index + 1] = g;
-                    img[index + 2] = b;
-                }
-            }
+    const auto pixels = gen_ipf_map(orientations, data.primary_orientation_ops_index, data.hcp, ref_dir);
+    std::vector<uint8_t> source_rgb(static_cast<size_t>(xDim) * yDim * 3);
+    for(int y = 0; y < yDim; ++y) {
+        for(int x = 0; x < xDim; ++x) {
+            const auto [r, g, b] = pixels[y][x];
+            const size_t index = (static_cast<size_t>(y) * xDim + x) * 3;
+            source_rgb[index] = r;
+            source_rgb[index + 1] = g;
+            source_rgb[index + 2] = b;
         }
     }
 
+    const int upscale = map_upscale(xDim, yDim);
+    RasterImage img = upscale_nearest(source_rgb, xDim, yDim, 3, upscale);
     if(include_scale_bar) {
-        constexpr int scale_bar_grid_points = 100;
-        const double x_step_um = data.x_step;
-        const double bar_um = x_step_um * scale_bar_grid_points;
-        if(bar_um > 0.0 && x_step_um > 0.0) {
-            const int bar_width = scale_bar_grid_points * upscale;
-            const int bar_height = std::max(10, 6 * upscale);
-            const int bar_x = std::max(2, upscale);
-            const int bar_y = map_height + std::max(2, upscale);
-            fill_rgb_rect(img, map_width, output_height, bar_x, bar_y, bar_width, bar_height, 20);
-
-            const std::string label = format_scale_footer("IPF", bar_um, x_step_um, xDim, yDim);
-            const int text_scale = std::clamp((upscale + 1) / 2, 1, 2);
-            const int text_height = 7 * text_scale;
-            const int text_x = bar_x + bar_width + std::max(4, 2 * upscale);
-            const int text_y = bar_y + std::max(0, (bar_height - text_height) / 2);
-            draw_text(
-                img,
-                map_width,
-                output_height,
-                text_x,
-                text_y,
-                label,
-                text_scale
-            );
-        }
+        img = add_scale_bar_footer(
+            img.pixels,
+            img.width,
+            img.height,
+            img.channels,
+            data.x_step,
+            xDim,
+            yDim,
+            "IPF",
+            upscale
+        );
     }
 
     std::filesystem::create_directories(img_path.parent_path());
-    int ok = stbi_write_png(img_path.string().c_str(), map_width, output_height, 3, img.data(), map_width * 3);
+    int ok = stbi_write_png(
+        img_path.string().c_str(),
+        img.width,
+        img.height,
+        img.channels,
+        img.pixels.data(),
+        img.width * img.channels
+    );
     if(!ok) std::cout << "failed" << std::endl;
 }
 

@@ -12,12 +12,14 @@ from pptx.dml.color import RGBColor
 from scipy.ndimage import map_coordinates
 
 from python_ebsd_figures import (
+    RawRgbMap,
     TEXTURE_DENSITY_GRID_SIZE,
     _channel5_plot_coordinates,
     _grain_size_rgb,
     _inverse_pole_figure,
     _lambert_equal_area_density,
     _pole_figure,
+    _raw_rgb_map,
 )
 from template_ppt_report import build_pptx_report
 
@@ -95,6 +97,19 @@ class ScanPointPageTests(unittest.TestCase):
 
 
 class PythonTextureFigureTests(unittest.TestCase):
+    def test_python_map_is_sent_to_cpp_as_raw_rgb(self) -> None:
+        rgb = np.zeros((200, 300, 3), dtype=float)
+        rgb[..., 1] = 1.0
+
+        image = _raw_rgb_map(rgb, step_size=2.0, map_name="GS")
+
+        self.assertIsInstance(image, RawRgbMap)
+        self.assertEqual((image.width, image.height), (300, 200))
+        self.assertEqual(image.x_step_um, 2.0)
+        self.assertEqual(image.map_name, "GS")
+        self.assertEqual(len(image.pixels), 300 * 200 * 3)
+        self.assertEqual(image.pixels[:3], bytes((0, 255, 0)))
+
     def test_grain_map_colour_is_determined_by_equivalent_diameter(self) -> None:
         grains = np.array(
             [

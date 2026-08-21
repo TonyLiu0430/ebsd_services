@@ -1,5 +1,6 @@
 #include "band_contrast_map.h"
 #include "ebsd_data.h"
+#include "scale_bar.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
@@ -74,6 +75,18 @@ int main()
         require(read_big_endian_u32(scaled_header, 16) == 1500, "Unexpected scale-bar PNG width");
         require(read_big_endian_u32(scaled_header, 20) == 1040, "Scale-bar footer must be compact");
         scaled_stream.close();
+
+        const std::vector<uint8_t> raw_rgb(static_cast<size_t>(300) * 200 * 3, 128);
+        const RasterImage footer = add_scale_bar_footer(raw_rgb, 300, 200, 3, 2.0, 300, 200, "GS", 1);
+        require(footer.width == 300, "Shared scale-bar renderer changed image width");
+        require(footer.height == 208, "Shared scale-bar renderer must add an eight-pixel footer");
+        require(footer.channels == 3, "Shared scale-bar renderer changed channel count");
+        const auto footer_pixel = [&footer](int x, int y, int channel) {
+            return footer.pixels[(static_cast<size_t>(y) * footer.width + x) * footer.channels + channel];
+        };
+        require(footer_pixel(1, 201, 0) == 20, "Scale bar must start one source pixel from the left");
+        require(footer_pixel(100, 206, 2) == 20, "Scale bar must cover exactly 100 source pixels");
+        require(footer_pixel(101, 206, 0) == 255, "Scale bar must not exceed 100 source pixels");
 
         mock_data.band_contrast.clear();
         bool rejected_missing_data = false;

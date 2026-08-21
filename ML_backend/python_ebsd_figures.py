@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import math
 import tempfile
+from dataclasses import dataclass
 from functools import lru_cache
 from itertools import permutations, product
 from pathlib import Path
@@ -58,39 +59,31 @@ def _png(figure: Figure) -> bytes:
     return output.getvalue()
 
 
-def _nice_scale_length(maximum: float) -> float:
-    if not math.isfinite(maximum) or maximum <= 0:
-        return 0.0
-    exponent = 10 ** math.floor(math.log10(maximum))
-    normalized = maximum / exponent
-    multiplier = 5 if normalized >= 5 else 2 if normalized >= 2 else 1
-    return multiplier * exponent
+@dataclass(frozen=True)
+class RawRgbMap:
+    pixels: bytes
+    width: int
+    height: int
+    x_step_um: float
+    map_name: str
 
 
-def _image_figure(rgb: np.ndarray, step_size: float) -> bytes:
-    height, width = rgb.shape[:2]
-    figure = Figure(figsize=(4.2, 2.45), dpi=180, facecolor="white")
-    axis = figure.add_axes((0.01, 0.05, 0.98, 0.94))
-    axis.imshow(rgb, interpolation="nearest")
-    axis.set_xlim(-0.5, width - 0.5)
-    axis.set_ylim(height - 0.5, -0.5)
-    axis.axis("off")
-
-    length_um = _nice_scale_length(width * step_size * 0.28)
-    if length_um > 0 and step_size > 0:
-        bar_pixels = min(width * 0.6, length_um / step_size)
-        center = (width - 1) / 2
-        y = height * 0.93
-        axis.plot(
-            (center - bar_pixels / 2, center + bar_pixels / 2),
-            (y, y),
-            color="black",
-            linewidth=2.2,
-            solid_capstyle="butt",
-        )
-        label = f"{length_um:g} um"
-        axis.text(center, y - height * 0.035, label, ha="center", va="bottom", fontsize=5, color="black")
-    return _png(figure)
+def _raw_rgb_map(rgb: np.ndarray, step_size: float, map_name: str) -> RawRgbMap:
+    values = np.asarray(rgb)
+    if values.ndim != 3 or values.shape[2] != 3:
+        raise ValueError("Scale-bar maps must be RGB images")
+    if values.dtype == np.uint8:
+        pixels = np.ascontiguousarray(values)
+    else:
+        pixels = np.rint(np.clip(values, 0.0, 1.0) * 255.0).astype(np.uint8)
+    height, width = pixels.shape[:2]
+    return RawRgbMap(
+        pixels=pixels.tobytes(),
+        width=width,
+        height=height,
+        x_step_um=float(step_size),
+        map_name=map_name,
+    )
 
 
 def _normalised_band_contrast(ebsd_map: ebsd.Map) -> np.ndarray:
@@ -133,7 +126,7 @@ def _grain_size_rgb(grains: np.ndarray, step_size: float) -> np.ndarray:
     return rgb
 
 
-def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[bytes, np.ndarray]:
+def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[RawRgbMap, np.ndarray]:
     # Access through Datastore so DefDAP stores the generated boundary set
     # before find_grains() consumes it.
     _ = ebsd_map.data.grain_boundaries
@@ -144,7 +137,7 @@ def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[bytes, np.ndarr
     for grain_id in grain_ids[grain_sizes < max(1, min_grain_size)]:
         grains[grains == grain_id] = -2
     rgb = _grain_size_rgb(grains, float(ebsd_map.step_size))
-    return _image_figure(rgb, float(ebsd_map.step_size)), grains
+    return _raw_rgb_map(rgb, float(ebsd_map.step_size), "GS"), grains
 
 
 def _orix_phase(ebsd_map: ebsd.Map, family: str) -> Tuple[Any, Phase]:
@@ -545,7 +538,8 @@ def _preferred_orientation_map(
     valid: np.ndarray,
     family_vectors: Sequence[np.ndarray],
     threshold: float,
-) -> bytes:
+    map_name: str,
+) -> RawRgbMap:
     crystal_directions = np.asarray((orientations * Vector3d.zvector()).data, dtype=float).reshape(-1, 3)
     scores = np.column_stack(
         [np.max(np.abs(crystal_directions @ vectors.T), axis=1) for vectors in family_vectors]
@@ -562,7 +556,7 @@ def _preferred_orientation_map(
     for family_index, color in enumerate(PREFERRED_COLORS):
         pixels = valid_indices[accepted & (selected_family == family_index)]
         flat_rgb[pixels] = flat_rgb[pixels] * (1.0 - alpha) + color * alpha
-    return _image_figure(rgb, float(ebsd_map.step_size))
+    return _raw_rgb_map(rgb, float(ebsd_map.step_size), map_name)
 
 
 def generate_python_scan_figures(
@@ -571,7 +565,7 @@ def generate_python_scan_figures(
     cpr_content: bytes,
     min_grain_size: int,
     orientation_family: str,
-) -> Dict[str, bytes]:
+) -> Dict[str, Any]:
     family = "hcp" if str(orientation_family).lower() == "hcp" else "cubic"
     with tempfile.TemporaryDirectory(prefix="ebsd-python-figures-") as temporary_dir:
         base = Path(temporary_dir) / "scan"
@@ -586,10 +580,10 @@ def generate_python_scan_figures(
         return {
             "grain_map": grain_map,
             "preferred_20": _preferred_orientation_map(
-                ebsd_map, orientations, valid, family_vectors, 20.0
+                ebsd_map, orientations, valid, family_vectors, 20.0, "POR20"
             ),
             "preferred_15": _preferred_orientation_map(
-                ebsd_map, orientations, valid, family_vectors, 15.0
+                ebsd_map, orientations, valid, family_vectors, 15.0, "POR15"
             ),
             "pole_figure": _pole_figure(orientations, family, phase),
             "inverse_pole_figure": _inverse_pole_figure(orientations, point_group),

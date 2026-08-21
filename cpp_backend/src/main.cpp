@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include "band_contrast_map.h"
+#include "scale_bar.h"
 #include "utils.h"
 #include <future>
 
@@ -492,6 +493,61 @@ int main() {
     // ml_feature();
     // return 0;
     httplib::Server svr;
+    svr.Post("/scale_bar", [](const httplib::Request& req, httplib::Response& res) {
+        if(!req.is_multipart_form_data()) {
+            res.status = 400;
+            res.set_content("Content-Type must be multipart/form-data", "text/plain");
+            return;
+        }
+
+        try {
+            if(!req.has_file("image")) throw std::invalid_argument("Missing raw RGB image field");
+            if(!req.has_param("width") || !req.has_param("height") || !req.has_param("x_step_um") || !req.has_param("map_name")) {
+                throw std::invalid_argument("width, height, x_step_um, and map_name are required");
+            }
+
+            const int width = std::stoi(req.get_param_value("width"));
+            const int height = std::stoi(req.get_param_value("height"));
+            const double x_step_um = std::stod(req.get_param_value("x_step_um"));
+            const std::string map_name = req.get_param_value("map_name");
+            if(width <= 0 || height <= 0 || width > 5000 || height > 5000) {
+                throw std::invalid_argument("Image dimensions must be between 1 and 5000");
+            }
+            if(!std::isfinite(x_step_um) || x_step_um <= 0.0) {
+                throw std::invalid_argument("x_step_um must be positive");
+            }
+            if(map_name.empty() || map_name.size() > 16 || !std::all_of(map_name.begin(), map_name.end(), [](unsigned char ch) {
+                return std::isalnum(ch) || ch == '+' || ch == '-' || ch == '_';
+            })) {
+                throw std::invalid_argument("map_name must contain 1-16 letters, numbers, '+', '-', or '_'");
+            }
+
+            const auto& raw_image = req.get_file_value("image").content;
+            const size_t expected_size = static_cast<size_t>(width) * height * 3;
+            if(raw_image.size() != expected_size) {
+                throw std::invalid_argument("Raw RGB image byte count does not match width and height");
+            }
+            const std::vector<uint8_t> source_rgb(raw_image.begin(), raw_image.end());
+            const int upscale = map_upscale(width, height);
+            RasterImage image = upscale_nearest(source_rgb, width, height, 3, upscale);
+            image = add_scale_bar_footer(
+                image.pixels,
+                image.width,
+                image.height,
+                image.channels,
+                x_step_um,
+                width,
+                height,
+                map_name,
+                upscale
+            );
+            res.set_content(encode_png(image), "image/png");
+        } catch(const std::exception& exc) {
+            res.status = 400;
+            res.set_content(exc.what(), "text/plain");
+        }
+    });
+
     svr.Post("/features", [](const httplib::Request& req, httplib::Response& res) {
         if (!req.is_multipart_form_data()) {
             res.status = 400;

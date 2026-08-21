@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import colorsys
 import io
 import math
 import tempfile
@@ -112,6 +111,28 @@ def _grain_boundaries(grains: np.ndarray) -> np.ndarray:
     return boundary
 
 
+def _grain_size_rgb(grains: np.ndarray, step_size: float) -> np.ndarray:
+    """Colour grains by equivalent-circle diameter using a Channel 5-like scale."""
+    rgb = np.full(grains.shape + (3,), 0.93, dtype=float)
+    indexed = grains > 0
+    if np.any(indexed):
+        _, inverse, pixel_counts = np.unique(
+            grains[indexed],
+            return_inverse=True,
+            return_counts=True,
+        )
+        pixel_area = max(float(step_size), 0.0) ** 2
+        diameters = 2.0 * np.sqrt(pixel_counts * pixel_area / math.pi)
+        maximum = float(np.max(diameters))
+        normalised = diameters / maximum if maximum > 0 else np.zeros_like(diameters)
+        grain_colours = CHANNEL5_DENSITY_CMAP(np.clip(normalised, 0.0, 1.0))[:, :3]
+        rgb[indexed] = grain_colours[inverse]
+
+    rgb[~indexed] = 0.0
+    rgb[_grain_boundaries(grains)] = 0.05
+    return rgb
+
+
 def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[bytes, np.ndarray]:
     # Access through Datastore so DefDAP stores the generated boundary set
     # before find_grains() consumes it.
@@ -122,14 +143,7 @@ def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[bytes, np.ndarr
     grain_ids, grain_sizes = np.unique(grains[grains > 0], return_counts=True)
     for grain_id in grain_ids[grain_sizes < max(1, min_grain_size)]:
         grains[grains == grain_id] = -2
-    rgb = np.full(grains.shape + (3,), 0.93, dtype=float)
-    for grain_id in np.unique(grains):
-        if grain_id <= 0:
-            continue
-        hue = (grain_id * 0.61803398875) % 1.0
-        rgb[grains == grain_id] = colorsys.hsv_to_rgb(hue, 0.78, 0.98)
-    rgb[grains <= 0] = 0.0
-    rgb[_grain_boundaries(grains)] = 0.05
+    rgb = _grain_size_rgb(grains, float(ebsd_map.step_size))
     return _image_figure(rgb, float(ebsd_map.step_size)), grains
 
 

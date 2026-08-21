@@ -58,6 +58,22 @@ int main()
         require(read_big_endian_u32(header, 20) == 16, "Unexpected band contrast PNG height");
         require(header[24] == 8, "Band contrast PNG must use 8-bit samples");
         require(header[25] == 0, "Band contrast PNG must be grayscale");
+        stream.close();
+
+        mock_data.x_dim = 300;
+        mock_data.y_dim = 200;
+        mock_data.x_step = 2.0;
+        mock_data.y_step = 2.0;
+        mock_data.band_contrast.assign(static_cast<size_t>(mock_data.x_dim) * mock_data.y_dim, 128);
+        save_band_contrast_map("mock.ctf", output_path, true);
+
+        std::ifstream scaled_stream(output_path, std::ios::binary);
+        std::array<unsigned char, 26> scaled_header{};
+        scaled_stream.read(reinterpret_cast<char*>(scaled_header.data()), static_cast<std::streamsize>(scaled_header.size()));
+        require(scaled_stream.good(), "Could not read scale-bar PNG header");
+        require(read_big_endian_u32(scaled_header, 16) == 1500, "Unexpected scale-bar PNG width");
+        require(read_big_endian_u32(scaled_header, 20) == 1040, "Scale-bar footer must be compact");
+        scaled_stream.close();
 
         mock_data.band_contrast.clear();
         bool rejected_missing_data = false;

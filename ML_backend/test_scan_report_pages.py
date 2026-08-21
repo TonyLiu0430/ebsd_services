@@ -14,6 +14,7 @@ from scipy.ndimage import map_coordinates
 from python_ebsd_figures import (
     TEXTURE_DENSITY_GRID_SIZE,
     _channel5_plot_coordinates,
+    _grain_size_rgb,
     _inverse_pole_figure,
     _lambert_equal_area_density,
     _pole_figure,
@@ -94,6 +95,25 @@ class ScanPointPageTests(unittest.TestCase):
 
 
 class PythonTextureFigureTests(unittest.TestCase):
+    def test_grain_map_colour_is_determined_by_equivalent_diameter(self) -> None:
+        grains = np.array(
+            [
+                [1, 1, 0, 3, 3],
+                [1, 1, 0, 3, 3],
+                [0, 0, 0, 3, 3],
+                [2, 2, 0, 3, 3],
+                [2, 2, 0, 3, 3],
+            ],
+            dtype=int,
+        )
+        rgb = _grain_size_rgb(grains, step_size=2.0)
+
+        # Grain IDs 1 and 2 have the same area and therefore the same colour.
+        np.testing.assert_allclose(rgb[1, 1], rgb[4, 1])
+        # The larger grain lies farther toward the red end of the size scale.
+        self.assertGreater(rgb[3, 4, 0], rgb[1, 1, 0])
+        self.assertLess(rgb[3, 4, 1], rgb[1, 1, 1])
+
     def test_channel5_pf_coordinate_basis(self) -> None:
         sample_directions = Vector3d(
             [

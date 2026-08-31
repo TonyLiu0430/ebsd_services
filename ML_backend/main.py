@@ -5,13 +5,18 @@ import os
 import pathlib
 import re
 import shutil
+import threading
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import quote, urlencode
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 import defdap.ebsd as ebsd # type: ignore
 import tempfile
 import numpy as np
@@ -30,6 +35,7 @@ from ebsd_store import (
     get_or_create_ebsd_file,
     get_or_create_pair,
     init_db,
+    SessionLocal,
     read_upload,
     upsert_user_target,
     create_user_pair,
@@ -42,6 +48,92 @@ app = FastAPI()
 
 CPP_BACKEND_URL = os.getenv("CPP_BACKEND_URL", "http://cpp_backend:8080").rstrip("/")
 CPP_BACKEND_TIMEOUT_SECONDS = int(os.getenv("CPP_BACKEND_TIMEOUT_SECONDS", "180"))
+PPT_JOB_DIR = pathlib.Path(os.getenv("PPT_JOB_DIR", "/tmp/ebsd-ppt-jobs"))
+PPT_JOB_TTL_SECONDS = int(os.getenv("PPT_JOB_TTL_SECONDS", "1800"))
+PPT_JOB_CLEANUP_INTERVAL_SECONDS = int(os.getenv("PPT_JOB_CLEANUP_INTERVAL_SECONDS", "60"))
+PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+@dataclass
+class PptJob:
+    id: str
+    user_id: str
+    created_at: float
+    status: str = "queued"
+    updated_at: float = 0.0
+    filename: Optional[str] = None
+    file_path: Optional[pathlib.Path] = None
+    error: Optional[str] = None
+
+
+PPT_JOBS: Dict[str, PptJob] = {}
+PPT_JOBS_LOCK = threading.RLock()
+PPT_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ppt-report")
+PPT_JOB_CLEANUP_STOP = threading.Event()
+PPT_JOB_CLEANUP_THREAD: Optional[threading.Thread] = None
+
+
+def ppt_job_payload(job: PptJob) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"id": job.id, "status": job.status}
+    if job.status == "failed" and job.error:
+        payload["error"] = job.error
+    if job.status == "completed":
+        payload["download_url"] = f"/reports/pptx/{job.id}/download"
+    return payload
+
+
+def cleanup_ppt_jobs() -> None:
+    """Remove expired report files and their in-memory job records."""
+    cutoff = datetime.now().timestamp() - PPT_JOB_TTL_SECONDS
+    expired_paths: List[pathlib.Path] = []
+    with PPT_JOBS_LOCK:
+        expired_ids = [
+            job_id
+            for job_id, job in PPT_JOBS.items()
+            if job.status in {"completed", "failed", "downloading"} and job.updated_at <= cutoff
+        ]
+        for job_id in expired_ids:
+            job = PPT_JOBS.pop(job_id)
+            if job.file_path:
+                expired_paths.append(job.file_path)
+
+    for path in expired_paths:
+        path.unlink(missing_ok=True)
+
+    if not PPT_JOB_DIR.exists():
+        return
+    for path in PPT_JOB_DIR.iterdir():
+        if path.is_file() and path.suffix == ".tmp" and path.stat().st_mtime <= cutoff:
+            path.unlink(missing_ok=True)
+
+
+def clear_ppt_job_storage() -> None:
+    """PPT jobs are intentionally ephemeral; remove remnants after a restart."""
+    shutil.rmtree(PPT_JOB_DIR, ignore_errors=True)
+    PPT_JOB_DIR.mkdir(parents=True, exist_ok=True)
+    with PPT_JOBS_LOCK:
+        PPT_JOBS.clear()
+
+
+def start_ppt_job_cleanup() -> None:
+    global PPT_JOB_CLEANUP_THREAD
+    if PPT_JOB_CLEANUP_THREAD and PPT_JOB_CLEANUP_THREAD.is_alive():
+        return
+    PPT_JOB_CLEANUP_STOP.clear()
+
+    def run() -> None:
+        while not PPT_JOB_CLEANUP_STOP.wait(PPT_JOB_CLEANUP_INTERVAL_SECONDS):
+            cleanup_ppt_jobs()
+
+    PPT_JOB_CLEANUP_THREAD = threading.Thread(target=run, name="ppt-job-cleanup", daemon=True)
+    PPT_JOB_CLEANUP_THREAD.start()
+
+
+def remove_ppt_job(job_id: str) -> None:
+    with PPT_JOBS_LOCK:
+        job = PPT_JOBS.pop(job_id, None)
+    if job and job.file_path:
+        job.file_path.unlink(missing_ok=True)
 
 
 def attachment_content_disposition(filename: str) -> str:
@@ -102,6 +194,13 @@ def cleanup_orphan_pair_and_files(db: Session, pair: EbsdPair) -> Dict[str, int]
 @app.on_event("startup")
 def startup():
     init_db()
+    clear_ppt_job_storage()
+    start_ppt_job_cleanup()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    PPT_JOB_CLEANUP_STOP.set()
 
 @app.get('/')
 def hello():
@@ -1074,6 +1173,7 @@ def collect_report_data(
     db: Session,
     *,
     include_ipf_images: bool = False,
+    user: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     selected_sample = req.sample.strip()
     golden_sample = (req.golden or "").strip()
@@ -1088,7 +1188,7 @@ def collect_report_data(
     if golden_sample and selected_sample == golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden must be different")
 
-    user = current_user_from_go_session(request)
+    user = user or current_user_from_go_session(request)
     rows = db.execute(
         select(UserEbsdPair)
         .where(UserEbsdPair.user_id == user["id"])
@@ -1222,8 +1322,14 @@ def generate_report_data(req: ReportPptRequest, request: Request, db: Session = 
     }
 
 
-def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Session) -> Dict[str, Any]:
-    context = collect_report_data(req, request, db)
+def build_ppt_report_context(
+    req: ReportPptRequest,
+    request: Request,
+    db: Session,
+    *,
+    user: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    context = collect_report_data(req, request, db, user=user)
     selected_sample = context["selected_sample"]
     golden_sample = context["golden_sample"]
     selected_key = context["selected_version_key"]
@@ -1332,16 +1438,102 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
     }
 
 
-@app.post('/reports/pptx')
-def generate_ppt_report(req: ReportPptRequest, request: Request, db: Session = Depends(get_db)):
-    context = build_ppt_report_context(req, request, db)
-    pptx = build_pptx_report(**context)
-    stamp = datetime.now().strftime("%Y-%m-%d")
-    filename = f"EBSD-report-{context['selected_sample']}-{stamp}.pptx"
-    return Response(
-        content=pptx,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": attachment_content_disposition(filename)},
+def run_ppt_report_job(job_id: str, req: ReportPptRequest, user: Dict[str, str]) -> None:
+    """Build a report outside the request lifecycle using a fresh DB session."""
+    with PPT_JOBS_LOCK:
+        job = PPT_JOBS.get(job_id)
+        if not job:
+            return
+        job.status = "running"
+        job.updated_at = datetime.now().timestamp()
+
+    db = SessionLocal()
+    try:
+        context = build_ppt_report_context(req, None, db, user=user)
+        pptx = build_pptx_report(**context)
+        stamp = datetime.now().strftime("%Y-%m-%d")
+        filename = f"EBSD-report-{context['selected_sample']}-{stamp}.pptx"
+        PPT_JOB_DIR.mkdir(parents=True, exist_ok=True)
+        path = PPT_JOB_DIR / f"{job_id}.pptx"
+        temporary_path = PPT_JOB_DIR / f".{job_id}.pptx.tmp"
+        with temporary_path.open("wb") as output:
+            output.write(pptx)
+        temporary_path.replace(path)
+
+        with PPT_JOBS_LOCK:
+            job = PPT_JOBS.get(job_id)
+            if not job:
+                path.unlink(missing_ok=True)
+                return
+            job.status = "completed"
+            job.updated_at = datetime.now().timestamp()
+            job.filename = filename
+            job.file_path = path
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "PPT output failed"
+        with PPT_JOBS_LOCK:
+            job = PPT_JOBS.get(job_id)
+            if job:
+                job.status = "failed"
+                job.updated_at = datetime.now().timestamp()
+                job.error = detail
+    except Exception as exc:
+        with PPT_JOBS_LOCK:
+            job = PPT_JOBS.get(job_id)
+            if job:
+                job.status = "failed"
+                job.updated_at = datetime.now().timestamp()
+                job.error = f"PPT output failed: {exc}"
+    finally:
+        db.close()
+
+
+def get_owned_ppt_job(job_id: str, user_id: str) -> PptJob:
+    with PPT_JOBS_LOCK:
+        job = PPT_JOBS.get(job_id)
+        if not job or job.user_id != user_id:
+            raise HTTPException(status_code=404, detail="PPT job not found")
+        return job
+
+
+@app.post('/reports/pptx', status_code=202)
+def create_ppt_report_job(req: ReportPptRequest, request: Request):
+    user = current_user_from_go_session(request)
+    cleanup_ppt_jobs()
+    now = datetime.now().timestamp()
+    with PPT_JOBS_LOCK:
+        if any(job.status in {"queued", "running"} for job in PPT_JOBS.values()):
+            raise HTTPException(status_code=409, detail="a PPT report is already being generated")
+        job = PptJob(id=uuid.uuid4().hex, user_id=user["id"], created_at=now, updated_at=now)
+        PPT_JOBS[job.id] = job
+    PPT_JOB_EXECUTOR.submit(run_ppt_report_job, job.id, req, user)
+    return ppt_job_payload(job)
+
+
+@app.get('/reports/pptx/{job_id}')
+def get_ppt_report_job(job_id: str, request: Request):
+    user = current_user_from_go_session(request)
+    cleanup_ppt_jobs()
+    return ppt_job_payload(get_owned_ppt_job(job_id, user["id"]))
+
+
+@app.get('/reports/pptx/{job_id}/download')
+def download_ppt_report_job(job_id: str, request: Request):
+    user = current_user_from_go_session(request)
+    cleanup_ppt_jobs()
+    job = get_owned_ppt_job(job_id, user["id"])
+    with PPT_JOBS_LOCK:
+        if job.status != "completed" or not job.file_path or not job.file_path.is_file():
+            raise HTTPException(status_code=409, detail="PPT report is not ready for download")
+        job.status = "downloading"
+        job.updated_at = datetime.now().timestamp()
+        path = job.file_path
+        filename = job.filename or "EBSD-report.pptx"
+    return FileResponse(
+        path,
+        media_type=PPTX_MEDIA_TYPE,
+        filename=filename,
+        background=BackgroundTask(remove_ppt_job, job_id),
     )
 
 class AnalysisRequest(BaseModel):

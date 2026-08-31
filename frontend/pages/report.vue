@@ -951,6 +951,12 @@ type ReportDataResponse = {
   versionedReportData: VersionedDataResult
   rawVersionPositions: Record<string, Record<string, string[]>>
 }
+type PptJob = {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'downloading'
+  error?: string
+  download_url?: string
+}
 
 type AnalysisResult = Record<string, Record<string, number>>
 type StoredEbsdPair = {
@@ -1033,6 +1039,7 @@ const pptError = ref('')
 const exportingPpt = ref(false)
 const pptElapsedSeconds = ref(0)
 let pptElapsedTimer: ReturnType<typeof setInterval> | null = null
+let pptPollingCancelled = false
 const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
@@ -2079,18 +2086,35 @@ function startPptElapsedTimer() {
   }, 250)
 }
 
-onBeforeUnmount(stopPptElapsedTimer)
+onBeforeUnmount(() => {
+  pptPollingCancelled = true
+  stopPptElapsedTimer()
+})
+
+function waitForPptPoll(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 1000))
+}
+
+async function waitForPptJob(jobId: string): Promise<PptJob | null> {
+  while (!pptPollingCancelled) {
+    const job = await $fetch<PptJob>(`/api/reports/pptx/${jobId}`, { credentials: 'include' })
+    if (job.status === 'completed') return job
+    if (job.status === 'failed') throw new Error(job.error || 'PPT 輸出失敗')
+    await waitForPptPoll()
+  }
+  return null
+}
 
 async function exportReportPpt() {
   if (!reportData.value || exportingPpt.value) return
   pptError.value = ''
   exportingPpt.value = true
+  pptPollingCancelled = false
   startPptElapsedTimer()
 
   try {
-    const blob = await $fetch<Blob>('/api/reports/pptx', {
+    const job = await $fetch<PptJob>('/api/reports/pptx', {
       method: 'POST',
-      responseType: 'blob',
       credentials: 'include',
       body: {
         sample: selectedSample.value,
@@ -2107,6 +2131,12 @@ async function exportReportPpt() {
         selected_features: selectedFeatures.value,
         color_thresholds: colorThresholds.value,
       },
+    })
+    const completedJob = await waitForPptJob(job.id)
+    if (!completedJob) return
+    const blob = await $fetch<Blob>(completedJob.download_url || `/api/reports/pptx/${job.id}/download`, {
+      responseType: 'blob',
+      credentials: 'include',
     })
     const stamp = new Date().toISOString().slice(0, 10)
     const url = URL.createObjectURL(blob)

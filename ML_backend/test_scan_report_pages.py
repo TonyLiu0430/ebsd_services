@@ -79,6 +79,15 @@ class ScanPointPageTests(unittest.TestCase):
             overridden_positions=["A-1"],
         )
         presentation = Presentation(io.BytesIO(report))
+        report_titles = {
+            shape.text
+            for slide in presentation.slides
+            for shape in slide.shapes
+            if shape.name == "EBSD_TITLE"
+        }
+        self.assertIn("Orientation ratio", report_titles)
+        self.assertNotIn("Orientation ratio by pixels", report_titles)
+        self.assertNotIn("Orientation ratio by grains", report_titles)
         scan_titles = []
         for slide in presentation.slides:
             title = next((shape for shape in slide.shapes if shape.name == "EBSD_TITLE"), None)
@@ -179,6 +188,74 @@ class ScanPointPageTests(unittest.TestCase):
         self.assertLess(deviation_20.left + deviation_20.width, Inches(1.95))
         self.assertGreater(deviation_15.left, Inches(10.8))
         self.assertGreater(orientation_key.top, deviation_15.top + deviation_15.height)
+
+
+class ReportAnnotationTests(unittest.TestCase):
+    def test_histograms_show_bar_width_and_comparisons_identify_golden_data(self) -> None:
+        selected_item = {
+            "grains": [4.0, 7.0, 11.0],
+            "orientation_labels": ["[001]", "[011]", "[111]"],
+            "orientation_ratio(20%)": [0.1, 0.2, 0.3],
+            "orientation_ratio(15%)": [0.05, 0.1, 0.15],
+        }
+        golden_item = {
+            **selected_item,
+            "grains": [5.0, 8.0, 12.0],
+        }
+        report = build_pptx_report(
+            selected_sample="Sample-Cu",
+            golden_sample="Golden-Cu",
+            selected_version_label="Sample-Cu-2",
+            golden_version_label="Golden-Cu-3",
+            report_data={
+                "Sample-Cu": {"A-1": selected_item},
+                "Golden-Cu": {"A-1": golden_item},
+            },
+            scan_report_images={"A-1": _scan_images()},
+            histogram_settings={
+                "start_mode": "min",
+                "width_mode": "absolute",
+                "width_absolute": 12.5,
+            },
+            analysis_data={"Sample-Cu": {"A-1": 0.25}},
+            analysis_features=["grain size average"],
+        )
+        presentation = Presentation(io.BytesIO(report))
+
+        scan_histogram_note = next(
+            shape
+            for slide in presentation.slides
+            for shape in slide.shapes
+            if shape.name == "EBSD_HISTOGRAM_NOTE"
+        )
+        self.assertEqual(scan_histogram_note.text, "Bar width: 12.25 μm")
+
+        expected_comparison_titles = {
+            "Grain cumulative curve",
+            "Grain histogram (Count)",
+            "Grain histogram (Ratio, Y max 100%)",
+            "Area-weighted grain histogram",
+            "晶粒取向比例 - Misorientation 20%",
+            "晶粒取向比例 - Misorientation 15%",
+            "晶粒取向折線圖 - Misorientation 20%",
+            "晶粒取向折線圖 - Misorientation 15%",
+            "Feature analysis",
+        }
+        comparison_notes = {}
+        for slide in presentation.slides:
+            title = next((shape.text for shape in slide.shapes if shape.name == "EBSD_TITLE"), "")
+            if title not in expected_comparison_titles:
+                continue
+            note = next(shape.text for shape in slide.shapes if shape.name == "EBSD_REPORT_NOTE")
+            comparison_notes[title] = note
+
+        self.assertEqual(set(comparison_notes), expected_comparison_titles)
+        self.assertTrue(
+            all("Golden data: Golden-Cu · Golden-Cu-3" in note for note in comparison_notes.values())
+        )
+        for title in expected_comparison_titles - {"Grain cumulative curve", "Feature analysis"}:
+            if "histogram" in title.lower():
+                self.assertIn("Bar width: 12.25 μm", comparison_notes[title])
 
 
 class PythonTextureFigureTests(unittest.TestCase):

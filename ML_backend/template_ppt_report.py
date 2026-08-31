@@ -222,6 +222,42 @@ def _add_text(slide, text: str, left: int, top: int, width: int, height: int, *,
     return shape
 
 
+def _format_measurement(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _histogram_width_note(edges: Sequence[float]) -> str:
+    width = edges[1] - edges[0] if len(edges) >= 2 else 0.0
+    return f"Bar width: {_format_measurement(width)} μm"
+
+
+def _golden_data_note(golden_sample: str, golden_version_label: str) -> str:
+    sample = str(golden_sample or "").strip()
+    version = str(golden_version_label or "").strip()
+    parts = [sample] if sample else []
+    if version and version != sample:
+        parts.append(version)
+    identity = " · ".join(parts)
+    return f"Golden data: {identity}" if identity else ""
+
+
+def _add_report_note(slide, text: str) -> None:
+    if not text:
+        return
+    shape = _add_text(
+        slide,
+        text,
+        Inches(6.0),
+        Inches(0.08),
+        Inches(7.0),
+        Inches(0.30),
+        size=9,
+        color=MUTED,
+        align=PP_ALIGN.RIGHT,
+    )
+    shape.name = "EBSD_REPORT_NOTE"
+
+
 def _set_cell(cell, text: str, *, header: bool = False, size: int = 8, color: Optional[RGBColor] = None) -> None:
     cell.margin_left = Inches(0.04)
     cell.margin_right = Inches(0.04)
@@ -507,14 +543,27 @@ def _add_scan_point_pages(
         _add_captioned_picture(overview, "Band contrast", images.get("band_contrast"), 0.45, 0.65, 3.55, 2.45)
         _add_captioned_picture(overview, "Grain size (D)", images.get("grain_map"), 4.10, 0.65, 3.55, 2.45)
         grains = _finite(item.get("grains"))
+        histogram_edges = _histogram_edges(grains, histogram_settings)
         histogram = _grain_chart(
             grains,
             [],
             "ratio",
-            _histogram_edges(grains, histogram_settings),
+            histogram_edges,
         )
         _add_captioned_picture(overview, "Grain-size distribution", histogram.getvalue(), 7.78, 0.65, 3.35, 2.45)
         _add_grain_summary_table(overview, item, 11.15, 1.02, 1.72, 1.55)
+        histogram_note = _add_text(
+            overview,
+            _histogram_width_note(histogram_edges),
+            Inches(11.15),
+            Inches(2.62),
+            Inches(1.72),
+            Inches(0.32),
+            size=8,
+            color=MUTED,
+            align=PP_ALIGN.CENTER,
+        )
+        histogram_note.name = "EBSD_HISTOGRAM_NOTE"
 
         ipf_maps = images.get("ipf_maps", {})
         for index, direction in enumerate(("X", "Y", "Z")):
@@ -755,7 +804,14 @@ def _grain_chart(sample: Sequence[float], golden: Sequence[float], mode: str, ed
     return output
 
 
-def _add_grain_chart_pages(deck: TemplateDeck, selected: Snapshot, golden: Snapshot, selected_label: str, golden_label: str, settings: Dict[str, Any]) -> None:
+def _add_grain_chart_pages(
+    deck: TemplateDeck,
+    selected: Snapshot,
+    golden: Snapshot,
+    golden_sample: str,
+    golden_label: str,
+    settings: Dict[str, Any],
+) -> None:
     positions = _positions(selected, golden)
     all_values = [value for snapshot in (selected, golden) for item in snapshot.values() for value in _finite(item.get("grains"))]
     edges = _histogram_edges(all_values, settings)
@@ -771,6 +827,12 @@ def _add_grain_chart_pages(deck: TemplateDeck, selected: Snapshot, golden: Snaps
         return
     for mode, title in modes:
         slide = deck.add_slide(title, kind="ipf")
+        notes = []
+        if mode != "cdf":
+            notes.append(_histogram_width_note(edges))
+        if golden:
+            notes.append(_golden_data_note(golden_sample, golden_label))
+        _add_report_note(slide, " | ".join(filter(None, notes)))
         image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
             deck, slide, matrix_columns, matrix_rows
         )
@@ -880,7 +942,7 @@ def _add_orientation_tables(
     labels = _orientation_labels(snapshot)
     overridden_set = set(overridden_positions)
     kind = "orientation_grains" if grains else "orientation_pixels"
-    title = "Orientation ratio by grains" if grains else "Orientation ratio by pixels"
+    title = "Orientation ratio by grains" if grains else "Orientation ratio"
     slide = deck.add_slide(title, kind=kind)
     deck.remove_shape(slide, "EBSD_TABLE_20")
     deck.remove_shape(slide, "EBSD_TABLE_15")
@@ -1057,7 +1119,13 @@ def _triangle_chart(
     return output
 
 
-def _add_triangle_pages(deck: TemplateDeck, selected: Snapshot, golden: Snapshot) -> None:
+def _add_triangle_pages(
+    deck: TemplateDeck,
+    selected: Snapshot,
+    golden: Snapshot,
+    golden_sample: str,
+    golden_version_label: str,
+) -> None:
     positions = _positions(selected, golden)
     labels = _orientation_labels(selected)
     columns, rows = _matrix_positions(positions)
@@ -1070,6 +1138,8 @@ def _add_triangle_pages(deck: TemplateDeck, selected: Snapshot, golden: Snapshot
             "Sample 藍色實線 / Golden 橘色虛線" if golden else "Sample 藍色實線",
             kind="ipf",
         )
+        if golden:
+            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
         image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
             deck, slide, columns, rows
         )
@@ -1118,7 +1188,13 @@ def _line_chart(columns: Sequence[str], selected_values: Sequence[float], golden
     return output
 
 
-def _add_orientation_lines(deck: TemplateDeck, selected: Snapshot, golden: Snapshot) -> None:
+def _add_orientation_lines(
+    deck: TemplateDeck,
+    selected: Snapshot,
+    golden: Snapshot,
+    golden_sample: str,
+    golden_version_label: str,
+) -> None:
     positions = _positions(selected, golden)
     labels = _orientation_labels(selected)
     columns, rows = _matrix_positions(positions)
@@ -1127,6 +1203,8 @@ def _add_orientation_lines(deck: TemplateDeck, selected: Snapshot, golden: Snaps
             f"晶粒取向折線圖 - Misorientation {deviation}",
             "Sample 藍色實線 / Golden 橘色虛線" if golden else "Sample 藍色實線",
         )
+        if golden:
+            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
         left, top, width, height = deck.content
         cell_width = width // 3
         cell_height = height // max(1, len(rows))
@@ -1165,11 +1243,20 @@ def _analysis_color(value: float, thresholds: Sequence[float]) -> RGBColor:
     return RGBColor(245, 158, 11)
 
 
-def _add_feature_analysis(deck: TemplateDeck, analysis: Dict[str, Dict[str, float]], selected_sample: str, features: Sequence[str], thresholds: Sequence[float]) -> None:
+def _add_feature_analysis(
+    deck: TemplateDeck,
+    analysis: Dict[str, Dict[str, float]],
+    selected_sample: str,
+    golden_sample: str,
+    golden_version_label: str,
+    features: Sequence[str],
+    thresholds: Sequence[float],
+) -> None:
     values = analysis.get(selected_sample, {})
     if not values or not features:
         return
     slide = deck.add_slide("Feature analysis", "Features: " + ", ".join(features))
+    _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
     positions = sorted(values, key=_position_key)
     _add_native_matrix(deck, slide, positions, lambda position: f"{values[position] * 100:.1f}%", data_column_width=0.9, row_height=0.42)
     # Recolour only data cells, preserving the native editable table.
@@ -1220,12 +1307,19 @@ def build_pptx_report(
         histogram_settings or {},
     )
     _add_ipf_pages(deck, selected_sample, selected_version_label, directions, ipf_legend)
-    _add_grain_chart_pages(deck, selected, golden, selected_version_label, golden_version_label, histogram_settings or {})
+    _add_grain_chart_pages(deck, selected, golden, golden_sample, golden_version_label, histogram_settings or {})
     _add_complete_table(deck, selected_sample, selected_version_label, selected, overwritten)
     _add_orientation_tables(deck, selected, grains=False, overridden_positions=overwritten)
-    _add_orientation_tables(deck, selected, grains=True, overridden_positions=overwritten)
     _add_statistics(deck, statistics_by_min_grain_size or {10: selected}, selected_sample, overwritten)
-    _add_triangle_pages(deck, selected, golden)
-    _add_orientation_lines(deck, selected, golden)
-    _add_feature_analysis(deck, analysis_data or {}, selected_sample, analysis_features or [], color_thresholds or [30.0, 70.0])
+    _add_triangle_pages(deck, selected, golden, golden_sample, golden_version_label)
+    _add_orientation_lines(deck, selected, golden, golden_sample, golden_version_label)
+    _add_feature_analysis(
+        deck,
+        analysis_data or {},
+        selected_sample,
+        golden_sample,
+        golden_version_label,
+        analysis_features or [],
+        color_thresholds or [30.0, 70.0],
+    )
     return deck.save()

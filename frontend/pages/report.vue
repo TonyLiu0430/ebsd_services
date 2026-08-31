@@ -193,7 +193,7 @@
 
       <div class="report-action-bar">
         <button class="export-btn" @click="exportReportPpt" :disabled="exportingPpt">
-          <span v-if="exportingPpt">輸出 PPT 中…</span>
+          <span v-if="exportingPpt">輸出 PPT 中… {{ pptElapsedSeconds }} 秒</span>
           <span v-else>輸出 PPT</span>
         </button>
         <el-text v-if="pptError" type="danger" class="err-msg">{{ pptError }}</el-text>
@@ -633,7 +633,12 @@
           </div>
         </div>
         <div class="orient-line-grid">
-          <div v-for="chartInfo in orientLineCharts20" :key="chartInfo.key" class="orient-line-panel">
+          <div
+            v-for="chartInfo in orientLineCharts20"
+            :key="chartInfo.key"
+            class="orient-line-panel"
+            :style="{ backgroundColor: chartInfo.backgroundColor, borderColor: chartInfo.borderColor }"
+          >
             <div class="tri-col-title">{{ chartInfo.title }}</div>
             <svg
               class="orient-line-svg"
@@ -730,7 +735,12 @@
           </div>
         </div>
         <div class="orient-line-grid">
-          <div v-for="chartInfo in orientLineCharts15" :key="chartInfo.key" class="orient-line-panel">
+          <div
+            v-for="chartInfo in orientLineCharts15"
+            :key="chartInfo.key"
+            class="orient-line-panel"
+            :style="{ backgroundColor: chartInfo.backgroundColor, borderColor: chartInfo.borderColor }"
+          >
             <div class="tri-col-title">{{ chartInfo.title }}</div>
             <svg
               class="orient-line-svg"
@@ -972,6 +982,11 @@ type StoredEbsdPair = {
 }
 
 const DEFAULT_ORIENTATION_LABELS = ['[001]', '[011]', '[111]'] as const
+const IPF_ORIENTATION_PANEL_COLORS = [
+  { backgroundColor: 'rgba(242, 92, 92, 0.035)', borderColor: 'rgba(242, 92, 92, 0.12)' },
+  { backgroundColor: 'rgba(89, 209, 99, 0.035)', borderColor: 'rgba(89, 209, 99, 0.12)' },
+  { backgroundColor: 'rgba(102, 115, 230, 0.035)', borderColor: 'rgba(102, 115, 230, 0.12)' },
+] as const
 const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
   height: 220,
@@ -1016,6 +1031,8 @@ const loadingTotal = ref(0)
 const error = ref('')
 const pptError = ref('')
 const exportingPpt = ref(false)
+const pptElapsedSeconds = ref(0)
+let pptElapsedTimer: ReturnType<typeof setInterval> | null = null
 const reportData = ref<AllDataResult | null>(null)
 const versionedReportData = ref<VersionedDataResult | null>(null)
 const versionOptionsMap = ref<Record<string, VersionOption[]>>({})
@@ -1045,6 +1062,7 @@ const orientLineSeriesInfo = computed(() =>
     orientationKey: orientationLabelKey(label),
     index,
     label,
+    ...IPF_ORIENTATION_PANEL_COLORS[index % IPF_ORIENTATION_PANEL_COLORS.length],
   })),
 )
 
@@ -2005,6 +2023,7 @@ const orientLineCharts20 = computed(() =>
   orientLineRows.value.flatMap((row) =>
     orientLineSeriesInfo.value.map((info) => ({
       ...row,
+      ...info,
       key: `${row.rowKey}-${info.orientationKey}`,
       title: `${row.title} · ${info.label}`,
       chart: buildOrientLineChart(row.rowKey, '20%', info.index),
@@ -2016,6 +2035,7 @@ const orientLineCharts15 = computed(() =>
   orientLineRows.value.flatMap((row) =>
     orientLineSeriesInfo.value.map((info) => ({
       ...row,
+      ...info,
       key: `${row.rowKey}-${info.orientationKey}`,
       title: `${row.title} · ${info.label}`,
       chart: buildOrientLineChart(row.rowKey, '15%', info.index),
@@ -2044,10 +2064,28 @@ function safeFileName(value: string): string {
   return value.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') || 'report'
 }
 
+function stopPptElapsedTimer() {
+  if (pptElapsedTimer === null) return
+  clearInterval(pptElapsedTimer)
+  pptElapsedTimer = null
+}
+
+function startPptElapsedTimer() {
+  stopPptElapsedTimer()
+  pptElapsedSeconds.value = 0
+  const startedAt = Date.now()
+  pptElapsedTimer = setInterval(() => {
+    pptElapsedSeconds.value = Math.floor((Date.now() - startedAt) / 1000)
+  }, 250)
+}
+
+onBeforeUnmount(stopPptElapsedTimer)
+
 async function exportReportPpt() {
   if (!reportData.value || exportingPpt.value) return
   pptError.value = ''
   exportingPpt.value = true
+  startPptElapsedTimer()
 
   try {
     const blob = await $fetch<Blob>('/api/reports/pptx', {
@@ -2083,6 +2121,7 @@ async function exportReportPpt() {
     const err = e as { data?: { detail?: string; message?: string }; message?: string }
     pptError.value = err.data?.detail || err.data?.message || err.message || 'PPT 輸出失敗'
   } finally {
+    stopPptElapsedTimer()
     exportingPpt.value = false
   }
 }
@@ -2359,23 +2398,30 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
 }
 
 .selected-card {
-  border: 1px solid #b3d8ff;
+  border: 1px solid #fecaca;
   border-radius: 8px;
-  background: #ecf5ff;
+  background: #fef2f2;
   display: grid;
   gap: .18rem;
   padding: .75rem;
 }
 
 .selected-card.golden {
-  border-color: #fed7aa;
-  background: #fff7ed;
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 
 .selected-card span {
-  color: #64748b;
   font-size: .76rem;
   font-weight: 800;
+}
+
+.selected-card:not(.golden) span {
+  color: #dc2626;
+}
+
+.selected-card.golden span {
+  color: #2563eb;
 }
 
 .selected-card strong {
@@ -2475,15 +2521,19 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   margin: .55rem;
 }
 
-.library-target-card:hover,
+.library-target-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
 .library-target-card.selected {
-  border-color: #b3d8ff;
-  background: #ecf5ff;
+  border-color: #fecaca;
+  background: #fef2f2;
 }
 
 .library-target-card.golden {
-  border-color: #f59e0b;
-  background: #fff7ed;
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 
 .library-target-card.incompatible {
@@ -2520,14 +2570,15 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
 }
 
 .role-pill.analysis {
-  border: 1px solid #b3d8ff;
-  background: #ecf5ff;
-  color: #409eff;
+  border: 1px solid #fecaca;
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 .role-pill.golden {
-  background: #ffedd5;
-  color: #c2410c;
+  border: 1px solid #bfdbfe;
+  background: #dbeafe;
+  color: #2563eb;
 }
 
 .empty-state {

@@ -1234,15 +1234,7 @@ def build_ppt_report_context(req: ReportPptRequest, request: Request, db: Sessio
     golden_snapshot = context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}) if golden_sample else {}
 
     requested_min_size = validate_min_grain_size(req.min_grain_size) or 10
-    statistics_by_min_grain_size: Dict[int, Dict[str, Dict[str, Any]]] = {}
-    for threshold in sorted({5, 10, requested_min_size}):
-        if threshold == requested_min_size:
-            statistics_by_min_grain_size[threshold] = selected_snapshot
-            continue
-        statistics_by_min_grain_size[threshold] = {
-            position: cpp_features(row, threshold)
-            for position, row in selected_pairs.items()
-        }
+    statistics_by_min_grain_size = {requested_min_size: selected_snapshot}
 
     vectors: Dict[str, List[float]] = {
         "X": [1.0, 0.0, 0.0],

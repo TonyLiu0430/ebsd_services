@@ -42,6 +42,22 @@ class PptExportJobTests(unittest.TestCase):
         self.assertFalse(job.file_path.exists())
         self.assertNotIn(job.id, main.PPT_JOBS)
 
+    def test_completed_job_payload_uses_public_api_download_url(self) -> None:
+        job = main.PptJob(
+            id="report-job",
+            user_id="user-1",
+            created_at=time.time(),
+            updated_at=time.time(),
+            status="completed",
+        )
+
+        payload = main.ppt_job_payload(job)
+
+        self.assertEqual(
+            payload["download_url"],
+            "/api/reports/pptx/report-job/download",
+        )
+
     def test_expired_completed_job_and_file_are_cleaned_up(self) -> None:
         path = main.PPT_JOB_DIR / "expired.pptx"
         path.write_bytes(b"old-pptx")

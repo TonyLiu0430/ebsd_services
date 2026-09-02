@@ -78,7 +78,10 @@ def ppt_job_payload(job: PptJob) -> Dict[str, Any]:
     if job.status == "failed" and job.error:
         payload["error"] = job.error
     if job.status == "completed":
-        payload["download_url"] = f"/reports/pptx/{job.id}/download"
+        # Caddy exposes the ML backend under /api and strips that prefix before
+        # proxying the request to FastAPI. Return the public browser URL here,
+        # not the backend-internal route.
+        payload["download_url"] = f"/api/reports/pptx/{job.id}/download"
     return payload
 
 

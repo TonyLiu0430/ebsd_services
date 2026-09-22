@@ -294,6 +294,8 @@ def _lambert_equal_area_density(vectors: Vector3d) -> np.ma.MaskedArray:
     return np.ma.array(density, mask=~disk)
 
 
+# Legacy renderers are retained only as the cross-language test oracle in
+# test_texture_cpp_parity.py. Production reports request both figures from C++.
 def _pole_figure(orientations: Orientation, family: str, phase: Phase) -> bytes:
     orientation_subset = _texture_subset(orientations)
     families, labels = _families(family, phase)
@@ -585,6 +587,4 @@ def generate_python_scan_figures(
             "preferred_15": _preferred_orientation_map(
                 ebsd_map, orientations, valid, family_vectors, 15.0, "POR15"
             ),
-            "pole_figure": _pole_figure(orientations, family, phase),
-            "inverse_pole_figure": _inverse_pole_figure(orientations, point_group),
         }

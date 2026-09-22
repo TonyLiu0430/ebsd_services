@@ -52,4 +52,45 @@ if(BUILD_TESTING)
     target_include_directories(band_contrast_map_test PRIVATE include)
     add_test(NAME band_contrast_map_test COMMAND band_contrast_map_test)
 
+    add_executable(
+        texture_figures_test
+        tests/texture_figures_test.cpp
+        src/texture_figures.cpp
+        include/texture_figures.h
+        include/ebsd_data.h
+    )
+    target_include_directories(texture_figures_test PRIVATE include)
+    if(NOT MSVC)
+        target_compile_options(texture_figures_test PRIVATE -ffp-contract=off)
+    endif()
+    add_test(NAME texture_figures_test COMMAND texture_figures_test)
+
+    # Helper used by ML_backend/test_texture_cpp_parity.py. It deliberately
+    # accepts raw Euler angles so random-data parity tests do not depend on an
+    # EBSD writer or a particular vendor file format.
+    add_executable(
+        texture_parity_fixture
+        tests/texture_parity_fixture.cpp
+        src/texture_figures.cpp
+        include/texture_figures.h
+        include/ebsd_data.h
+    )
+    target_include_directories(texture_parity_fixture PRIVATE include)
+    if(NOT MSVC)
+        target_compile_options(texture_parity_fixture PRIVATE -ffp-contract=off)
+    endif()
+
+    add_executable(
+        texture_real_data_fixture
+        tests/texture_real_data_fixture.cpp
+        src/texture_figures.cpp
+        src/ebsd_data.cpp
+        include/texture_figures.h
+        include/ebsd_data.h
+    )
+    target_include_directories(texture_real_data_fixture PRIVATE include)
+    target_link_libraries(texture_real_data_fixture PRIVATE EbsdLib::EbsdLib)
+    if(NOT MSVC)
+        target_compile_options(texture_real_data_fixture PRIVATE -ffp-contract=off)
+    endif()
 endif()

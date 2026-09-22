@@ -1076,6 +1076,14 @@ def cpp_band_contrast_map(row: UserEbsdPair, include_scale_bar: bool = True) -> 
     )
 
 
+def cpp_pole_figure(row: UserEbsdPair) -> bytes:
+    return post_cpp_pair("/pole_figure", row, "image/png")
+
+
+def cpp_inverse_pole_figure(row: UserEbsdPair) -> bytes:
+    return post_cpp_pair("/inverse_pole_figure", row, "image/png")
+
+
 def cpp_scale_bar(image: RawRgbMap) -> bytes:
     return post_cpp_multipart(
         "/scale_bar",
@@ -1389,6 +1397,8 @@ def build_ppt_report_context(
             scan_report_images[position] = {
                 **python_images,
                 "band_contrast": cpp_band_contrast_map(row),
+                "pole_figure": cpp_pole_figure(row),
+                "inverse_pole_figure": cpp_inverse_pole_figure(row),
                 "ipf_maps": {
                     direction: images[position]
                     for direction, images in ipf_images_by_direction.items()
@@ -1400,7 +1410,7 @@ def build_ppt_report_context(
         except Exception as exc:
             raise HTTPException(
                 status_code=502,
-                detail=f"Python PF/IPF generation failed for {position}: {exc}",
+                detail=f"Scan figure generation failed for {position}: {exc}",
             ) from exc
 
     report_data = {

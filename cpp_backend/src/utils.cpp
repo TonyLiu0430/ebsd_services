@@ -114,7 +114,6 @@ nlohmann::json features(const std::string &ebsd_file_path, int min_grain_size) {
     EbsdData data = load_ebsd_data(ebsd_file_path);
     int xDim = data.x_dim;
     int yDim = data.y_dim;
-    int totalPoints = xDim * yDim;
     auto phase = data.phase.data();
     auto euler1 = data.euler1.data();
     auto euler2 = data.euler2.data();
@@ -134,7 +133,6 @@ nlohmann::json features(const std::string &ebsd_file_path, int min_grain_size) {
         double equivalent_radius = std::sqrt(area / M_PI);
         grain_sizes.push_back(equivalent_radius * 2); // equivalent diameter
     }
-    // Orientations_finder orientations_finder(grains);
     Orientations_finder_by_pixel orientations_finder(euler1, euler2, euler3, phase, xDim, yDim);
     auto ratio20 = orientations_finder.ratio(20, {0.0, 0.0, 1.0}, orientationFamilySet);
     auto ratio15 = orientations_finder.ratio(15, {0.0, 0.0, 1.0}, orientationFamilySet);

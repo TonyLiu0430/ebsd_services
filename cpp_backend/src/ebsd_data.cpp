@@ -220,12 +220,6 @@ EbsdData load_ang(const std::filesystem::path& path, bool header_only)
 
 } // namespace
 
-bool is_supported_ebsd_extension(const std::filesystem::path& path)
-{
-    const std::string extension = lower_extension(path);
-    return extension == ".cpr" || extension == ".ang" || extension == ".ctf";
-}
-
 EbsdData load_ebsd_data(const std::filesystem::path& path, bool header_only)
 {
     const std::string extension = lower_extension(path);

@@ -472,18 +472,6 @@ std::array<TextureDensityMap, 3> pole_densities(const EbsdData& data)
     return maps;
 }
 
-std::pair<double, double> cubic_ipf_coordinates(Vec3 direction)
-{
-    std::array<double, 3> components = {std::fabs(direction.x), std::fabs(direction.y), std::fabs(direction.z)};
-    std::sort(components.begin(), components.end(), std::greater<>());
-    const double z = components[0], x = components[1], y = components[2];
-    const double radius = std::sqrt(std::max(0.0, 1.0 - z));
-    const double equatorial = std::sqrt(x * x + y * y);
-    if(equatorial <= 1e-15) return {0.0, 0.0};
-    // Channel 5 rotates the equal-area projection clockwise.
-    return {radius * y / equatorial, -radius * x / equatorial};
-}
-
 std::pair<double, double> hcp_ipf_coordinates(Vec3 direction)
 {
     direction = normalized(direction);

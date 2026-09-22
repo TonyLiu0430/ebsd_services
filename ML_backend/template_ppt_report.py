@@ -6,7 +6,6 @@ import math
 import re
 import statistics
 from copy import deepcopy
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -16,8 +15,6 @@ from matplotlib.figure import Figure
 from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.dml import MSO_LINE_DASH_STYLE
-from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 
@@ -29,7 +26,6 @@ INK = RGBColor(0, 0, 0)
 MUTED = RGBColor(89, 89, 89)
 BLUE = "#2563eb"
 RED = "#dc2626"
-ORIENTATION_COLORS = ("#409eff", "#67c23a", "#e6a23c")
 ORIENTATION_SAMPLE = "#409eff"
 ORIENTATION_GOLDEN = "#e6a23c"
 OVERRIDDEN_TEXT = RGBColor(0, 0, 255)
@@ -855,22 +851,6 @@ def _add_grain_chart_pages(
                     cell_width - 2 * pad_x,
                     cell_height - 2 * pad_y,
                 )
-
-
-def _complete_cell(item: Optional[Dict[str, Any]]) -> str:
-    grains = _finite(item.get("grains")) if item else []
-    if not grains:
-        return "—"
-    labels = _orientation_labels({"_": item or {}})
-    ratio20 = _orientation_values(item, "20%")
-    ratio15 = _orientation_values(item, "15%")
-    return "\n".join((
-        f"Avg {statistics.mean(grains):.2f}",
-        f"Max {max(grains):.2f}",
-        f"Qty {len(grains)}",
-        "20° " + " ".join(f"{labels[i]} {ratio20[i]:.1f}%" for i in range(3)),
-        "15° " + " ".join(f"{labels[i]} {ratio15[i]:.1f}%" for i in range(3)),
-    ))
 
 
 def _add_complete_table(

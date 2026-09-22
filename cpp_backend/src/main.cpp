@@ -1,232 +1,23 @@
-#include <EbsdLib/IO/EbsdImporter.h>
-#include <EbsdLib/IO/HKL/CprReader.h>
-#include <vector>
-#include <array>
-#include <memory>
-#include <string>
-#include <EbsdLib/Core/OrientationTransformation.hpp>
-#include <EbsdLib/LaueOps/LaueOps.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
-#include <ranges>
-#include <map>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <random>
 #include <stdexcept>
+#include <string>
+#include <vector>
+
 #include <nlohmann/json.hpp>
-#include <string_view>
+
 #include "band_contrast_map.h"
+#include "httplib.h"
 #include "scale_bar.h"
+#include "stduuid/uuid.h"
 #include "texture_figures.h"
 #include "utils.h"
-#include <future>
-
-using std::vector;
-using std::pair;
-using std::swap;
-using std::cout;
-using std::endl;
-
-static std::string trim(const std::string& s)
-{
-    std::size_t begin = 0;
-    while (begin < s.size() &&
-           std::isspace(static_cast<unsigned char>(s[begin]))) {
-        ++begin;
-    }
-
-    std::size_t end = s.size();
-    while (end > begin &&
-           std::isspace(static_cast<unsigned char>(s[end - 1]))) {
-        --end;
-    }
-
-    return s.substr(begin, end - begin);
-}
-
-std::string std_pos(const std::string& s) {
-    std::string res = trim(s);
-
-    // Format 1: 已有破折號的標準格式，如 "C-B", "M-U", "E-M"
-    if (res.size() == 3 && res[1] == '-') {
-        char col = std::toupper(static_cast<unsigned char>(res[0]));
-        char row = std::toupper(static_cast<unsigned char>(res[2]));
-        if ((col == 'C' || col == 'M' || col == 'E') &&
-            (row == 'U' || row == 'M' || row == 'B')) {
-            return std::string{col} + "-" + std::string{row};
-        }
-    }
-
-    // Format 2 (DATA13): E/I/M 開頭 → E=E, I=C, M=M
-    // Format 3 (DATA14+): A/B/C 開頭 → A=C, B=M, C=E
-    if (res.size() >= 2) {
-        char c0 = std::toupper(static_cast<unsigned char>(res[0]));
-        char c1 = std::toupper(static_cast<unsigned char>(res[1]));
-
-        std::string col;
-        switch (c0) {
-            case 'E': col = "E"; break;
-            case 'I': col = "C"; break;
-            case 'M': col = "M"; break;
-            case 'A': col = "C"; break;
-            case 'B': col = "M"; break;
-            case 'C': col = "E"; break;
-            default: break;
-        }
-
-        std::string row;
-        switch (c1) {
-            case 'U': row = "U"; break;
-            case 'M': row = "M"; break;
-            case 'B': row = "B"; break;
-            case 'D': row = "B"; break;
-            default: break;
-        }
-
-        if (!col.empty() && !row.empty()) {
-            return col + "-" + row;
-        }
-    }
-
-    return res;
-}
-
-std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> get_ebsds(const std::string& dir_path) {
-    std::filesystem::path dir(dir_path);
-    std::unordered_map<std::string, std::pair<std::filesystem::path, bool>> data;
-
-    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
-        throw std::runtime_error("Invalid directory: " + dir_path);
-    }
-
-    for (const std::filesystem::directory_entry& subdir_entry : std::filesystem::directory_iterator(dir)) {
-        if (!subdir_entry.is_directory()) {
-            continue;
-        }
-
-        const std::filesystem::path subdir = subdir_entry.path();
-        const std::string subdir_name = subdir.filename().string();
-        std::vector<std::string> subdir_parts;
-        for (auto&& part_view : subdir_name | std::views::split('-')) {
-            std::string part;
-            for (char ch : part_view) {
-                part.push_back(ch);
-            }
-            subdir_parts.push_back(std::move(part));
-        }
-
-        if (subdir_parts.empty()) {
-            continue;
-        }
-
-        const std::string data_patch = subdir_parts[0];
-        const bool has_num = (subdir_parts.size() > 1);
-        const std::string num = has_num ? subdir_parts[1] : std::string{};
-
-        for (const std::filesystem::directory_entry& path_entry :
-             std::filesystem::directory_iterator(subdir)) {
-            if (!path_entry.is_regular_file()) {
-                continue;
-            }
-
-            const std::filesystem::path p = path_entry.path();
-
-            if (p.extension() != ".cpr") {
-                continue;
-            }
-
-            const std::string pos = std_pos(p.stem().string());
-            const std::string base_key = data_patch + "_" + pos;
-
-            if (!has_num || num == "01") {
-                data[base_key] = std::make_pair(p, true);
-            } 
-            else {
-                int current_ver = std::stoi(num);
-                std::string current_key = base_key + "_" + std::to_string(current_ver);
-
-                data[current_key] = std::make_pair(p, true);
-
-                std::string prev_key;
-                if (current_ver == 2) {
-                    prev_key = base_key;
-                } else {
-                    prev_key = base_key + "_" + std::to_string(current_ver - 1);
-                }
-
-                auto it = data.find(prev_key);
-                if (it == data.end()) {
-                    throw std::runtime_error("Previous version key not found for current version " + num + ": " + prev_key);
-                }
-
-                it->second.second = false;
-            }
-        }
-    }
-
-    return data;
-}
-
-
-#include "grains.h"
-#include "orientations.h"
-
-
-
-
-#include "httplib.h"
-#include "stduuid/uuid.h"
-
-void ml_feature() {
-    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
-    std::cout << "Found " << ebsds.size() << " .cpr files." << std::endl;
-    int good_count = 0;
-    for(auto &[key, value] : ebsds) {
-        auto &[path, good] = value;
-        // cout << key << ": " << path << ", good: " << good << endl;
-        if(good) {
-            good_count++;
-        }
-    }
-    cout << "good" << good_count << ", bad: " << (ebsds.size() - good_count) << endl;
-    vector<nlohmann::json> features_and_labels;
-    vector<std::future<nlohmann::json>> futures;
-    for(auto &[key, value] : ebsds) {
-        auto &[path, good] = value;
-
-
-        if(key.substr(0, 6) == "DATA43") {
-            good = false; // DATA43 is bad
-            // continue;
-        }
-
-        bool golden = false;
-        if(key.substr(0, 6) == "DATA10" || key.substr(0, 6) == "DATA13" || key.substr(0, 6) == "DATA24") {
-            if(good) {
-                golden = true;
-            }
-        }
-        
-        futures.push_back(std::async(std::launch::async, [path, good, golden, key]() {
-            auto feat = features(path.string());
-            nlohmann::json j = {
-                {"patch", key.substr(0, 6)},
-                {"pos", key.substr(7, 3)},
-                {"golden", golden},
-                {"label", good},
-                {"features", feat}
-            };
-            return j;
-        }));
-    }
-    for(auto& f : futures) {
-        features_and_labels.push_back(f.get());
-        // cout << features_and_labels.back()["patch"] << " " << features_and_labels.back()["golden"] << endl;
-    }
-    std::filesystem::create_directories("_out");
-    nlohmann::json j = features_and_labels;
-    std::ofstream out("_out/features_and_labels.json");
-    out << j.dump(4);
-}
 
 class TempFile {
     std::filesystem::path path;
@@ -235,9 +26,6 @@ public:
         if(std::filesystem::exists(path)) {
             throw std::runtime_error("File already exists: " + path.string());
         }
-    }
-    std::filesystem::path get_path() const {
-        return path;
     }
     ~TempFile() {
         if(std::filesystem::exists(path)) {
@@ -422,77 +210,7 @@ bool parse_include_scale_bar(const httplib::Request& req) {
     throw std::invalid_argument("include_scale_bar must be true or false");
 }
 
-void test() {
-    
-    std::string cpr_file_path = "/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)/DATA10-01/M-B.cpr";
-    std::shared_ptr<CprReader> reader = std::make_shared<CprReader>();
-    reader->setFileName(cpr_file_path);
-    int err_code = reader->readFile();
-    if(err_code < 0) {
-        throw std::runtime_error("Failed to read CPR file: " + reader->getErrorMessage());
-    }
-    int xDim = reader->getXDimension();
-    int yDim = reader->getYDimension();
-    int totalPoints = xDim * yDim;
-    auto phase = reader->getPhasePointer();
-    auto euler1 = reader->getEuler1Pointer();
-    auto euler2 = reader->getEuler2Pointer();
-    auto euler3 = reader->getEuler3Pointer();
-    {
-        GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
-        grainSegmenter.find_grains(5);
-        //grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
-        Orientations_finder_by_pixel finder(euler1, euler2, euler3, phase, xDim, yDim);
-        std::tuple<double, double, double> ratio = finder.ratio(20);
-        cout << "ratio(pixel): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
-        Orientations_finder finder2(grainSegmenter.find_grains(10));
-        ratio = finder2.ratio(20);
-        cout << "ratio(grain): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
-    }
-
-    denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
-    {
-        GrainSegmenter grainSegmenter(euler1, euler2, euler3, xDim, yDim);
-        grainSegmenter.find_grains(5);
-        //grainSegmenter.save_grains_map(10, "/home/tonyliu/project/ebsd_services/cpp_backend/_out/DATA10-C-U_grains.png");
-        Orientations_finder_by_pixel finder(euler1, euler2, euler3, phase, xDim, yDim);
-        std::tuple<double, double, double> ratio = finder.ratio(20);
-        cout << "ratio(pixel): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
-        Orientations_finder finder2(grainSegmenter.find_grains(10));
-        ratio = finder2.ratio(20);
-        cout << "ratio(grain): " << std::get<0>(ratio) << ", " << std::get<1>(ratio) << ", " << std::get<2>(ratio) << endl;
-
-        denoindex(euler1, euler2, euler3, phase, xDim, yDim, 50);
-    }
-
-}
-
-void test2() {
-    auto ebsds = get_ebsds("/mnt/e/CODE_programming/.EBSD/202602121503148937---EBSD20260212/EBSD TEST DATA_20260212 - modified/EBSD TEST DATA_20260212/靶材/銅(Cu)");
-    for(auto &[key, value] : ebsds) {
-        auto &[path, good] = value;
-        std::filesystem::path img_path = "/home/tonyliu/project/ebsd_services/cpp_backend/_out";
-        img_path += path;
-        auto stem = img_path.stem().string() + ".png";
-        img_path = img_path.parent_path() / stem;
-        save_ipf_map(path, img_path);
-    }
-}
-
-void test3() {
-    
-}
-
 int main() {
-    // test();
-    // return 0;
-    //test2();
-    //return 0;
-    // srand(time(NULL));
-    // test();
-    // return 0;
-    // ml_feature();
-    // return 0;
     httplib::Server svr;
 
     auto register_texture_figure_api = [&svr](
@@ -774,16 +492,8 @@ int main() {
         res.set_content(buffer, "image/png");
     });
 
-    svr.Get("/", [](const httplib::Request& req, httplib::Response& res) {
-        res.set_content("Hello, World!", "text/plain");
-    });
-
     std::cout << "Server is running" << std::endl;
     svr.listen("0.0.0.0", 8080);
 
 
-    // test("./_data/E-B.cpr", 15);
-    // save_ipf_map("./_data/E-B.cpr", "./_out/E-B_ipf.png");
-    // return 0;
-    // -----------------------------------------
 }

@@ -1,14 +1,4 @@
-// #include <EbsdLib/IO/EbsdImporter.h>
 #include "ebsd_data.h"
-// #include <vector>
-// #include <memory>
-// #include <EbsdLib/Core/OrientationTransformation.hpp>
-// #include <EbsdLib/LaueOps/LaueOps.h>
-// #include <algorithm>
-// #include <ranges>
-// #define STB_IMAGE_WRITE_IMPLEMENTATION
-// #include <stb/stb_image_write.h>
-// #include <map>
 #include <EbsdLib/Core/OrientationTransformation.hpp>
 #include "EbsdLib/Math/Matrix3X1.hpp"
 #include "EbsdLib/Core/Orientation.hpp"
@@ -21,16 +11,12 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
-#include <memory>
-#include <map>
 #ifndef STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #endif
 #include <stb/stb_image_write.h>
 
 using std::vector;
-using std::pair;
-using std::swap;
 
 void save_ipf_legend_for_ops(const std::filesystem::path& img_path, int dim, LaueOps::Pointer ops, std::array<double, 3> dirA, std::array<double, 3> dirB, std::array<double, 3> dirC);
 

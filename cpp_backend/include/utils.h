@@ -19,9 +19,6 @@ void save_ipf_legend(const std::filesystem::path& img_path, int size = 220);
 
 void save_ipf_legend(const std::filesystem::path& ebsd_path, const std::filesystem::path& img_path, int size = 220);
 
-/* TODO */
-std::vector<std::vector<QuatF>> orientations_to_2d(float* euler1, float* euler2, float* euler3, int Xdim, int Ydim);
-
 int noindexed(uint8_t* phase, int xDim, int yDim);
 
 void denoindex(float* euler1, float* euler2, float* euler3, uint8_t* phase, int x, int y, double threshold /*%*/, double misorientation_threshold /*degree*/ = 10.0);

@@ -16,10 +16,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 
-REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
-R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 PROTOTYPES = (
@@ -40,25 +37,6 @@ SKIP_PREFIXES = (
     "ppt/commentAuthors.xml",
     "ppt/tags/",
 )
-
-
-def _slide_xml(prototype_name: str, label: str) -> bytes:
-    # Coordinates are EMU and target the original 16:9 page size.
-    xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-       xmlns:r="{R_NS}" xmlns:p="{P_NS}">
-  <p:cSld name="{prototype_name}"><p:spTree>
-    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-    <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-    {_text_shape(2, prototype_name, prototype_name, 548640, 137160, 11094720, 411480, 2200, True, "172033")}
-    {_text_shape(3, "EBSD_TITLE", label, 548640, 594360, 11094720, 502920, 2400, True, "172033")}
-    {_text_shape(4, "EBSD_SUBTITLE", "Runtime subtitle", 548640, 1036320, 11094720, 274320, 1000, False, "667085")}
-    {_content_shape()}
-    {_text_shape(6, "EBSD_FOOTER", "EBSD automated report", 548640, 6537960, 11094720, 182880, 800, False, "98A2B3")}
-  </p:spTree></p:cSld>
-  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>'''
-    return xml.encode("utf-8")
 
 
 def _set_shape_name(element: ET.Element, name: str) -> None:
@@ -140,34 +118,6 @@ def _sanitize_source_slide(data: bytes, slide_number: int) -> bytes:
             _set_shape_text(text_shapes[1], "Report subtitle")
 
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-
-def _text_shape(
-    shape_id: int,
-    name: str,
-    text: str,
-    x: int,
-    y: int,
-    cx: int,
-    cy: int,
-    size: int,
-    bold: bool,
-    color: str,
-) -> str:
-    bold_attr = ' b="1"' if bold else ""
-    return f'''<p:sp>
-      <p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
-      <p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>
-      <p:txBody><a:bodyPr wrap="square" anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr lang="zh-TW" sz="{size}"{bold_attr}><a:solidFill><a:srgbClr val="{color}"/></a:solidFill><a:latin typeface="Microsoft JhengHei"/><a:ea typeface="Microsoft JhengHei"/></a:rPr><a:t>{text}</a:t></a:r><a:endParaRPr lang="zh-TW"/></a:p></p:txBody>
-    </p:sp>'''
-
-
-def _content_shape() -> str:
-    return '''<p:sp>
-      <p:nvSpPr><p:cNvPr id="5" name="EBSD_CONTENT"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
-      <p:spPr><a:xfrm><a:off x="548640" y="1371600"/><a:ext cx="11094720" cy="4937760"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="D0D5DD"/></a:solidFill><a:prstDash val="dash"/></a:ln></p:spPr>
-      <p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1000"><a:solidFill><a:srgbClr val="98A2B3"/></a:solidFill><a:latin typeface="Microsoft JhengHei"/></a:rPr><a:t>EBSD_CONTENT</a:t></a:r><a:endParaRPr/></a:p></p:txBody>
-    </p:sp>'''
 
 
 def _clean_relationships(data: bytes, *, keep_type_suffix: str) -> bytes:

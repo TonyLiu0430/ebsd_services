@@ -18,6 +18,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 from orix.crystal_map import Phase
 from orix.measure import pole_density_function
+# Registers the ``ipf`` and ``stereographic`` matplotlib projections.
 from orix.plot import InversePoleFigurePlot, StereographicPlot  # noqa: F401
 from orix.quaternion import Orientation, symmetry
 from orix.sampling import sample_S2

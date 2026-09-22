@@ -1,4 +1,3 @@
-import inspect
 import json
 import math
 import os
@@ -13,17 +12,20 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import quote, urlencode
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
-import defdap.ebsd as ebsd # type: ignore
-import tempfile
-import numpy as np
-import joblib
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError # type: ignore
-from ebsd_utils import *
-from typing import Callable, Any
+from pydantic import BaseModel, Field # type: ignore
+from ebsd_utils import (
+    Overall_distribution_analysis,
+    max_compare,
+    mean_compare,
+    numeric_compare,
+    p25_compare,
+    p75_compare,
+    sd_compare,
+)
 from sqlalchemy.orm import Session, load_only, selectinload
 from ebsd_store import (
     EbsdFile,
@@ -205,10 +207,6 @@ def startup():
 def shutdown():
     PPT_JOB_CLEANUP_STOP.set()
 
-@app.get('/')
-def hello():
-    return 'Hello world!'
-
 GRAIN_FEATURES: Dict[str, Callable[[List[float], List[float]], float]] = {
     "overall distribution : wasserstein_distance / mean": Overall_distribution_analysis,
     "mean": mean_compare,
@@ -248,26 +246,6 @@ def orientation_index_for_feature(feature: str, feature_payload: Dict[str, Any])
     default_idx_map = {"001": 0, "011": 1, "111": 2}
     return default_idx_map.get(axis)
 
-ELEMENT_ALIASES = {
-    "cu": "Cu", "copper": "Cu", "cupper": "Cu",
-    "al": "Al", "aluminum": "Al", "aluminium": "Al",
-    "ni": "Ni", "nickel": "Ni",
-    "fe": "Fe", "iron": "Fe", "ferrite": "Fe", "austenite": "Fe",
-    "ti": "Ti", "titanium": "Ti",
-    "mg": "Mg", "magnesium": "Mg",
-    "zn": "Zn", "zinc": "Zn",
-    "ag": "Ag", "silver": "Ag",
-    "au": "Au", "gold": "Au",
-    "pt": "Pt", "platinum": "Pt",
-    "pd": "Pd", "palladium": "Pd",
-    "w": "W", "tungsten": "W",
-    "mo": "Mo", "molybdenum": "Mo",
-    "cr": "Cr", "chromium": "Cr",
-    "ta": "Ta", "tantalum": "Ta",
-    "nb": "Nb", "niobium": "Nb",
-    "si": "Si", "silicon": "Si",
-}
-
 MATERIAL_PHASES = [
     {"key": "Cu-FCC", "element": "Cu", "phase": "FCC", "space_group": 225, "a": 3.615},
     {"key": "Al-FCC", "element": "Al", "phase": "FCC", "space_group": 225, "a": 4.050},
@@ -289,15 +267,6 @@ MATERIAL_PHASES = [
     {"key": "Co-HCP", "element": "Co", "phase": "HCP", "space_group": 194, "a": 2.507, "c": 4.069},
     {"key": "Si-Diamond", "element": "Si", "phase": "Diamond", "space_group": 227, "a": 5.431},
 ]
-
-
-def normalize_material_name(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
-
-
-def alias_element(value: str) -> Optional[str]:
-    normalized = normalize_material_name(value)
-    return ELEMENT_ALIASES.get(normalized)
 
 
 def lattice_distance(phase: Dict[str, Any], candidate: Dict[str, Any]) -> Optional[float]:

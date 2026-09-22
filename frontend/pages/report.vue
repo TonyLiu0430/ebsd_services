@@ -1849,15 +1849,6 @@ const missingSelectedPositions = computed(() => {
   const selectedSet = new Set(selectedDisplayedPositions.value)
   return goldenDisplayedPositions.value.filter((pos) => !selectedSet.has(pos))
 })
-const positionStatusCards = computed(() => goldenSample.value
-  ? [
-      { kind: 'ok', title: '可比較', items: comparablePositions.value },
-      { kind: 'warning', title: 'Sample 有資料但 Golden 缺少', items: missingGoldenPositions.value },
-      { kind: 'muted', title: 'Golden 有資料但 Sample 未上傳', items: missingSelectedPositions.value },
-    ]
-  : [{ kind: 'ok', title: '樣本位置', items: selectedDisplayedPositions.value }],
-)
-
 const currentReportData = computed<AllDataResult>(() => {
   const sampleNames = new Set([
     ...Object.keys(versionedReportData.value ?? {}),

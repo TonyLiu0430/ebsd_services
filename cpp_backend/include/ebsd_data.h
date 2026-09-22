@@ -31,5 +31,4 @@ struct EbsdData {
     bool hcp = false;
 };
 
-bool is_supported_ebsd_extension(const std::filesystem::path& path);
 EbsdData load_ebsd_data(const std::filesystem::path& path, bool header_only = false);

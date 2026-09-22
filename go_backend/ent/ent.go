@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go_backend/ent/chatsession"
-	"go_backend/ent/message"
 	"go_backend/ent/user"
 	"reflect"
 	"sync"
@@ -75,9 +73,7 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			chatsession.Table: chatsession.ValidColumn,
-			message.Table:     message.ValidColumn,
-			user.Table:        user.ValidColumn,
+			user.Table: user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

@@ -4,6 +4,7 @@ import os
 import pathlib
 import re
 import shutil
+import statistics
 import threading
 import urllib.error
 import urllib.request
@@ -805,6 +806,7 @@ class ReportPptRequest(BaseModel):
     grain_chart_mode: str = "hist"
     histogram_y_mode: str = "ratio"
     orientation_line_y_max: Optional[float] = None
+    show_microstructure_page: bool = False
     show_triangle_labels: bool = True
     show_orientation_line_labels: bool = True
     ipf_display_target: str = "analysis"
@@ -858,6 +860,24 @@ def validate_ipf_denoindex_misorientation_threshold(value: Optional[float]) -> O
     if not math.isfinite(parsed) or parsed < 0 or parsed > 180:
         raise HTTPException(status_code=400, detail="ipf_denoindex_misorientation_threshold must be between 0 and 180")
     return parsed
+
+
+def report_ipf_vectors(requested: Optional[List[float]]) -> Dict[str, List[float]]:
+    """Always preserve the three standard PPT views; append a custom view."""
+    vectors: Dict[str, List[float]] = {
+        "X": [1.0, 0.0, 0.0],
+        "Y": [0.0, 1.0, 0.0],
+        "Z": [0.0, 0.0, 1.0],
+    }
+    custom_vector = normalize_reference_vector(requested)
+    if custom_vector and not any(
+        all(abs(custom_vector[index] - axis[index]) <= 1e-6 for index in range(3))
+        for axis in vectors.values()
+    ):
+        vectors[
+            f"Custom ({custom_vector[0]:.3g}, {custom_vector[1]:.3g}, {custom_vector[2]:.3g})"
+        ] = custom_vector
+    return vectors
 
 
 def cpp_backend_candidates() -> List[str]:
@@ -1337,21 +1357,7 @@ def build_ppt_report_context(
     requested_min_size = validate_min_grain_size(req.min_grain_size) or 10
     statistics_by_min_grain_size = {requested_min_size: selected_snapshot}
 
-    preset_vectors: Dict[str, List[float]] = {
-        "X": [1.0, 0.0, 0.0],
-        "Y": [0.0, 1.0, 0.0],
-        "Z": [0.0, 0.0, 1.0],
-    }
-    requested_vector = normalize_reference_vector(req.ipf_reference_vector) or preset_vectors["Z"]
-    direction = next(
-        (
-            name
-            for name, axis in preset_vectors.items()
-            if all(abs(requested_vector[index] - axis[index]) <= 1e-6 for index in range(3))
-        ),
-        f"Custom ({requested_vector[0]:.3g}, {requested_vector[1]:.3g}, {requested_vector[2]:.3g})",
-    )
-    vectors = {direction: requested_vector}
+    vectors = report_ipf_vectors(req.ipf_reference_vector)
 
     ipf_images_by_direction: Dict[str, Dict[str, bytes]] = {}
     for direction, vector in vectors.items():
@@ -1368,21 +1374,24 @@ def build_ppt_report_context(
                 continue
         ipf_images_by_direction[direction] = images
 
-    selected_ipf_images: Dict[str, bytes]
+    selected_ipf_images_by_direction: Dict[str, Dict[str, bytes]]
     if not ipf_uses_golden:
-        selected_ipf_images = ipf_images_by_direction[direction]
+        selected_ipf_images_by_direction = ipf_images_by_direction
     else:
-        selected_ipf_images = {}
-        for position, row in selected_pairs.items():
-            try:
-                selected_ipf_images[position] = cpp_ipf_map(
-                    row,
-                    requested_vector,
-                    validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold),
-                    validate_ipf_denoindex_misorientation_threshold(req.ipf_denoindex_misorientation_threshold),
-                )
-            except HTTPException:
-                continue
+        selected_ipf_images_by_direction = {}
+        for direction, vector in vectors.items():
+            images: Dict[str, bytes] = {}
+            for position, row in selected_pairs.items():
+                try:
+                    images[position] = cpp_ipf_map(
+                        row,
+                        vector,
+                        validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold),
+                        validate_ipf_denoindex_misorientation_threshold(req.ipf_denoindex_misorientation_threshold),
+                    )
+                except HTTPException:
+                    continue
+            selected_ipf_images_by_direction[direction] = images
 
     scan_report_images: Dict[str, Dict[str, Any]] = {}
     for position, row in selected_pairs.items():
@@ -1404,9 +1413,9 @@ def build_ppt_report_context(
                 "pole_figure": cpp_pole_figure(row),
                 "inverse_pole_figure": cpp_inverse_pole_figure(row),
                 "ipf_maps": {
-                    direction: selected_ipf_images[position]
-                    for direction in vectors
-                    if position in selected_ipf_images
+                    direction: images[position]
+                    for direction, images in selected_ipf_images_by_direction.items()
+                    if position in images
                 },
             }
         except HTTPException:
@@ -1470,6 +1479,7 @@ def build_ppt_report_context(
             "y_mode": req.histogram_y_mode,
         },
         "orientation_line_y_max": req.orientation_line_y_max,
+        "show_microstructure_page": req.show_microstructure_page,
         "show_triangle_labels": req.show_triangle_labels,
         "show_orientation_line_labels": req.show_orientation_line_labels,
     }

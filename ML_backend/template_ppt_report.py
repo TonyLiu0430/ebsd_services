@@ -85,10 +85,10 @@ def _matrix_positions(positions: Iterable[str]) -> Tuple[List[str], List[int]]:
     return [_excel_column(value) for value in range(1, max_column + 1)], list(range(1, max_row + 1))
 
 
-def _nice_percent_max(values: Iterable[float], *, floor: float = 10.0, headroom: float = 1.10) -> float:
+def _nice_percent_max(values: Iterable[float], *, floor: float = 10.0) -> float:
     finite = [float(value) for value in values if math.isfinite(float(value))]
     maximum = max(finite, default=0.0)
-    return max(floor, math.ceil(maximum * headroom / 10.0) * 10.0)
+    return max(floor, math.ceil(maximum / 10.0) * 10.0)
 
 
 def _triangle_percent_max(values: Iterable[float]) -> float:
@@ -617,11 +617,22 @@ def _add_ratio_table(slide, item: Dict[str, Any], deviation: str, left: float, t
     table = slide.shapes.add_table(2, 3, Inches(left), Inches(top), Inches(width), Inches(height)).table
     for column in table.columns:
         column.width = Inches(width / 3)
+    _style_table_grid(table, colour="FFFFFF", width="12700")
     for column_index in range(3):
-        _set_cell(table.cell(0, column_index), f"<{labels[column_index].strip('[]')}>", header=True, size=11)
-        table.cell(0, column_index).fill.solid()
-        table.cell(0, column_index).fill.fore_color.rgb = RGBColor(70, 167, 193)
-        _set_cell(table.cell(1, column_index), f"{values[column_index]:.1f}%", size=11)
+        header_cell = table.cell(0, column_index)
+        _set_cell(
+            header_cell,
+            f"<{labels[column_index].strip('[]< >')}>",
+            header=True,
+            size=13,
+            color=RGBColor(255, 255, 255),
+        )
+        header_cell.fill.solid()
+        header_cell.fill.fore_color.rgb = RGBColor(70, 167, 193)
+        value_cell = table.cell(1, column_index)
+        _set_cell(value_cell, f"{values[column_index]:.1f}%", size=12)
+        value_cell.fill.solid()
+        value_cell.fill.fore_color.rgb = RGBColor(235, 247, 251)
 
 
 def _frontend_charts(
@@ -733,6 +744,8 @@ def _add_scan_point_pages(
     overridden_positions: Sequence[str],
     ipf_legend: Optional[bytes],
     histogram_settings: Dict[str, Any],
+    *,
+    show_microstructure_page: bool = False,
 ) -> None:
     overridden = set(overridden_positions)
     for position in sorted(snapshot, key=_scan_position_key):
@@ -795,7 +808,8 @@ def _add_scan_point_pages(
         if ipf_legend:
             _add_captioned_picture(overview, "IPF color key", ipf_legend, 12.10, 5.22, 0.95, 1.20)
 
-        _add_microstructure_page(deck, sample, position, images, position in overridden)
+        if show_microstructure_page:
+            _add_microstructure_page(deck, sample, position, images, position in overridden)
 
         texture = deck.add_slide("", kind="generic")
         _set_scan_title(deck, texture, sample, position, position in overridden)
@@ -1204,7 +1218,7 @@ def _add_orientation_tables(
             column.width = column_width
         for row in table.rows:
             row.height = row_height
-        _set_cell(table.cell(0, 0), "EBSD", header=True, size=font_size)
+        _set_cell(table.cell(0, 0), "", header=True, size=font_size)
         for axis_index, label in enumerate(labels):
             start = 1 + axis_index * len(columns)
             end = start + len(columns) - 1
@@ -1810,6 +1824,7 @@ def build_pptx_report(
     overridden_positions: Optional[List[str]] = None,
     histogram_settings: Optional[Dict[str, Any]] = None,
     orientation_line_y_max: Optional[float] = None,
+    show_microstructure_page: bool = False,
     show_triangle_labels: bool = True,
     show_orientation_line_labels: bool = True,
 ) -> bytes:
@@ -1828,6 +1843,7 @@ def build_pptx_report(
         overwritten,
         ipf_legend,
         histogram_settings or {},
+        show_microstructure_page=show_microstructure_page,
     )
     _add_ipf_pages(deck, ipf_display_sample or selected_sample, selected_version_label, directions, ipf_legend)
     _add_grain_chart_pages(deck, selected, golden, golden_sample, golden_version_label, histogram_settings or {})

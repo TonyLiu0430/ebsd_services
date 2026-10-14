@@ -137,3 +137,47 @@ export function buildPositionMatrix(values: Iterable<string>): PositionMatrix {
     cellCount: columns.length * rows.length,
   }
 }
+
+export function normalizeRelativePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/')
+}
+
+export function resolveTargetFolder(parts: string[]): string {
+  if (parts.length <= 1) return ''
+  const directories = parts.slice(0, -1).filter(Boolean)
+  for (let index = directories.length - 1; index >= 0; index--) {
+    if (/^.+-\d+$/.test(directories[index] || '')) return directories[index] || ''
+  }
+
+  const genericFolders = new Set(['data', 'ebsd', 'files', 'raw', 'scan', 'scans', '資料', '數據', '檔案'])
+  for (let index = directories.length - 1; index >= 0; index--) {
+    const candidate = directories[index]?.trim() || ''
+    if (candidate && !genericFolders.has(candidate.toLocaleLowerCase()) && !normalizePosition(candidate)) {
+      return candidate
+    }
+  }
+  return directories[directories.length - 1] || ''
+}
+
+export function parseTargetVersion(folder: string) {
+  const clean = folder.trim()
+  const match = clean.match(/^(.*?)-(\d+)$/)
+  if (!match) {
+    return {
+      sample: clean,
+      versionKey: 'v1',
+      versionLabel: `${clean}-1`,
+      versionNum: 1,
+    }
+  }
+
+  const sample = match[1].trim() || clean
+  const versionNum = Number.parseInt(match[2], 10)
+  const safeVersionNum = Number.isFinite(versionNum) && versionNum > 0 ? versionNum : 1
+  return {
+    sample,
+    versionKey: `v${safeVersionNum}`,
+    versionLabel: `${sample}-${safeVersionNum}`,
+    versionNum: safeVersionNum,
+  }
+}

@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Installing separately from its dependencies allows optimal layer caching
 COPY ML_backend /app/ML_backend
 COPY frontend/package.json /app/frontend/package.json
+COPY frontend/utils/chartScale.js /app/frontend/utils/chartScale.js
 COPY frontend/utils/grainChartRenderer.js /app/frontend/utils/grainChartRenderer.js
 COPY frontend/tools/render_grain_charts.mjs /app/frontend/tools/render_grain_charts.mjs
 RUN chmod 0644 /app/ML_backend/assets/ebsd_report_template.pptx

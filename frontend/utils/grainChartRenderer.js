@@ -1,3 +1,5 @@
+import { roundUpToNearestTen } from './chartScale.js'
+
 const DEFAULT_PLOT_WIDTH = 185
 const DEFAULT_PLOT_HEIGHT = 115
 const PAD_L = 36
@@ -74,7 +76,7 @@ function histogram(values, bins, minValue, maxValue, requestedWidth, areaWeighte
 }
 
 function histogramYMax(maximum, mode, histYMode) {
-  const rounded = Math.max(10, Math.ceil(Math.max(0, maximum) / 10) * 10)
+  const rounded = roundUpToNearestTen(maximum)
   return mode === 'areaHist' || histYMode === 'ratio' ? Math.min(100, rounded) : rounded
 }
 

@@ -145,8 +145,7 @@ onUnmounted(() => {
             target="_blank"
             rel="noopener"
             class="ipf-image-link"
-            title="中鍵點擊開啟完整 IPF map，新分頁可縮放"
-            @click.prevent
+            title="左鍵點擊開啟完整 IPF map，新分頁可縮放"
           >
             <img
               :src="cellImage(positionKey(column, row))"

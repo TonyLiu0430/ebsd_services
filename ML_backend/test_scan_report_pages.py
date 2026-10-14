@@ -21,6 +21,7 @@ from template_ppt_report import (
     _frontend_distribution_charts,
     _histogram_edges,
     _label_stride,
+    _nice_percent_max,
     _sampled_label_indices,
     _triangle_annotation_mode,
     _triangle_percent_max,
@@ -97,7 +98,7 @@ class ScanPointPageTests(unittest.TestCase):
         ]
         self.assertGreater(len(family_colours), 80)
 
-    def test_each_position_gets_three_pages_and_only_overwrite_is_reanalysis(self) -> None:
+    def test_each_position_gets_two_default_pages_and_only_overwrite_is_reanalysis(self) -> None:
         item = {
             "grains": [4.0, 7.0, 11.0],
             "orientation_labels": ["[001]", "[011]", "[111]"],
@@ -138,11 +139,8 @@ class ScanPointPageTests(unittest.TestCase):
             [
                 "Cu-U A-1 (Reanalysis)",
                 "Cu-U A-1 (Reanalysis)",
-                "Cu-U A-1 (Reanalysis)",
                 "Cu-U A-2",
                 "Cu-U A-2",
-                "Cu-U A-2",
-                "Cu-U B-1",
                 "Cu-U B-1",
                 "Cu-U B-1",
             ],
@@ -157,8 +155,61 @@ class ScanPointPageTests(unittest.TestCase):
             for run in paragraph.runs
             if run.text == " (Reanalysis)"
         ]
-        self.assertEqual(len(reanalysis_runs), 3)
+        self.assertEqual(len(reanalysis_runs), 2)
         self.assertTrue(all(run.font.color.rgb == RGBColor(0, 0, 255) for run in reanalysis_runs))
+
+    def test_microstructure_page_only_exists_when_api_flag_is_true(self) -> None:
+        item = {
+            "grains": [4.0, 7.0, 11.0],
+            "orientation_labels": ["[001]", "[011]", "[111]"],
+            "orientation_ratio(20%)": [0.1, 0.2, 0.3],
+            "orientation_ratio(15%)": [0.05, 0.1, 0.15],
+        }
+
+        def captions(report: bytes) -> set[str]:
+            return {
+                shape.text
+                for slide in Presentation(io.BytesIO(report)).slides
+                for shape in slide.shapes
+                if shape.has_text_frame
+            }
+
+        with patch(
+            "template_ppt_report._frontend_charts",
+            side_effect=lambda charts, **_: [_test_png()] * len(charts),
+        ), patch(
+            "template_ppt_report._triangle_chart", return_value=io.BytesIO(_test_png())
+        ), patch(
+            "template_ppt_report._line_chart", return_value=io.BytesIO(_test_png())
+        ):
+            hidden = build_pptx_report(
+                selected_sample="Cu-U",
+                golden_sample="",
+                selected_version_label="2",
+                golden_version_label="",
+                report_data={"Cu-U": {"A-1": item}},
+                scan_report_images={"A-1": _scan_images()},
+            )
+            shown = build_pptx_report(
+                selected_sample="Cu-U",
+                golden_sample="",
+                selected_version_label="2",
+                golden_version_label="",
+                report_data={"Cu-U": {"A-1": item}},
+                scan_report_images={"A-1": _scan_images()},
+                show_microstructure_page=True,
+            )
+
+        microstructure_captions = {
+            "Grain boundaries",
+            "Coincident site lattice (CSL)",
+            "Kernel average misorientation (KAM)",
+            "Grain orientation spread (GOS)",
+            "KAM distribution",
+            "GOS distribution",
+        }
+        self.assertTrue(microstructure_captions.isdisjoint(captions(hidden)))
+        self.assertTrue(microstructure_captions.issubset(captions(shown)))
 
     def test_preferred_orientation_maps_end_above_ratio_tables(self) -> None:
         item = {
@@ -230,6 +281,45 @@ class ScanPointPageTests(unittest.TestCase):
         self.assertLess(deviation_20.left + deviation_20.width, Inches(1.95))
         self.assertGreater(deviation_15.left, Inches(10.8))
         self.assertGreater(orientation_key.top, deviation_15.top + deviation_15.height)
+
+    def test_texture_ratio_tables_use_compact_teal_header_style(self) -> None:
+        item = {
+            "grains": [4.0],
+            "orientation_labels": ["[001]", "[011]", "[111]"],
+            "orientation_ratio(20%)": [0.122, 0.424, 0.25],
+            "orientation_ratio(15%)": [0.0422, 0.481, 0.252],
+        }
+        report = build_pptx_report(
+            selected_sample="Cu-U",
+            golden_sample="",
+            selected_version_label="2",
+            golden_version_label="",
+            report_data={"Cu-U": {"A-1": item}},
+            scan_report_images={"A-1": _scan_images()},
+        )
+        presentation = Presentation(io.BytesIO(report))
+        texture_slide = next(
+            slide
+            for slide in presentation.slides
+            if any(
+                shape.has_text_frame and shape.text == "Preferred orientation ratio"
+                for shape in slide.shapes
+            )
+        )
+        tables = [shape.table for shape in texture_slide.shapes if shape.has_table]
+
+        self.assertEqual(len(tables), 2)
+        for table in tables:
+            self.assertEqual([table.cell(0, column).text for column in range(3)], ["<001>", "<011>", "<111>"])
+            for column in range(3):
+                header_run = table.cell(0, column).text_frame.paragraphs[0].runs[0]
+                value_run = table.cell(1, column).text_frame.paragraphs[0].runs[0]
+                self.assertTrue(header_run.font.bold)
+                self.assertEqual(header_run.font.color.rgb, RGBColor(255, 255, 255))
+                self.assertEqual(header_run.font.size.pt, 13)
+                self.assertEqual(table.cell(0, column).fill.fore_color.rgb, RGBColor(70, 167, 193))
+                self.assertEqual(value_run.font.size.pt, 12)
+                self.assertEqual(table.cell(1, column).fill.fore_color.rgb, RGBColor(235, 247, 251))
 
 
 class ReportAnnotationTests(unittest.TestCase):
@@ -312,6 +402,27 @@ class ReportAnnotationTests(unittest.TestCase):
             analysis_features=["grain size average"],
         )
         presentation = Presentation(io.BytesIO(report))
+
+        grain_summary_slide = next(
+            slide
+            for slide in presentation.slides
+            if any(
+                shape.name == "EBSD_TITLE" and shape.text.startswith("Grain Size Summary")
+                for shape in slide.shapes
+            )
+        )
+        grain_summary_tables = [shape.table for shape in grain_summary_slide.shapes if shape.has_table]
+        grain_summary_text = " ".join(
+            cell.text
+            for table in grain_summary_tables
+            for row in table.rows
+            for cell in row.cells
+        )
+        self.assertEqual(len(grain_summary_tables), 3)
+        self.assertIn("Grain Size Average (µm)", grain_summary_text)
+        self.assertIn("Grain Size Max (µm)", grain_summary_text)
+        self.assertIn("Grain Size Quantity", grain_summary_text)
+        self.assertNotIn("Minimum", grain_summary_text)
 
         scan_histogram_note = next(
             shape
@@ -420,6 +531,76 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         self.assertGreater(responsive_fonts[(3, 3)], responsive_fonts[(5, 4)])
         self.assertGreater(responsive_fonts[(5, 4)], responsive_fonts[(8, 9)])
 
+    def test_orientation_ratio_tables_do_not_show_ebsd_in_top_left_cell(self) -> None:
+        image = _test_png()
+        snapshot = self._snapshot(3, 3)
+        placeholder = io.BytesIO(image)
+        with patch(
+            "template_ppt_report._frontend_charts",
+            side_effect=lambda charts, **_: [image] * len(charts),
+        ), patch(
+            "template_ppt_report._triangle_chart", return_value=placeholder
+        ), patch("template_ppt_report._line_chart", return_value=placeholder):
+            report = build_pptx_report(
+                selected_sample="Sample",
+                golden_sample="",
+                selected_version_label="Sample-1",
+                golden_version_label="",
+                report_data={"Sample": snapshot},
+            )
+
+        presentation = Presentation(io.BytesIO(report))
+        orientation_slide = next(
+            slide
+            for slide in presentation.slides
+            if any(
+                shape.name == "EBSD_TITLE" and shape.text == "Orientation ratio"
+                for shape in slide.shapes
+            )
+        )
+        tables = [shape.table for shape in orientation_slide.shapes if shape.has_table]
+        self.assertEqual(len(tables), 2)
+        self.assertTrue(all(table.cell(0, 0).text == "" for table in tables))
+
+    def test_xyz_ipf_directions_each_get_their_own_ppt_slide(self) -> None:
+        image = _test_png()
+        snapshot = self._snapshot(1, 1)
+        placeholder = io.BytesIO(image)
+        with patch(
+            "template_ppt_report._frontend_charts",
+            side_effect=lambda charts, **_: [image] * len(charts),
+        ), patch(
+            "template_ppt_report._triangle_chart", return_value=placeholder
+        ), patch("template_ppt_report._line_chart", return_value=placeholder):
+            report = build_pptx_report(
+                selected_sample="Sample",
+                golden_sample="",
+                selected_version_label="Sample-1",
+                golden_version_label="",
+                report_data={"Sample": snapshot},
+                ipf_images_by_direction={
+                    "X": {"A-1": image},
+                    "Y": {"A-1": image},
+                    "Z": {"A-1": image},
+                },
+            )
+
+        presentation = Presentation(io.BytesIO(report))
+        orientation_map_titles = [
+            shape.text
+            for slide in presentation.slides
+            for shape in slide.shapes
+            if shape.name == "EBSD_TITLE" and "Orientation maps" in shape.text
+        ]
+        self.assertEqual(
+            orientation_map_titles,
+            [
+                "Sample · Orientation maps · IPF X",
+                "Sample · Orientation maps · IPF Y",
+                "Sample · Orientation maps · IPF Z",
+            ],
+        )
+
     def test_every_grain_chart_has_complete_axes_and_identical_canvas_settings(self) -> None:
         image = _test_png()
         snapshot = self._snapshot(3, 3)
@@ -465,6 +646,14 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         self.assertEqual(_triangle_percent_max([50.1]), 60.0)
         self.assertEqual(_triangle_percent_max([60.0]), 60.0)
         self.assertEqual(_triangle_percent_max([60.1]), 70.0)
+
+    def test_line_scale_rounds_page_maximum_to_tens_without_headroom(self) -> None:
+        self.assertEqual(_nice_percent_max([]), 10.0)
+        self.assertEqual(_nice_percent_max([9.9]), 10.0)
+        self.assertEqual(_nice_percent_max([50.0]), 50.0)
+        self.assertEqual(_nice_percent_max([50.1]), 60.0)
+        self.assertEqual(_nice_percent_max([60.0]), 60.0)
+        self.assertEqual(_nice_percent_max([60.1]), 70.0)
 
 
 class PythonTextureFigureTests(unittest.TestCase):

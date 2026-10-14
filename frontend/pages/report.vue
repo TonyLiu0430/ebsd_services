@@ -920,6 +920,7 @@
 
 <script setup lang="ts">
 import type { PositionMatrix } from '~/utils/positions'
+import { roundUpToNearestTen } from '~/utils/chartScale'
 import { buildPositionMatrix, comparePositions, parsePosition, positionKey } from '~/utils/positions'
 
 definePageMeta({
@@ -1018,6 +1019,7 @@ const HIST_BIN_COUNT = 20
 const DEFAULT_GRAIN_MIN_SIZE = 10
 const DEFAULT_HIST_BIN_RATIO = Number((100 / HIST_BIN_COUNT).toFixed(2))
 const DEFAULT_HIST_BIN_ABSOLUTE = 10
+const SHOW_MICROSTRUCTURE_PAGE = false
 const UNKNOWN_MATERIAL = {
   key: 'unknown',
   displayName: 'Unknown',
@@ -1935,7 +1937,7 @@ const sharedGrainDataMin = computed(() => {
 const sharedGrainBins = computed(() => {
   const min = grainSettings.value.histBinStartMode === 'zero' ? 0 : sharedGrainDataMin.value
   const dataMaximum = sharedGrainValues.value.length ? Math.max(...sharedGrainValues.value) : 10
-  const max = Math.max(10, Math.ceil(dataMaximum / 10) * 10)
+  const max = roundUpToNearestTen(dataMaximum)
   const range = Math.max(max - min, 0.1)
   const rawWidth = grainSettings.value.histBinWidthMode === 'ratio'
     ? range * Math.max(grainSettings.value.histBinWidthRatio, 0.5) / 100
@@ -1970,7 +1972,7 @@ const sharedGrainYAxisMax = computed(() => {
       maximum = Math.max(maximum, ...grainHistogramSeries(values))
     }
   }
-  const rounded = Math.max(10, Math.ceil(maximum / 10) * 10)
+  const rounded = roundUpToNearestTen(maximum)
   return grainChartMode.value === 'areaHist' || histogramYMode.value === 'ratio'
     ? Math.min(100, rounded)
     : rounded
@@ -2022,7 +2024,7 @@ function orientationLineScaleMax(dev: OrientDev): number {
     }))
     .filter((value) => Number.isFinite(value))
   const maximum = Math.max(0, ...values)
-  return Math.max(10, Math.ceil(maximum * 1.1 / 10) * 10)
+  return roundUpToNearestTen(maximum)
 }
 
 function orientationTriangleScaleMax(dev: OrientDev): number {
@@ -2035,7 +2037,7 @@ function orientationTriangleScaleMax(dev: OrientDev): number {
     }))
     .filter((value) => Number.isFinite(value))
   const maximum = Math.max(0, ...values)
-  return maximum <= 50 ? 50 : Math.ceil(maximum / 10) * 10
+  return roundUpToNearestTen(maximum, 50)
 }
 
 function orientLineY(value: number, maxValue: number): number {
@@ -2196,6 +2198,7 @@ async function exportReportPpt() {
         grain_chart_mode: grainChartMode.value,
         histogram_y_mode: histogramYMode.value,
         orientation_line_y_max: orientationLineYMax.value ?? null,
+        show_microstructure_page: SHOW_MICROSTRUCTURE_PAGE,
         show_triangle_labels: showTriangleLabels.value,
         show_orientation_line_labels: showOrientLineLabels.value,
         ipf_display_target: ipfDisplayTarget.value,

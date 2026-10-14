@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { roundUpToNearestTen } from '~/utils/chartScale'
+
 /**
  * IPF-style triangle radar chart (SVG).
  * series: Array<{
@@ -66,7 +68,7 @@ const maxSeriesValue = computed(() => Math.max(
 const maxPct = computed(() => {
   const requested = Number(props.maxValue)
   const maximum = Number.isFinite(requested) && requested > 0 ? requested : maxSeriesValue.value
-  return maximum <= 50 ? 50 : Math.ceil(maximum / 10) * 10
+  return roundUpToNearestTen(maximum, 50)
 })
 const gridLevels = computed(() => Array.from(
   { length: 5 },

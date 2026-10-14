@@ -16,26 +16,62 @@ interface Series {
   values: [number, number, number]
 }
 
+interface LabelRequest {
+  key: string
+  text: string
+  color: string
+  fontSize: number
+  fontWeight: number
+  preferredX: number
+  preferredY: number
+  background?: boolean
+  outlined?: boolean
+  halo?: boolean
+}
+
+interface PlacedLabel extends LabelRequest {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const props = withDefaults(defineProps<{
   series: Series[]
   title?: string
   showValueLabels?: boolean
   axisLabels?: string[]
+  maxValue?: number | null
 }>(), {
   series: () => [],
   title: '',
   showValueLabels: true,
   axisLabels: () => ['[001]', '[011]', '[111]'],
+  maxValue: null,
 })
 
 // SVG geometry
-const CX = 140
-const CY = 148
-const R = 100 // radius for 100%
+const VIEW_WIDTH = 300
+const VIEW_HEIGHT = 270
+const CX = 150
+const CY = 145
+const R = 96
+const LABEL_MARGIN = 5
 
 const ANGLES = [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6]
-const GRID_LEVELS = [10, 25, 50]
-const MAX_PCT = 50  // 頂點 = 50%，超過自然超出
+const maxSeriesValue = computed(() => Math.max(
+  0,
+  ...props.series.flatMap((item) => item.values).filter(Number.isFinite),
+))
+const maxPct = computed(() => {
+  const requested = Number(props.maxValue)
+  const maximum = Number.isFinite(requested) && requested > 0 ? requested : maxSeriesValue.value
+  return maximum <= 50 ? 50 : Math.ceil(maximum / 10) * 10
+})
+const gridLevels = computed(() => Array.from(
+  { length: 5 },
+  (_, index) => maxPct.value * (index + 1) / 5,
+))
 
 const axisLabels = computed(() => {
   const labels = props.axisLabels?.length ? props.axisLabels : ['[001]', '[011]', '[111]']
@@ -43,7 +79,7 @@ const axisLabels = computed(() => {
 })
 
 function axisPoint(axisIdx: number, pct: number): { x: number; y: number } {
-  const r = (pct / MAX_PCT) * R
+  const r = (pct / maxPct.value) * R
   return {
     x: CX + r * Math.cos(ANGLES[axisIdx]),
     y: CY + r * Math.sin(ANGLES[axisIdx]),
@@ -52,13 +88,13 @@ function axisPoint(axisIdx: number, pct: number): { x: number; y: number } {
 
 function gridPolygon(pct: number): string {
   return ANGLES.map((a) => {
-    const r = (pct / MAX_PCT) * R
+    const r = (pct / maxPct.value) * R
     return `${CX + r * Math.cos(a)},${CY + r * Math.sin(a)}`
   }).join(' ')
 }
 
 function seriesPoint(v: number, axisIdx: number) {
-  const r = (v / MAX_PCT) * R  // 不 clamp，> 50% 自然超出頂點
+  const r = (Math.min(maxPct.value, Math.max(0, v)) / maxPct.value) * R
   return {
     x: CX + r * Math.cos(ANGLES[axisIdx]),
     y: CY + r * Math.sin(ANGLES[axisIdx]),
@@ -72,35 +108,163 @@ function seriesPolygon(values: [number, number, number]): string {
   }).join(' ')
 }
 
-function axisLabelPos(idx: number) {
-  const labelR = R + 18
+function estimateTextBox(text: string, fontSize: number) {
   return {
-    x: CX + labelR * Math.cos(ANGLES[idx]),
-    y: CY + labelR * Math.sin(ANGLES[idx]),
+    width: Math.max(fontSize, text.length * fontSize * 0.59),
+    height: fontSize * 1.25,
   }
 }
+
+function collisionSize(request: LabelRequest) {
+  const size = estimateTextBox(request.text, request.fontSize)
+  const horizontalPadding = request.background ? 6 : request.halo ? 3 : 0
+  const verticalPadding = request.background ? 4 : request.halo ? 3 : 0
+  return {
+    width: size.width + horizontalPadding,
+    height: size.height + verticalPadding,
+  }
+}
+
+function labelBox(x: number, y: number, width: number, height: number) {
+  return {
+    left: x - width / 2,
+    right: x + width / 2,
+    top: y - height * 0.78,
+    bottom: y + height * 0.22,
+  }
+}
+
+function overlapArea(a: ReturnType<typeof labelBox>, b: ReturnType<typeof labelBox>, gap = 3) {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left) + gap)
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) + gap)
+  return width * height
+}
+
+const candidateOffsets = (() => {
+  const offsets = [{ x: 0, y: 0 }]
+  for (let radius = 4; radius <= 80; radius += 4) {
+    const count = Math.max(8, Math.ceil(Math.PI * 2 * radius / 7))
+    for (let index = 0; index < count; index++) {
+      const angle = Math.PI * 2 * index / count
+      offsets.push({ x: radius * Math.cos(angle), y: radius * Math.sin(angle) })
+    }
+  }
+  return offsets
+})()
+
+function placeLabels(requests: LabelRequest[], obstacles: Array<{ x: number; y: number; width: number; height: number }>): PlacedLabel[] {
+  const placed: PlacedLabel[] = []
+  for (const request of requests) {
+    const { width, height } = collisionSize(request)
+    let best: PlacedLabel | null = null
+    let bestScore = Number.POSITIVE_INFINITY
+    for (const offset of candidateOffsets) {
+      const rawX = request.preferredX + offset.x
+      const rawY = request.preferredY + offset.y
+      const x = Math.min(VIEW_WIDTH - LABEL_MARGIN - width / 2, Math.max(LABEL_MARGIN + width / 2, rawX))
+      const y = Math.min(VIEW_HEIGHT - LABEL_MARGIN - height * 0.22, Math.max(LABEL_MARGIN + height * 0.78, rawY))
+      const box = labelBox(x, y, width, height)
+      const obstacleOverlap = obstacles.reduce(
+        (total, item) => total + overlapArea(box, labelBox(item.x, item.y, item.width, item.height)),
+        0,
+      )
+      const labelOverlap = placed.reduce(
+        (total, item) => total + overlapArea(box, labelBox(item.x, item.y, item.width, item.height)),
+        0,
+      )
+      const overlap = obstacleOverlap + labelOverlap
+      const displacement = (x - request.preferredX) ** 2 + (y - request.preferredY) ** 2
+      const score = overlap * 10000 + displacement
+      if (score < bestScore) {
+        bestScore = score
+        best = { ...request, x, y, width, height }
+      }
+      if (overlap === 0) break
+    }
+    if (best) placed.push(best)
+  }
+  return placed
+}
+
+const chartLabels = computed(() => {
+  const axisRequests: LabelRequest[] = []
+  const valueRequests: LabelRequest[] = []
+  const visibleSeries = props.series.filter((item) => item.values.some(Number.isFinite))
+
+  axisLabels.value.forEach((label, axisIndex) => {
+    const angle = ANGLES[axisIndex]
+    const outer = axisPoint(axisIndex, maxPct.value)
+    const outward = { x: Math.cos(angle), y: Math.sin(angle) }
+    const tangent = { x: -Math.sin(angle), y: Math.cos(angle) }
+    axisRequests.push({
+      key: `axis-${axisIndex}`,
+      text: label,
+      color: '#374151',
+      fontSize: 13,
+      fontWeight: 700,
+      preferredX: outer.x + outward.x * 22,
+      preferredY: outer.y + outward.y * 22 + 4,
+    })
+
+    if (props.showValueLabels) {
+      visibleSeries.forEach((series, seriesIndex) => {
+        const value = series.values[axisIndex]
+        if (!Number.isFinite(value)) return
+        const centeredIndex = seriesIndex - (visibleSeries.length - 1) / 2
+        const endpoint = seriesPoint(value, axisIndex)
+        valueRequests.push({
+          key: `value-${axisIndex}-${seriesIndex}`,
+          text: `${value.toFixed(1)}%`,
+          color: series.color,
+          fontSize: 9,
+          fontWeight: 700,
+          preferredX: endpoint.x + outward.x * 15 + tangent.x * centeredIndex * 18,
+          preferredY: endpoint.y + outward.y * 15 + tangent.y * centeredIndex * 18 + 3,
+          halo: true,
+        })
+      })
+    }
+  })
+
+  const top = axisPoint(0, maxPct.value)
+  const right = axisPoint(1, maxPct.value)
+  const midpoint = { x: (top.x + right.x) / 2, y: (top.y + right.y) / 2 }
+  const normalLength = Math.hypot(midpoint.x - CX, midpoint.y - CY) || 1
+  const outerScaleRequest: LabelRequest = {
+    key: 'outer-scale',
+    text: `${maxPct.value}%`,
+    color: '#6b7280',
+    fontSize: 9,
+    fontWeight: 700,
+    preferredX: midpoint.x + (midpoint.x - CX) / normalLength * 14,
+    preferredY: midpoint.y + (midpoint.y - CY) / normalLength * 14 + 3,
+    halo: true,
+  }
+
+  const endpointObstacles = visibleSeries.flatMap((series) => series.values.flatMap((value, axisIndex) => {
+    if (!Number.isFinite(value)) return []
+    const endpoint = seriesPoint(value, axisIndex)
+    return [{ ...endpoint, width: 14, height: 14 }]
+  }))
+
+  // Stable labels reserve their space first.  Data values then search the
+  // nearest collision-free position instead of relying on fixed zones.
+  return placeLabels([...axisRequests, outerScaleRequest, ...valueRequests], endpointObstacles)
+})
 </script>
 
 <template>
   <div class="triangle-wrap">
     <div v-if="title" class="tri-title">{{ title }}</div>
-    <svg viewBox="0 0 280 270" class="tri-svg" overflow="visible">
+    <svg :viewBox="`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`" class="tri-svg">
       <!-- Background grid (concentric triangles) -->
-      <g v-for="level in GRID_LEVELS" :key="level">
+      <g v-for="level in gridLevels" :key="level">
         <polygon
           :points="gridPolygon(level)"
           fill="none"
           stroke="#d1d5db"
           stroke-width="0.8"
         />
-        <!-- grid label on 001 axis -->
-        <text
-          :x="axisPoint(0, level).x + 4"
-          :y="axisPoint(0, level).y"
-          font-size="7.5"
-          fill="#9ca3af"
-          text-anchor="start"
-        >{{ level }}%</text>
       </g>
 
       <!-- Axis lines from center to vertex -->
@@ -115,18 +279,6 @@ function axisLabelPos(idx: number) {
         stroke-width="1"
       />
 
-      <!-- Axis labels -->
-      <text
-        v-for="(label, i) in axisLabels"
-        :key="label"
-        :x="axisLabelPos(i).x"
-        :y="axisLabelPos(i).y + 4"
-        text-anchor="middle"
-        font-size="13"
-        font-weight="700"
-        fill="#374151"
-      >{{ label }}</text>
-
       <!-- Data series -->
       <g v-for="(s, si) in series" :key="si">
         <polygon
@@ -137,7 +289,7 @@ function axisLabelPos(idx: number) {
           stroke-width="1"
           :stroke-dasharray="s.dashed ? '5,3' : 'none'"
         />
-        <!-- vertex dots + value labels -->
+        <!-- vertex dots -->
         <g v-for="(v, vi) in s.values" :key="vi">
           <circle
             :cx="seriesPoint(v, vi).x"
@@ -145,16 +297,43 @@ function axisLabelPos(idx: number) {
             r="2.5"
             :fill="s.color"
           />
-          <text
-            v-if="props.showValueLabels"
-            :x="seriesPoint(v, vi).x"
-            :y="seriesPoint(v, vi).y - 5"
-            text-anchor="middle"
-            font-size="7"
-            :fill="s.color"
-            font-weight="600"
-          >{{ v.toFixed(1) }}%</text>
         </g>
+      </g>
+
+      <!-- Labels render last, so chart strokes can never cut through text. -->
+      <g v-for="label in chartLabels" :key="label.key">
+        <rect
+          v-if="label.background"
+          :x="label.x - label.width / 2"
+          :y="label.y - label.height * 0.78"
+          :width="label.width"
+          :height="label.height"
+          rx="3"
+          fill="#ffffff"
+          :fill-opacity="label.outlined ? 0.96 : 0.9"
+          :stroke="label.outlined ? '#d1d5db' : 'none'"
+          stroke-width="0.6"
+        />
+        <text
+          v-if="label.halo"
+          :x="label.x"
+          :y="label.y"
+          text-anchor="middle"
+          :font-size="label.fontSize"
+          :font-weight="label.fontWeight"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="2.4"
+          stroke-linejoin="round"
+        >{{ label.text }}</text>
+        <text
+          :x="label.x"
+          :y="label.y"
+          text-anchor="middle"
+          :font-size="label.fontSize"
+          :font-weight="label.fontWeight"
+          :fill="label.color"
+        >{{ label.text }}</text>
       </g>
     </svg>
 
@@ -189,7 +368,7 @@ function axisLabelPos(idx: number) {
 }
 .tri-svg {
   width: 100%;
-  max-width: 280px;
+  max-width: 300px;
   height: auto;
 }
 .tri-legend {

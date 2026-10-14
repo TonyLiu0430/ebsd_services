@@ -25,15 +25,19 @@ jobs:
         include:
           - service: frontend
             context: ./frontend
+            dockerfile: ./frontend/Dockerfile
             image: ebsd-services-frontend
           - service: go_backend
             context: ./go_backend
+            dockerfile: ./go_backend/Dockerfile
             image: ebsd-services-go-backend
           - service: ml_backend
-            context: ./ML_backend
+            context: .
+            dockerfile: ./ML_backend/Dockerfile
             image: ebsd-services-ml-backend
           - service: cpp_backend
             context: ./cpp_backend
+            dockerfile: ./cpp_backend/Dockerfile
             image: ebsd-services-cpp-backend
 
     steps:
@@ -54,6 +58,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/arm64
           push: true
           network: host

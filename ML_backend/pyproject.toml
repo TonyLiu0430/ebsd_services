@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.9,<3.10"
 dependencies = [
+    "cairosvg>=2.8.2",
     "defdap>=1.1.2",
     "diffpy-structure>=3.1,<4",
     "fastapi>=0.128.4",
@@ -14,7 +15,11 @@ dependencies = [
     "python-pptx>=1.0.2",
     "python-multipart>=0.0.20",
     "scipy>=1.13,<1.14",
-    "setuptools>=68,<81",
+    # diffpy-structure 3.1 is the last release supporting Python 3.9 and
+    # imports pkg_resources. Setuptools 80.9+ turns that import into a noisy
+    # startup UserWarning, so retain the last compatible warning-free range
+    # until the ML runtime can move to Python 3.10+ and newer diffpy releases.
+    "setuptools>=68,<80.9",
     "sqlalchemy>=2.0.45",
     "uvicorn>=0.39.0",
 ]

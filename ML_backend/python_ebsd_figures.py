@@ -4,7 +4,7 @@ import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from defdap import ebsd
@@ -115,6 +115,169 @@ def _grain_map(ebsd_map: ebsd.Map, min_grain_size: int) -> Tuple[RawRgbMap, np.n
     return _raw_rgb_map(rgb, float(ebsd_map.step_size), "GS"), grains
 
 
+def _scalar_rgb(values: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    source = np.asarray(values, dtype=float)
+    mask = np.asarray(valid, dtype=bool) & np.isfinite(source)
+    rgb = np.zeros(source.shape + (3,), dtype=float)
+    finite = source[mask]
+    if finite.size:
+        low = float(np.percentile(finite, 1))
+        high = float(np.percentile(finite, 99))
+        if high <= low:
+            high = low + 1.0
+        normalized = np.clip((source - low) / (high - low), 0.0, 1.0)
+        rgb[mask] = CHANNEL5_DENSITY_CMAP(normalized[mask])[:, :3]
+    return rgb
+
+
+def _kam_figure(ebsd_map: ebsd.Map, valid: np.ndarray) -> Tuple[RawRgbMap, List[float]]:
+    degrees = np.degrees(np.asarray(ebsd_map.data.KAM, dtype=float))
+    values = degrees[np.asarray(valid, dtype=bool) & np.isfinite(degrees)]
+    return (
+        _raw_rgb_map(_scalar_rgb(degrees, valid), float(ebsd_map.step_size), "KAM"),
+        values.tolist(),
+    )
+
+
+def _grain_orientation_stats(
+    orientations: Orientation,
+    valid: np.ndarray,
+    grains: np.ndarray,
+) -> Tuple[np.ndarray, List[float], Dict[int, np.ndarray]]:
+    quaternion_grid = np.zeros(grains.shape + (4,), dtype=float)
+    quaternion_grid[np.asarray(valid, dtype=bool)] = np.asarray(orientations.data, dtype=float).reshape(-1, 4)
+    gos_map = np.full(grains.shape, np.nan, dtype=float)
+    grain_values: List[float] = []
+    grain_means: Dict[int, np.ndarray] = {}
+    for grain_id in sorted(int(value) for value in np.unique(grains) if value > 0):
+        values = quaternion_grid[grains == grain_id]
+        if not values.size:
+            continue
+        reference = values[0]
+        aligned = values.copy()
+        aligned[np.einsum("ij,j->i", aligned, reference) < 0] *= -1.0
+        mean = np.mean(aligned, axis=0)
+        mean /= max(float(np.linalg.norm(mean)), 1e-12)
+        degrees = np.degrees(2.0 * np.arccos(np.clip(np.abs(aligned @ mean), 0.0, 1.0)))
+        gos = float(np.mean(degrees)) if degrees.size else 0.0
+        gos_map[grains == grain_id] = gos
+        grain_values.append(gos)
+        grain_means[grain_id] = mean
+    return gos_map, grain_values, grain_means
+
+
+def _gos_figure(
+    ebsd_map: ebsd.Map,
+    orientations: Orientation,
+    valid: np.ndarray,
+    grains: np.ndarray,
+) -> Tuple[RawRgbMap, List[float], Dict[int, np.ndarray]]:
+    gos_map, grain_values, grain_means = _grain_orientation_stats(orientations, valid, grains)
+    valid = grains > 0
+    return (
+        _raw_rgb_map(_scalar_rgb(gos_map, valid), float(ebsd_map.step_size), "GOS"),
+        grain_values,
+        grain_means,
+    )
+
+
+def _boundary_rgb(ebsd_map: ebsd.Map, grains: np.ndarray) -> RawRgbMap:
+    band = _normalised_band_contrast(ebsd_map)
+    rgb = np.repeat(band[..., None], 3, axis=2)
+    rgb[_grain_boundaries(grains)] = (0.05, 0.05, 0.05)
+    return _raw_rgb_map(rgb, float(ebsd_map.step_size), "GB")
+
+
+def _family_axis_error(axis: np.ndarray, family: str) -> float:
+    direction = np.abs(np.asarray(axis, dtype=float))
+    norm = float(np.linalg.norm(direction))
+    if norm <= 1e-12:
+        return 180.0
+    direction /= norm
+    if family == "111":
+        targets = [np.asarray((1.0, 1.0, 1.0)) / math.sqrt(3.0)]
+    elif family == "110":
+        targets = [
+            np.asarray(value, dtype=float) / math.sqrt(2.0)
+            for value in ((1, 1, 0), (1, 0, 1), (0, 1, 1))
+        ]
+    else:
+        targets = [np.asarray(value, dtype=float) for value in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
+    best = max(float(np.dot(direction, target)) for target in targets)
+    return math.degrees(math.acos(np.clip(best, -1.0, 1.0)))
+
+
+def _csl_sigma(first: np.ndarray, second: np.ndarray) -> Optional[int]:
+    first_w, first_xyz = float(first[0]), first[1:]
+    second_w, second_xyz = float(second[0]), second[1:]
+    scalar = second_w * first_w + float(np.dot(second_xyz, first_xyz))
+    vector = -second_w * first_xyz + first_w * second_xyz - np.cross(second_xyz, first_xyz)
+    if scalar < 0:
+        scalar = -scalar
+        vector = -vector
+    angle = math.degrees(2.0 * math.acos(float(np.clip(scalar, -1.0, 1.0))))
+    axis = vector / max(float(np.linalg.norm(vector)), 1e-12)
+    candidates = (
+        (3, 60.00, "111"),
+        (5, 36.87, "100"),
+        (7, 38.21, "111"),
+        (9, 38.94, "110"),
+        (11, 50.48, "110"),
+    )
+    for sigma, ideal_angle, family in candidates:
+        tolerance = 15.0 / math.sqrt(sigma)
+        if abs(angle - ideal_angle) <= tolerance and _family_axis_error(axis, family) <= tolerance:
+            return sigma
+    return None
+
+
+def _csl_figure(
+    ebsd_map: ebsd.Map,
+    grains: np.ndarray,
+    grain_means: Dict[int, np.ndarray],
+) -> Tuple[RawRgbMap, Dict[str, float]]:
+    band = _normalised_band_contrast(ebsd_map)
+    rgb = np.repeat(band[..., None], 3, axis=2)
+    pair_pixels: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    height, width = grains.shape
+    for y in range(height):
+        for x in range(width):
+            here = int(grains[y, x])
+            if here <= 0:
+                continue
+            for nx, ny in ((x + 1, y), (x, y + 1)):
+                if nx >= width or ny >= height:
+                    continue
+                other = int(grains[ny, nx])
+                if other <= 0 or other == here:
+                    continue
+                pair = tuple(sorted((here, other)))
+                pair_pixels.setdefault(pair, []).extend(((y, x), (ny, nx)))
+
+    colours = {
+        3: np.asarray((0.95, 0.20, 0.20)),
+        5: np.asarray((0.12, 0.72, 0.38)),
+        7: np.asarray((0.20, 0.48, 0.95)),
+        9: np.asarray((0.68, 0.32, 0.90)),
+        11: np.asarray((0.96, 0.58, 0.12)),
+    }
+    counts: Dict[int, int] = {sigma: 0 for sigma in colours}
+    total = 0
+    for (first_id, second_id), pixels in pair_pixels.items():
+        total += len(pixels)
+        try:
+            sigma = _csl_sigma(grain_means[first_id], grain_means[second_id])
+        except (KeyError, ValueError):
+            sigma = None
+        colour = colours.get(sigma, np.asarray((0.05, 0.05, 0.05)))
+        if sigma is not None:
+            counts[sigma] += len(pixels)
+        for y, x in pixels:
+            rgb[y, x] = colour
+    summary = {f"Σ{sigma}": (counts[sigma] / total * 100 if total else 0.0) for sigma in colours}
+    return _raw_rgb_map(rgb, float(ebsd_map.step_size), "CSL"), summary
+
+
 def _orix_phase(ebsd_map: ebsd.Map, family: str) -> Tuple[Any, Phase]:
     source_phase = ebsd_map.primary_phase
     a, b, c, alpha, beta, gamma = source_phase.lattice_params
@@ -206,9 +369,20 @@ def generate_python_scan_figures(
         point_group, phase = _orix_phase(ebsd_map, family)
         orientations, valid = _orientations(ebsd_map, point_group)
         family_vectors = _preferred_family_vectors(family, phase)
-        grain_map, _ = _grain_map(ebsd_map, min_grain_size)
+        grain_map, grains = _grain_map(ebsd_map, min_grain_size)
+        grain_boundaries = _boundary_rgb(ebsd_map, grains)
+        kam_map, kam_values = _kam_figure(ebsd_map, valid)
+        gos_map, gos_values, grain_means = _gos_figure(ebsd_map, orientations, valid, grains)
+        csl_map, csl_summary = _csl_figure(ebsd_map, grains, grain_means)
         return {
             "grain_map": grain_map,
+            "grain_boundaries": grain_boundaries,
+            "kam_map": kam_map,
+            "kam_values": kam_values,
+            "gos_map": gos_map,
+            "gos_values": gos_values,
+            "csl_map": csl_map,
+            "csl_summary": csl_summary,
             "preferred_20": _preferred_orientation_map(
                 ebsd_map, orientations, valid, family_vectors, 20.0, "POR20"
             ),

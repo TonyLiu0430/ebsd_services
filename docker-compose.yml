@@ -1,7 +1,8 @@
 services:
   ml_backend:
     build:
-      context: ./ML_backend
+      context: .
+      dockerfile: ML_backend/Dockerfile
       network: host # uv 下載 Python wheels 時避免 Docker build DNS 抖動
     ports:
       - "8000:8000"

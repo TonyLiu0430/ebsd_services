@@ -438,6 +438,26 @@ type LocalFolderPair = {
   versionNum: number
 }
 
+type LocalFolderFile = {
+  file: File
+  relativePath: string
+}
+
+type FileSystemEntryReader = {
+  readEntries: (
+    success: (entries: FileSystemEntry[]) => void,
+    error?: (reason: DOMException) => void,
+  ) => void
+}
+
+type FileSystemEntry = {
+  isFile: boolean
+  isDirectory: boolean
+  name: string
+  file?: (success: (file: File) => void, error?: (reason: DOMException) => void) => void
+  createReader?: () => FileSystemEntryReader
+}
+
 type TargetOption = {
   name: string
   scanCount: number
@@ -783,26 +803,103 @@ async function createTarget() {
 }
 
 function handleFolderSelect(event: Event) {
-  processFolderFiles((event.target as HTMLInputElement).files)
+  const files = (event.target as HTMLInputElement).files
+  processFolderFiles(Array.from(files ?? [], (file) => ({
+    file,
+    relativePath: normalizeRelativePath(file.webkitRelativePath || file.name),
+  })))
 }
 
-function handleFolderDrop(event: DragEvent) {
-  processFolderFiles(event.dataTransfer?.files)
+async function handleFolderDrop(event: DragEvent) {
+  folderError.value = ''
+  folderMessage.value = '正在讀取資料夾與子資料夾…'
+
+  try {
+    const droppedFiles = await collectDroppedFiles(event.dataTransfer)
+    processFolderFiles(droppedFiles)
+  } catch (error: unknown) {
+    resetFolderImport(false)
+    const reason = error instanceof Error ? error.message : String(error)
+    folderError.value = `無法讀取拖曳的資料夾：${reason || '瀏覽器未提供資料夾內容'}`
+    folderMessage.value = ''
+  }
 }
 
-function processFolderFiles(fileList: FileList | null | undefined) {
+async function collectDroppedFiles(dataTransfer: DataTransfer | null): Promise<LocalFolderFile[]> {
+  if (!dataTransfer) return []
+
+  const entries = Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => {
+      const entryItem = item as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }
+      return entryItem.webkitGetAsEntry?.() ?? null
+    })
+    .filter((entry): entry is FileSystemEntry => entry !== null)
+
+  if (!entries.length) {
+    return Array.from(dataTransfer.files ?? [], (file) => ({
+      file,
+      relativePath: normalizeRelativePath(file.webkitRelativePath || file.name),
+    }))
+  }
+
+  const files: LocalFolderFile[] = []
+  for (const entry of entries) {
+    await walkDroppedEntry(entry, '', files)
+  }
+  return files
+}
+
+async function walkDroppedEntry(
+  entry: FileSystemEntry,
+  parentPath: string,
+  files: LocalFolderFile[],
+): Promise<void> {
+  const relativePath = normalizeRelativePath(parentPath ? `${parentPath}/${entry.name}` : entry.name)
+  if (entry.isFile) {
+    if (!entry.file) throw new Error(`無法開啟檔案 ${relativePath}`)
+    const file = await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject))
+    files.push({ file, relativePath })
+    return
+  }
+
+  if (!entry.isDirectory || !entry.createReader) return
+  const reader = entry.createReader()
+  const children: FileSystemEntry[] = []
+  // Chromium may return large directories in several batches. Keep reading
+  // until an empty batch is returned, otherwise folders with many scans are
+  // silently truncated.
+  while (true) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject))
+    if (!batch.length) break
+    children.push(...batch)
+  }
+  for (const child of children) {
+    await walkDroppedEntry(child, relativePath, files)
+  }
+}
+
+function processFolderFiles(localFiles: LocalFolderFile[]) {
   folderError.value = ''
   folderMessage.value = ''
   folderImportedCount.value = 0
   folderPairs.value = []
   folderTargets.value = new Set()
-  if (!fileList?.length) return
+  if (!localFiles.length) {
+    folderError.value = '拖曳內容中沒有可讀取的檔案。請拖曳資料夾，或點擊後選擇資料夾。'
+    return
+  }
 
-  const crcFiles = new Map<string, { file: File; sample: string; position: string; folder: string; versionKey: string; versionLabel: string; versionNum: number }>()
-  const cprFiles = new Map<string, File>()
+  const crcFiles = new Map<string, { file: File; relativePath: string; sample: string; position: string; folder: string; versionKey: string; versionLabel: string; versionNum: number }>()
+  const cprFiles = new Map<string, { file: File; relativePath: string }>()
   const singleFiles: LocalFolderPair[] = []
+  const invalidPositions: string[] = []
+  const missingTargetFolders: string[] = []
+  const duplicatePaths: string[] = []
+  let supportedFileCount = 0
 
-  for (const file of Array.from(fileList)) {
+  for (const { file, relativePath: originalRelativePath } of localFiles) {
+    const relativePath = normalizeRelativePath(originalRelativePath || file.name)
     const lowerName = file.name.toLowerCase()
     const format: 'ang' | 'ctf' | null = lowerName.endsWith('.ang')
       ? 'ang'
@@ -810,18 +907,24 @@ function processFolderFiles(fileList: FileList | null | undefined) {
         ? 'ctf'
         : null
     if (!lowerName.endsWith('.crc') && !lowerName.endsWith('.cpr') && !format) continue
+    supportedFileCount++
 
-    const relativePath = file.webkitRelativePath || file.name
     const parts = relativePath.split('/').filter(Boolean)
-    const folder = resolveTargetFolder(parts)
-    if (!folder) continue
+    const targetFolder = resolveTargetFolder(parts)
+    if (!targetFolder) {
+      missingTargetFolders.push(relativePath)
+      continue
+    }
 
-    const versionInfo = parseTargetVersion(folder)
+    const folder = parts.slice(0, -1).join('/') || targetFolder
+    const versionInfo = parseTargetVersion(targetFolder)
     const sample = versionInfo.sample
     const position = normalizePosition(file.name.replace(/\.(crc|cpr|ang|ctf)$/i, '').trim())
-    if (!position) continue
-    const key = `${sample}::${versionInfo.versionKey}::${position}`
-    folderTargets.value.add(sample)
+    if (!position) {
+      invalidPositions.push(relativePath)
+      continue
+    }
+    const key = relativePath.replace(/\.(crc|cpr)$/i, '').toLocaleLowerCase()
 
     if (format) {
       singleFiles.push({
@@ -834,9 +937,11 @@ function processFolderFiles(fileList: FileList | null | undefined) {
         ...versionInfo,
       })
     } else if (lowerName.endsWith('.crc')) {
-      crcFiles.set(key, { file, sample, position, folder, ...versionInfo })
+      if (crcFiles.has(key)) duplicatePaths.push(relativePath)
+      else crcFiles.set(key, { file, relativePath, sample, position, folder, ...versionInfo })
     } else {
-      cprFiles.set(key, file)
+      if (cprFiles.has(key)) duplicatePaths.push(relativePath)
+      else cprFiles.set(key, { file, relativePath })
     }
   }
 
@@ -847,7 +952,7 @@ function processFolderFiles(fileList: FileList | null | undefined) {
     matched.push({
       name: `${info.sample}-${info.position}`,
       crc: info.file,
-      cpr,
+      cpr: cpr.file,
       format: 'cpr',
       sample: info.sample,
       position: info.position,
@@ -865,14 +970,52 @@ function processFolderFiles(fileList: FileList | null | undefined) {
     sortText(a.position, b.position),
   )
   folderPairs.value = matched
-  if (!matched.length) {
-    folderError.value = '找不到可用的 .crc + .cpr、.ang 或 .ctf'
+  folderTargets.value = new Set(matched.map((pair) => pair.sample))
+
+  const unmatchedCrc = Array.from(crcFiles.entries())
+    .filter(([key]) => !cprFiles.has(key))
+    .map(([, info]) => info.relativePath)
+  const unmatchedCpr = Array.from(cprFiles.entries())
+    .filter(([key]) => !crcFiles.has(key))
+    .map(([, info]) => info.relativePath)
+  const problems: string[] = []
+  if (unmatchedCrc.length || unmatchedCpr.length) {
+    problems.push(`${unmatchedCrc.length} 個 CRC 與 ${unmatchedCpr.length} 個 CPR 找不到同路徑、同檔名的配對`)
+  }
+  if (invalidPositions.length) problems.push(`${invalidPositions.length} 個檔名無法解析成 A-1 類的位置`)
+  if (missingTargetFolders.length) problems.push(`${missingTargetFolders.length} 個檔案不在資料夾內`)
+  if (duplicatePaths.length) problems.push(`${duplicatePaths.length} 個重複相對路徑`)
+
+  if (!supportedFileCount) {
+    folderError.value = '在所選資料夾（含子資料夾）中找不到 .crc、.cpr、.ang 或 .ctf 檔案。'
+  } else if (!matched.length) {
+    folderError.value = `找不到可匯入的 EBSD 掃描。${problems.join('；') || '請確認檔名為 A-1 類的位置，且 CRC/CPR 位於同一資料夾。'}`
+  } else if (problems.length) {
+    folderError.value = `已解析 ${matched.length} 組，但略過部分檔案：${problems.join('；')}。`
+  } else {
+    folderMessage.value = `已遞迴掃描 ${localFiles.length} 個檔案，解析 ${matched.length} 組 EBSD 掃描。`
   }
 }
 
 function resolveTargetFolder(parts: string[]): string {
   if (parts.length <= 1) return ''
-  return parts[parts.length - 2] || ''
+  const directories = parts.slice(0, -1).filter(Boolean)
+  for (let index = directories.length - 1; index >= 0; index--) {
+    if (/^.+-\d+$/.test(directories[index] || '')) return directories[index] || ''
+  }
+
+  const genericFolders = new Set(['data', 'ebsd', 'files', 'raw', 'scan', 'scans', '資料', '數據', '檔案'])
+  for (let index = directories.length - 1; index >= 0; index--) {
+    const candidate = directories[index]?.trim() || ''
+    if (candidate && !genericFolders.has(candidate.toLocaleLowerCase()) && !normalizePosition(candidate)) {
+      return candidate
+    }
+  }
+  return directories[directories.length - 1] || ''
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/')
 }
 
 function parseTargetVersion(folder: string) {

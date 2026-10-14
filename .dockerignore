@@ -1,0 +1,13 @@
+.git/
+.temp/
+.agents/
+.codex/
+.vscode/
+**/.venv/
+**/node_modules/
+**/.nuxt/
+**/.output/
+**/__pycache__/
+cpp_backend/build/
+cpp_backend/vcpkg_installed/
+*.log

@@ -798,10 +798,17 @@ class ReportPptRequest(BaseModel):
     ipf_reference_vector: Optional[List[float]] = None
     ipf_denoindex_threshold: Optional[float] = None
     ipf_denoindex_misorientation_threshold: Optional[float] = None
-    hist_bin_start_mode: str = "min"
-    hist_bin_width_mode: str = "ratio"
-    hist_bin_width_ratio: float = 10.0
+    hist_bin_start_mode: str = "zero"
+    hist_bin_width_mode: str = "absolute"
+    hist_bin_width_ratio: float = 5.0
     hist_bin_width_absolute: float = 10.0
+    grain_chart_mode: str = "hist"
+    histogram_y_mode: str = "ratio"
+    orientation_line_y_max: Optional[float] = None
+    show_triangle_labels: bool = True
+    show_orientation_line_labels: bool = True
+    ipf_display_target: str = "analysis"
+    grid_display_target: str = "analysis"
     selected_features: List[str] = Field(default_factory=list)
     color_thresholds: List[float] = Field(default_factory=lambda: [30.0, 70.0])
 
@@ -1315,29 +1322,41 @@ def build_ppt_report_context(
     selected_key = context["selected_version_key"]
     golden_key = context["golden_version_key"]
     selected_pairs = context["cumulative_pairs"].get(selected_sample, {}).get(selected_key, {})
-    selected_pair_for_legend = next(iter(selected_pairs.values()), None)
+    golden_pairs = context["cumulative_pairs"].get(golden_sample, {}).get(golden_key, {}) if golden_sample else {}
     selected_snapshot = context["versioned_report_data"].get(selected_sample, {}).get(selected_key, {})
     golden_snapshot = context["versioned_report_data"].get(golden_sample, {}).get(golden_key, {}) if golden_sample else {}
+
+    ipf_uses_golden = req.ipf_display_target == "golden" and bool(golden_sample)
+    ipf_display_sample = golden_sample if ipf_uses_golden else selected_sample
+    ipf_display_pairs = golden_pairs if ipf_uses_golden else selected_pairs
+    ipf_pair_for_legend = next(iter(ipf_display_pairs.values()), None)
+    grid_uses_golden = req.grid_display_target == "golden" and bool(golden_sample)
+    grid_display_sample = golden_sample if grid_uses_golden else selected_sample
+    grid_display_version_label = context["golden_version_label"] if grid_uses_golden else context["selected_version_label"]
 
     requested_min_size = validate_min_grain_size(req.min_grain_size) or 10
     statistics_by_min_grain_size = {requested_min_size: selected_snapshot}
 
-    vectors: Dict[str, List[float]] = {
+    preset_vectors: Dict[str, List[float]] = {
         "X": [1.0, 0.0, 0.0],
         "Y": [0.0, 1.0, 0.0],
         "Z": [0.0, 0.0, 1.0],
     }
-    custom_vector = normalize_reference_vector(req.ipf_reference_vector)
-    if custom_vector and not any(
-        all(abs(custom_vector[index] - axis[index]) <= 1e-6 for index in range(3))
-        for axis in vectors.values()
-    ):
-        vectors[f"Custom ({custom_vector[0]:.3g}, {custom_vector[1]:.3g}, {custom_vector[2]:.3g})"] = custom_vector
+    requested_vector = normalize_reference_vector(req.ipf_reference_vector) or preset_vectors["Z"]
+    direction = next(
+        (
+            name
+            for name, axis in preset_vectors.items()
+            if all(abs(requested_vector[index] - axis[index]) <= 1e-6 for index in range(3))
+        ),
+        f"Custom ({requested_vector[0]:.3g}, {requested_vector[1]:.3g}, {requested_vector[2]:.3g})",
+    )
+    vectors = {direction: requested_vector}
 
     ipf_images_by_direction: Dict[str, Dict[str, bytes]] = {}
     for direction, vector in vectors.items():
         images: Dict[str, bytes] = {}
-        for position, row in selected_pairs.items():
+        for position, row in ipf_display_pairs.items():
             try:
                 images[position] = cpp_ipf_map(
                     row,
@@ -1348,6 +1367,22 @@ def build_ppt_report_context(
             except HTTPException:
                 continue
         ipf_images_by_direction[direction] = images
+
+    selected_ipf_images: Dict[str, bytes]
+    if not ipf_uses_golden:
+        selected_ipf_images = ipf_images_by_direction[direction]
+    else:
+        selected_ipf_images = {}
+        for position, row in selected_pairs.items():
+            try:
+                selected_ipf_images[position] = cpp_ipf_map(
+                    row,
+                    requested_vector,
+                    validate_ipf_denoindex_threshold(req.ipf_denoindex_threshold),
+                    validate_ipf_denoindex_misorientation_threshold(req.ipf_denoindex_misorientation_threshold),
+                )
+            except HTTPException:
+                continue
 
     scan_report_images: Dict[str, Dict[str, Any]] = {}
     for position, row in selected_pairs.items():
@@ -1369,9 +1404,9 @@ def build_ppt_report_context(
                 "pole_figure": cpp_pole_figure(row),
                 "inverse_pole_figure": cpp_inverse_pole_figure(row),
                 "ipf_maps": {
-                    direction: images[position]
-                    for direction, images in ipf_images_by_direction.items()
-                    if position in images
+                    direction: selected_ipf_images[position]
+                    for direction in vectors
+                    if position in selected_ipf_images
                 },
             }
         except HTTPException:
@@ -1395,6 +1430,18 @@ def build_ppt_report_context(
         raise HTTPException(status_code=400, detail="hist_bin_start_mode must be min or zero")
     if req.hist_bin_width_mode not in {"ratio", "absolute"}:
         raise HTTPException(status_code=400, detail="hist_bin_width_mode must be ratio or absolute")
+    if req.grain_chart_mode not in {"cdf", "hist", "areaHist"}:
+        raise HTTPException(status_code=400, detail="grain_chart_mode must be cdf, hist, or areaHist")
+    if req.histogram_y_mode not in {"count", "ratio"}:
+        raise HTTPException(status_code=400, detail="histogram_y_mode must be count or ratio")
+    if req.orientation_line_y_max is not None and (
+        not math.isfinite(req.orientation_line_y_max) or req.orientation_line_y_max <= 0
+    ):
+        raise HTTPException(status_code=400, detail="orientation_line_y_max must be a positive number")
+    if req.ipf_display_target not in {"analysis", "golden"}:
+        raise HTTPException(status_code=400, detail="ipf_display_target must be analysis or golden")
+    if req.grid_display_target not in {"analysis", "golden"}:
+        raise HTTPException(status_code=400, detail="grid_display_target must be analysis or golden")
     if len(req.color_thresholds) != 2 or not 0 <= req.color_thresholds[0] <= req.color_thresholds[1] <= 100:
         raise HTTPException(status_code=400, detail="color_thresholds must contain two ascending values between 0 and 100")
     return {
@@ -1402,9 +1449,12 @@ def build_ppt_report_context(
         "golden_sample": golden_sample,
         "selected_version_label": context["selected_version_label"],
         "golden_version_label": context["golden_version_label"],
+        "ipf_display_sample": ipf_display_sample,
+        "grid_display_sample": grid_display_sample,
+        "grid_display_version_label": grid_display_version_label,
         "report_data": report_data,
         "ipf_images_by_direction": ipf_images_by_direction,
-        "ipf_legend": cpp_pair_ipf_legend(selected_pair_for_legend) if selected_pair_for_legend else cpp_ipf_legend(),
+        "ipf_legend": cpp_pair_ipf_legend(ipf_pair_for_legend) if ipf_pair_for_legend else cpp_ipf_legend(),
         "scan_report_images": scan_report_images,
         "statistics_by_min_grain_size": statistics_by_min_grain_size,
         "analysis_data": analysis_data,
@@ -1416,7 +1466,12 @@ def build_ppt_report_context(
             "width_mode": req.hist_bin_width_mode,
             "width_ratio": req.hist_bin_width_ratio,
             "width_absolute": req.hist_bin_width_absolute,
+            "chart_mode": req.grain_chart_mode,
+            "y_mode": req.histogram_y_mode,
         },
+        "orientation_line_y_max": req.orientation_line_y_max,
+        "show_triangle_labels": req.show_triangle_labels,
+        "show_orientation_line_labels": req.show_orientation_line_labels,
     }
 
 

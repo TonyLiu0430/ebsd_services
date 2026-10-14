@@ -283,6 +283,10 @@
               :fixedXMax="sharedGrainBins.max"
               :binCount="sharedGrainBins.binCount"
               :binWidth="sharedGrainBins.binWidth"
+              :fixedYMax="sharedGrainYAxisMax"
+              :maxXTicks="6"
+              :showXAxis="true"
+              :showYAxis="true"
             />
           </div>
         </div>
@@ -319,7 +323,7 @@
                 controls-position="right"
                 class="grain-number-input"
               />
-              <span class="grain-input-unit">{{ histBinWidthModeDraft === 'ratio' ? '% of range' : 'μm' }}</span>
+              <span class="grain-input-unit">{{ histBinWidthModeDraft === 'ratio' ? '% of range' : 'µm' }}</span>
             </div>
             <div class="grain-setting-desc">{{ grainBinPreviewText }}</div>
           </div>
@@ -495,7 +499,7 @@
                 <div class="ng-position-label">{{ positionKey(column, row) }}</div>
                 <div v-if="!getGridPosData(positionKey(column, row))" class="cell-status-tag muted">無數據</div>
                 <div class="stat-block">
-                  <div class="stat-title">Grain Size (μm)</div>
+                  <div class="stat-title">Grain Size (µm)</div>
                   <div class="stat-row">
                     <span class="stat-key">Mean</span>
                     <span class="stat-val">{{ fmtGrain(positionKey(column, row), 'mean') }}</span>
@@ -569,7 +573,7 @@
             <div class="tri-col-title">{{ pos }}</div>
             <div v-if="isMissingGoldenPos(pos)" class="cell-status-tag warning">缺 Golden</div>
             <div v-else-if="isMissingSelectedPos(pos)" class="cell-status-tag muted">未上傳</div>
-            <TriangleChart :series="buildOrientSeries(pos, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(pos, '20%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" :maxValue="orientationTriangleScaleMax('20%')" />
           </div>
         </div>
       </section>
@@ -603,7 +607,7 @@
             <div class="tri-col-title">{{ pos }}</div>
             <div v-if="isMissingGoldenPos(pos)" class="cell-status-tag warning">缺 Golden</div>
             <div v-else-if="isMissingSelectedPos(pos)" class="cell-status-tag muted">未上傳</div>
-            <TriangleChart :series="buildOrientSeries(pos, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" />
+            <TriangleChart :series="buildOrientSeries(pos, '15%')" :axisLabels="currentOrientationLabels" :showValueLabels="showTriangleLabels" :maxValue="orientationTriangleScaleMax('15%')" />
           </div>
         </div>
       </section>
@@ -630,6 +634,11 @@
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
             </div>
+            <label class="orient-y-max-control">
+              <span>Y 軸上限</span>
+              <input v-model.number="orientationLineYMax" type="number" min="1" step="10" placeholder="自動" />
+              <button type="button" @click="orientationLineYMax = undefined">自動</button>
+            </label>
           </div>
         </div>
         <div class="orient-line-grid">
@@ -732,6 +741,11 @@
               <span class="toggle-label">數字顯示:</span>
               <button class="simple-toggle-btn" :class="{ active: showOrientLineLabels }" @click="toggleOrientLineLabels()">{{ showOrientLineLabels ? '隱藏' : '顯示' }}</button>
             </div>
+            <label class="orient-y-max-control">
+              <span>Y 軸上限</span>
+              <input v-model.number="orientationLineYMax" type="number" min="1" step="10" placeholder="自動" />
+              <button type="button" @click="orientationLineYMax = undefined">自動</button>
+            </label>
           </div>
         </div>
         <div class="orient-line-grid">
@@ -906,7 +920,7 @@
 
 <script setup lang="ts">
 import type { PositionMatrix } from '~/utils/positions'
-import { buildPositionMatrix, comparePositions, positionKey } from '~/utils/positions'
+import { buildPositionMatrix, comparePositions, parsePosition, positionKey } from '~/utils/positions'
 
 definePageMeta({
   middleware: 'auth'
@@ -993,14 +1007,12 @@ const IPF_ORIENTATION_PANEL_COLORS = [
   { backgroundColor: 'rgba(89, 209, 99, 0.035)', borderColor: 'rgba(89, 209, 99, 0.12)' },
   { backgroundColor: 'rgba(102, 115, 230, 0.035)', borderColor: 'rgba(102, 115, 230, 0.12)' },
 ] as const
-const ORIENT_LINE_Y_TICKS = [0, 25, 50, 75, 100] as const
 const ORIENT_LINE_LAYOUT = {
   height: 220,
   left: 42,
   right: 16,
   top: 18,
   bottom: 36,
-  maxValue: 100,
 } as const
 const HIST_BIN_COUNT = 20
 const DEFAULT_GRAIN_MIN_SIZE = 10
@@ -1117,8 +1129,9 @@ const { data: featuresOptions } = await useFetch<string[]>('/api/ebsd_features')
 const selectedFeatures = ref<string[]>([])
 const colorThresholds = ref([30, 70])
 const analysisRes = ref<AnalysisResult | null>(null)
-const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('cdf')
-const histogramYMode = ref<'count' | 'ratio'>('count')
+const grainChartMode = ref<'cdf' | 'hist' | 'areaHist'>('hist')
+const histogramYMode = ref<'count' | 'ratio'>('ratio')
+const orientationLineYMax = ref<number | undefined>(undefined)
 const histogramSettingsOpen = ref(false)
 const ipfSettingsOpen = ref(false)
 const grainSettingsApplying = ref(false)
@@ -1127,15 +1140,15 @@ const ipfDisplayTarget = ref<SampleDisplayTarget>('analysis')
 const gridDisplayTarget = ref<SampleDisplayTarget>('analysis')
 const grainSettings = ref<GrainSettings>({
   minGrainSize: DEFAULT_GRAIN_MIN_SIZE,
-  histBinStartMode: 'min',
-  histBinWidthMode: 'ratio',
+  histBinStartMode: 'zero',
+  histBinWidthMode: 'absolute',
   histBinWidthRatio: DEFAULT_HIST_BIN_RATIO,
   histBinWidthAbsolute: DEFAULT_HIST_BIN_ABSOLUTE,
 })
 const grainMinGrainSizeDraft = ref(DEFAULT_GRAIN_MIN_SIZE)
-const histBinStartModeDraft = ref<HistBinStartMode>('min')
-const histBinWidthModeDraft = ref<HistBinWidthMode>('ratio')
-const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_RATIO)
+const histBinStartModeDraft = ref<HistBinStartMode>('zero')
+const histBinWidthModeDraft = ref<HistBinWidthMode>('absolute')
+const histBinWidthValueDraft = ref(DEFAULT_HIST_BIN_ABSOLUTE)
 const ipfReferenceVector = ref<[number, number, number]>([0, 0, 1])
 const ipfDenoindexThreshold = ref(100)
 const ipfDenoindexMisorientationThreshold = ref(10)
@@ -1786,7 +1799,7 @@ const grainSettingsSummary = computed(() => {
   const startLabel = grainSettings.value.histBinStartMode === 'zero' ? '0' : '最小值'
   const widthLabel = grainSettings.value.histBinWidthMode === 'ratio'
     ? `${formatSettingNumber(grainSettings.value.histBinWidthRatio)}% range`
-    : `${formatSettingNumber(grainSettings.value.histBinWidthAbsolute)} μm`
+    : `${formatSettingNumber(grainSettings.value.histBinWidthAbsolute)} µm`
   return `分箱起點 ${startLabel} / 間距 ${widthLabel}`
 })
 
@@ -1794,7 +1807,7 @@ const grainBinPreviewText = computed(() => {
   const start = previewHistBinStart.value
   const width = previewHistBinWidth.value
   const bins = Math.max(1, Math.min(80, Math.ceil((sharedGrainBins.value.max - start) / Math.max(width, 1e-6))))
-  return `預估分箱：${bins} 格，每格約 ${formatSettingNumber(width)} μm`
+  return `預估分箱：${bins} 格，每格約 ${formatSettingNumber(width)} µm`
 })
 
 const previewHistBinStart = computed(() => {
@@ -1921,7 +1934,8 @@ const sharedGrainDataMin = computed(() => {
 
 const sharedGrainBins = computed(() => {
   const min = grainSettings.value.histBinStartMode === 'zero' ? 0 : sharedGrainDataMin.value
-  const max = 200
+  const dataMaximum = sharedGrainValues.value.length ? Math.max(...sharedGrainValues.value) : 10
+  const max = Math.max(10, Math.ceil(dataMaximum / 10) * 10)
   const range = Math.max(max - min, 0.1)
   const rawWidth = grainSettings.value.histBinWidthMode === 'ratio'
     ? range * Math.max(grainSettings.value.histBinWidthRatio, 0.5) / 100
@@ -1929,6 +1943,37 @@ const sharedGrainBins = computed(() => {
   const binWidth = Math.max(rawWidth, 0.1)
   const binCount = Math.max(1, Math.min(80, Math.ceil(range / binWidth)))
   return { min, max, binCount, binWidth }
+})
+
+function grainHistogramSeries(values: number[]): number[] {
+  const { min, binCount, binWidth } = sharedGrainBins.value
+  const bins = Array.from({ length: binCount }, () => 0)
+  let total = 0
+  for (const raw of values) {
+    if (!Number.isFinite(raw)) continue
+    const index = Math.min(binCount - 1, Math.max(0, Math.floor((raw - min) / Math.max(binWidth, 1e-6))))
+    const weight = grainChartMode.value === 'areaHist' ? Math.PI * (raw / 2) ** 2 : 1
+    bins[index] += weight
+    total += weight
+  }
+  if ((grainChartMode.value === 'areaHist' || histogramYMode.value === 'ratio') && total > 0) {
+    return bins.map((value) => value / total * 100)
+  }
+  return bins
+}
+
+const sharedGrainYAxisMax = computed(() => {
+  if (grainChartMode.value === 'cdf') return 100
+  let maximum = 0
+  for (const pos of reportPositionMatrix.value.positions) {
+    for (const values of [getCompareSampleGrains(pos), getCompareGoldenGrains(pos)]) {
+      maximum = Math.max(maximum, ...grainHistogramSeries(values))
+    }
+  }
+  const rounded = Math.max(10, Math.ceil(maximum / 10) * 10)
+  return grainChartMode.value === 'areaHist' || histogramYMode.value === 'ratio'
+    ? Math.min(100, rounded)
+    : rounded
 })
 
 
@@ -1965,14 +2010,43 @@ function orientLineX(index: number, width: number, pointCount: number): number {
   return ORIENT_LINE_LAYOUT.left + (plotWidth * index) / segments
 }
 
-function orientLineY(value: number): number {
+function orientationLineScaleMax(dev: OrientDev): number {
+  const manual = Number(orientationLineYMax.value)
+  if (Number.isFinite(manual) && manual > 0) return manual
+  const values = [selectedSample.value, goldenSample.value]
+    .filter(Boolean)
+    .flatMap((sample) => reportPositionMatrix.value.positions.flatMap((pos) => {
+      const key = `orientation_ratio(${dev})` as keyof CppFeatures
+      const ratios = getDisplayedPosData(sample, pos)?.[key] as number[] | undefined
+      return (ratios ?? []).map((value) => value * 100)
+    }))
+    .filter((value) => Number.isFinite(value))
+  const maximum = Math.max(0, ...values)
+  return Math.max(10, Math.ceil(maximum * 1.1 / 10) * 10)
+}
+
+function orientationTriangleScaleMax(dev: OrientDev): number {
+  const values = [selectedSample.value, goldenSample.value]
+    .filter(Boolean)
+    .flatMap((sample) => reportPositionMatrix.value.positions.flatMap((pos) => {
+      const key = `orientation_ratio(${dev})` as keyof CppFeatures
+      const ratios = getDisplayedPosData(sample, pos)?.[key] as number[] | undefined
+      return (ratios ?? []).map((value) => value * 100)
+    }))
+    .filter((value) => Number.isFinite(value))
+  const maximum = Math.max(0, ...values)
+  return maximum <= 50 ? 50 : Math.ceil(maximum / 10) * 10
+}
+
+function orientLineY(value: number, maxValue: number): number {
   const plotHeight = ORIENT_LINE_LAYOUT.height - ORIENT_LINE_LAYOUT.top - ORIENT_LINE_LAYOUT.bottom
-  const clampedValue = Math.min(ORIENT_LINE_LAYOUT.maxValue, Math.max(0, value))
-  return ORIENT_LINE_LAYOUT.top + plotHeight * (1 - clampedValue / ORIENT_LINE_LAYOUT.maxValue)
+  const clampedValue = Math.min(maxValue, Math.max(0, value))
+  return ORIENT_LINE_LAYOUT.top + plotHeight * (1 - clampedValue / maxValue)
 }
 
 function buildOrientLineChart(rowKey: number, dev: OrientDev, orientationIndex: number) {
   const columns = reportPositionMatrix.value.columns
+  const maxValue = orientationLineScaleMax(dev)
   const width = Math.max(320, columns.length * 76 + ORIENT_LINE_LAYOUT.left + ORIENT_LINE_LAYOUT.right)
   const plot = {
     left: ORIENT_LINE_LAYOUT.left,
@@ -1988,16 +2062,16 @@ function buildOrientLineChart(rowKey: number, dev: OrientDev, orientationIndex: 
       label: column,
       x: orientLineX(index, width, columns.length),
     })),
-    yTicks: ORIENT_LINE_Y_TICKS.map((value) => ({
-      label: String(value),
-      y: orientLineY(value),
+    yTicks: Array.from({ length: 6 }, (_, index) => maxValue * index / 5).map((value) => ({
+      label: Number.isInteger(value) ? String(value) : value.toFixed(1),
+      y: orientLineY(value, maxValue),
     })),
     series: [
       { source: 'analysis' as const, sample: selectedSample.value, color: '#409eff', dashed: false, labelOffset: -8 },
       { source: 'golden' as const, sample: goldenSample.value, color: '#e6a23c', dashed: true, labelOffset: 10 },
     ].filter((spec) => spec.sample).map((spec) => {
       const points = getOrientLineValues(spec.sample, rowKey, dev, orientationIndex).map((value, index) => {
-        const y = orientLineY(value)
+        const y = orientLineY(value, maxValue)
         return {
           x: orientLineX(index, width, columns.length),
           y,
@@ -2119,6 +2193,13 @@ async function exportReportPpt() {
         hist_bin_width_mode: grainSettings.value.histBinWidthMode,
         hist_bin_width_ratio: grainSettings.value.histBinWidthRatio,
         hist_bin_width_absolute: grainSettings.value.histBinWidthAbsolute,
+        grain_chart_mode: grainChartMode.value,
+        histogram_y_mode: histogramYMode.value,
+        orientation_line_y_max: orientationLineYMax.value ?? null,
+        show_triangle_labels: showTriangleLabels.value,
+        show_orientation_line_labels: showOrientLineLabels.value,
+        ipf_display_target: ipfDisplayTarget.value,
+        grid_display_target: gridDisplayTarget.value,
         selected_features: selectedFeatures.value,
         color_thresholds: colorThresholds.value,
       },
@@ -3574,6 +3655,30 @@ function dynamicAnalysisGridStyle(columnCount: number): Record<string, string> {
   background: #ecf5ff;
   border-color: #b3d8ff;
   color: #409eff;
+}
+.orient-y-max-control {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  color: #374151;
+  font-size: .8rem;
+  font-weight: 700;
+}
+.orient-y-max-control input {
+  width: 88px;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  padding: .3rem .45rem;
+  font: inherit;
+}
+.orient-y-max-control button {
+  border: 1px solid #b3d8ff;
+  border-radius: 999px;
+  background: #ecf5ff;
+  color: #409eff;
+  cursor: pointer;
+  padding: .28rem .65rem;
+  font: inherit;
 }
 .triangle-row {
   display: grid;

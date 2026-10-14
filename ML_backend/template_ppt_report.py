@@ -5,6 +5,7 @@ import json
 import math
 import re
 import statistics
+import subprocess
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
@@ -12,22 +13,27 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib import patheffects
+import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.oxml.ns import qn
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 MANIFEST_PATH = ASSET_DIR / "ebsd_report_template.json"
+FRONTEND_CHART_RENDERER = (
+    Path(__file__).resolve().parent.parent / "frontend" / "tools" / "render_grain_charts.mjs"
+)
 FONT_FACE = "Arial"
 INK = RGBColor(0, 0, 0)
 MUTED = RGBColor(89, 89, 89)
-BLUE = "#2563eb"
-RED = "#dc2626"
-ORIENTATION_SAMPLE = "#409eff"
-ORIENTATION_GOLDEN = "#e6a23c"
+ORIENTATION_SAMPLE = "#2563EB"
+ORIENTATION_GOLDEN = "#F59E0B"
 OVERRIDDEN_TEXT = RGBColor(0, 0, 255)
 POSITION_RE = re.compile(r"^([A-Z]+)-([1-9]\d*)$")
 
@@ -77,6 +83,47 @@ def _matrix_positions(positions: Iterable[str]) -> Tuple[List[str], List[int]]:
     max_column = max(_excel_number(match.group(1)) for match in parsed)
     max_row = max(int(match.group(2)) for match in parsed)
     return [_excel_column(value) for value in range(1, max_column + 1)], list(range(1, max_row + 1))
+
+
+def _nice_percent_max(values: Iterable[float], *, floor: float = 10.0, headroom: float = 1.10) -> float:
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    maximum = max(finite, default=0.0)
+    return max(floor, math.ceil(maximum * headroom / 10.0) * 10.0)
+
+
+def _triangle_percent_max(values: Iterable[float]) -> float:
+    """Use the product rule for the shared triangle scale."""
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    maximum = max(finite, default=0.0)
+    return 50.0 if maximum <= 50.0 else math.ceil(maximum / 10.0) * 10.0
+
+
+def _label_stride(item_count: int, visible_capacity: int) -> int:
+    """Return a deterministic sampling stride for dense one-slide labels."""
+    return max(1, math.ceil(max(0, item_count) / max(1, visible_capacity)))
+
+
+def _sampled_label_indices(item_count: int, stride: int) -> List[int]:
+    """Sample labels evenly and keep the last label without crowding it."""
+    if item_count <= 0:
+        return []
+    stride = max(1, int(stride))
+    indices = list(range(0, item_count, stride))
+    last = item_count - 1
+    if indices[-1] != last:
+        if last - indices[-1] < stride:
+            indices[-1] = last
+        else:
+            indices.append(last)
+    return indices
+
+
+def _triangle_annotation_mode(density_scale: float, show_values: bool) -> Tuple[bool, bool]:
+    """Return axis/value visibility without ever drawing unreadably tiny text."""
+    scale = float(density_scale)
+    axis_readable = scale >= 0.28
+    values_readable = scale >= 0.50
+    return axis_readable, bool(show_values) and values_readable
 
 
 def _finite(values: Any) -> List[float]:
@@ -135,6 +182,18 @@ class TemplateDeck:
             subtitle_shape.top = Inches(heading["subtitle_top_in"])
             subtitle_shape.width = Inches(heading["subtitle_width_in"])
             subtitle_shape.height = Inches(heading["subtitle_height_in"])
+        elif subtitle:
+            subtitle_shape = _add_text(
+                slide,
+                subtitle,
+                Inches(heading["subtitle_left_in"]),
+                Inches(heading["subtitle_top_in"]),
+                Inches(heading["subtitle_width_in"]),
+                Inches(heading["subtitle_height_in"]),
+                size=10,
+                color=MUTED,
+            )
+            subtitle_shape.name = "EBSD_SUBTITLE"
         return slide
 
     @staticmethod
@@ -224,7 +283,7 @@ def _format_measurement(value: float) -> str:
 
 def _histogram_width_note(edges: Sequence[float]) -> str:
     width = edges[1] - edges[0] if len(edges) >= 2 else 0.0
-    return f"Bar width: {_format_measurement(width)} μm"
+    return f"Bar width: {_format_measurement(width)} µm"
 
 
 def _golden_data_note(golden_sample: str, golden_version_label: str) -> str:
@@ -240,13 +299,16 @@ def _golden_data_note(golden_sample: str, golden_version_label: str) -> str:
 def _add_report_note(slide, text: str) -> None:
     if not text:
         return
+    subtitle = next((candidate for candidate in slide.shapes if candidate.name == "EBSD_SUBTITLE"), None)
+    if subtitle is not None:
+        subtitle.width = min(subtitle.width, Inches(7.9))
     shape = _add_text(
         slide,
         text,
-        Inches(6.0),
-        Inches(0.08),
-        Inches(7.0),
-        Inches(0.30),
+        Inches(8.15),
+        Inches(0.57),
+        Inches(5.0),
+        Inches(0.26),
         size=9,
         color=MUTED,
         align=PP_ALIGN.RIGHT,
@@ -260,6 +322,7 @@ def _set_cell(cell, text: str, *, header: bool = False, size: int = 8, color: Op
     cell.margin_top = Inches(0.02)
     cell.margin_bottom = Inches(0.02)
     cell.text = ""
+    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     paragraph = cell.text_frame.paragraphs[0]
     paragraph.alignment = PP_ALIGN.CENTER
     run = paragraph.add_run()
@@ -268,6 +331,39 @@ def _set_cell(cell, text: str, *, header: bool = False, size: int = 8, color: Op
     run.font.size = Pt(size)
     run.font.bold = header
     run.font.color.rgb = color or INK
+
+
+def _scale_table_margins(table, scale: float) -> None:
+    """Keep padding proportional to the responsive cell size."""
+    scale = max(0.10, min(1.0, float(scale)))
+    for row in table.rows:
+        for cell in row.cells:
+            cell.margin_left = Inches(0.04 * scale)
+            cell.margin_right = Inches(0.04 * scale)
+            cell.margin_top = Inches(0.02 * scale)
+            cell.margin_bottom = Inches(0.02 * scale)
+
+
+def _style_table_grid(table, colour: str = "B8BEC7", width: str = "6350") -> None:
+    """Use quiet half-point rules so dense tables do not turn into barcodes."""
+    for row in table.rows:
+        for cell in row.cells:
+            properties = cell._tc.get_or_add_tcPr()
+            for edge in ("lnL", "lnR", "lnT", "lnB"):
+                tag = qn(f"a:{edge}")
+                for existing in list(properties.findall(tag)):
+                    properties.remove(existing)
+                line = OxmlElement(f"a:{edge}")
+                line.set("w", width)
+                fill = OxmlElement("a:solidFill")
+                rgb = OxmlElement("a:srgbClr")
+                rgb.set("val", colour)
+                fill.append(rgb)
+                line.append(fill)
+                dash = OxmlElement("a:prstDash")
+                dash.set("val", "solid")
+                line.append(dash)
+                properties.append(line)
 
 
 def _add_native_matrix(
@@ -444,7 +540,17 @@ def _deviation_legend(labels: Tuple[str, str, str], deviation: int) -> bytes:
             ]
             nearest = min(range(3), key=angles.__getitem__)
             if angles[nearest] <= deviation:
-                pixels[pixel_x, pixel_y] = colours[nearest]
+                # Keep the orientation families unambiguous while replacing
+                # the old flat colour blocks with a smooth confidence ramp.
+                # The family colour is strongest at the crystallographic
+                # endpoint and fades toward the tolerance boundary.
+                strength = max(0.0, min(1.0, 1.0 - angles[nearest] / max(deviation, 1)))
+                blend = 0.22 + 0.78 * strength
+                colour = colours[nearest]
+                pixels[pixel_x, pixel_y] = tuple(
+                    round(255.0 * (1.0 - blend) + channel * blend)
+                    for channel in colour
+                )
 
     draw = ImageDraw.Draw(image)
     line_width = 4 * scale
@@ -469,8 +575,8 @@ def _deviation_legend(labels: Tuple[str, str, str], deviation: int) -> bytes:
         )
     draw.line(curved_boundary, fill="black", width=line_width, joint="curve")
 
-    label_font = _legend_font(26 * scale, bold=True)
-    deviation_font = _legend_font(25 * scale, bold=True)
+    label_font = _legend_font(31 * scale, bold=True)
+    deviation_font = _legend_font(28 * scale, bold=True)
     cleaned = tuple(str(label).strip().strip("[]<>") for label in labels)
     draw.text((origin[0], origin[1] - 15 * scale), cleaned[0], fill="black", font=label_font, anchor="ms")
     draw.text((bottom_left[0], bottom_left[1] + 13 * scale), cleaned[1], fill="black", font=label_font, anchor="lt")
@@ -498,11 +604,11 @@ def _add_grain_summary_table(slide, item: Dict[str, Any], left: float, top: floa
     table = slide.shapes.add_table(4, 2, Inches(left), Inches(top), Inches(width), Inches(height)).table
     table.columns[0].width = Inches(width * 0.57)
     table.columns[1].width = Inches(width * 0.43)
-    _set_cell(table.cell(0, 0), "Grain size", header=True, size=9)
-    _set_cell(table.cell(0, 1), "(um)", header=True, size=9)
+    _set_cell(table.cell(0, 0), "Grain size", header=True, size=11)
+    _set_cell(table.cell(0, 1), "(µm)", header=True, size=11)
     for row_index, (label, value) in enumerate(values, start=1):
-        _set_cell(table.cell(row_index, 0), label, size=8)
-        _set_cell(table.cell(row_index, 1), value, size=8)
+        _set_cell(table.cell(row_index, 0), label, size=10)
+        _set_cell(table.cell(row_index, 1), value, size=10)
 
 
 def _add_ratio_table(slide, item: Dict[str, Any], deviation: str, left: float, top: float, width: float, height: float) -> None:
@@ -512,10 +618,111 @@ def _add_ratio_table(slide, item: Dict[str, Any], deviation: str, left: float, t
     for column in table.columns:
         column.width = Inches(width / 3)
     for column_index in range(3):
-        _set_cell(table.cell(0, column_index), f"<{labels[column_index].strip('[]')}>", header=True, size=9)
+        _set_cell(table.cell(0, column_index), f"<{labels[column_index].strip('[]')}>", header=True, size=11)
         table.cell(0, column_index).fill.solid()
         table.cell(0, column_index).fill.fore_color.rgb = RGBColor(70, 167, 193)
-        _set_cell(table.cell(1, column_index), f"{values[column_index]:.1f}%", size=9)
+        _set_cell(table.cell(1, column_index), f"{values[column_index]:.1f}%", size=11)
+
+
+def _frontend_charts(
+    charts: Sequence[Dict[str, Any]],
+    *,
+    shared_x_max: bool = False,
+    shared_y_max: bool = False,
+    result_metadata: Optional[Dict[str, Any]] = None,
+) -> List[bytes]:
+    """Render PPT charts with the exact JavaScript renderer used by Vue."""
+    if not FRONTEND_CHART_RENDERER.is_file():
+        raise RuntimeError(f"Frontend chart renderer not found: {FRONTEND_CHART_RENDERER}")
+    request = json.dumps(
+        {
+            "charts": list(charts),
+            "sharedXMax": shared_x_max,
+            "sharedYMax": shared_y_max,
+        },
+        ensure_ascii=False,
+    )
+    try:
+        process = subprocess.run(
+            ["node", str(FRONTEND_CHART_RENDERER)],
+            input=request,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        raise RuntimeError(f"V8 frontend chart rendering failed: {detail}") from exc
+    response = json.loads(process.stdout)
+    if result_metadata is not None:
+        result_metadata.update(response)
+    rendered = response.get("charts", [])
+    if len(rendered) != len(charts):
+        raise RuntimeError("V8 frontend chart renderer returned an unexpected chart count")
+    return [
+        cairosvg.svg2png(bytestring=item["svg"].encode("utf-8"), output_width=1000)
+        for item in rendered
+    ]
+
+
+def _frontend_distribution_charts(charts: Sequence[Dict[str, Any]]) -> List[bytes]:
+    return _frontend_charts(charts, shared_x_max=True, shared_y_max=True)
+
+
+def _add_microstructure_page(deck: TemplateDeck, sample: str, position: str, images: Dict[str, Any], reanalysis: bool) -> None:
+    if not any(images.get(name) for name in ("grain_boundaries", "csl_map", "kam_map", "gos_map")):
+        return
+    slide = deck.add_slide("", kind="generic")
+    _set_scan_title(deck, slide, sample, position, reanalysis)
+    kam_chart, gos_chart = _frontend_distribution_charts(
+        [
+            {
+                "sample": images.get("kam_values", []),
+                "golden": [],
+                "mode": "hist",
+                "histYMode": "count",
+                "fixedXMin": 0,
+                "autoBinCount": True,
+                "showXAxis": True,
+                "showYAxis": True,
+                "xAxisLabel": "KAM (°)",
+                "sampleColor": "#0ea5e9",
+                "sampleDash": "",
+                "showAverage": True,
+                "averageSuffix": "°",
+            },
+            {
+                "sample": images.get("gos_values", []),
+                "golden": [],
+                "mode": "hist",
+                "histYMode": "count",
+                "fixedXMin": 0,
+                "autoBinCount": True,
+                "showXAxis": True,
+                "showYAxis": True,
+                "xAxisLabel": "GOS (°)",
+                "sampleColor": "#10b981",
+                "sampleDash": "",
+                "showAverage": True,
+                "averageSuffix": "°",
+            },
+        ]
+    )
+    slots = (
+        ("Grain boundaries", images.get("grain_boundaries"), 0.35, 0.72),
+        ("Coincident site lattice (CSL)", images.get("csl_map"), 4.55, 0.72),
+        ("Kernel average misorientation (KAM)", images.get("kam_map"), 8.75, 0.72),
+        ("Grain orientation spread (GOS)", images.get("gos_map"), 0.35, 3.92),
+        ("KAM distribution", kam_chart, 4.55, 3.92),
+        ("GOS distribution", gos_chart, 8.75, 3.92),
+    )
+    for caption, image, left, top in slots:
+        _add_captioned_picture(slide, caption, image, left, top, 3.95, 2.72)
+    summary = images.get("csl_summary")
+    if isinstance(summary, dict) and summary:
+        text = "  ".join(f"{name}: {float(value):.1f}%" for name, value in summary.items())
+        _add_text(slide, text, Inches(4.68), Inches(3.43), Inches(3.70), Inches(0.28), size=10, align=PP_ALIGN.CENTER)
 
 
 def _add_scan_point_pages(
@@ -540,13 +747,24 @@ def _add_scan_point_pages(
         _add_captioned_picture(overview, "Grain size (D)", images.get("grain_map"), 4.10, 0.65, 3.55, 2.45)
         grains = _finite(item.get("grains"))
         histogram_edges = _histogram_edges(grains, histogram_settings)
-        histogram = _grain_chart(
-            grains,
-            [],
-            "ratio",
-            histogram_edges,
-        )
-        _add_captioned_picture(overview, "Grain-size distribution", histogram.getvalue(), 7.78, 0.65, 3.35, 2.45)
+        histogram = _frontend_charts(
+            [
+                {
+                    "sample": grains,
+                    "golden": [],
+                    "mode": "hist",
+                    "histYMode": "ratio",
+                    "fixedXMin": histogram_edges[0],
+                    "fixedXMax": histogram_edges[-1],
+                    "binWidth": histogram_edges[1] - histogram_edges[0],
+                    "showXAxis": True,
+                    "showYAxis": True,
+                    "xAxisLabel": "Grain (µm)",
+                    "maxXTicks": 5,
+                }
+            ]
+        )[0]
+        _add_captioned_picture(overview, "Grain-size distribution", histogram, 7.78, 0.65, 3.35, 2.45)
         _add_grain_summary_table(overview, item, 11.15, 1.02, 1.72, 1.55)
         histogram_note = _add_text(
             overview,
@@ -562,18 +780,22 @@ def _add_scan_point_pages(
         histogram_note.name = "EBSD_HISTOGRAM_NOTE"
 
         ipf_maps = images.get("ipf_maps", {})
-        for index, direction in enumerate(("X", "Y", "Z")):
+        ipf_items = list(ipf_maps.items())[:3] if isinstance(ipf_maps, dict) else []
+        map_width = 11.25 / max(1, len(ipf_items))
+        for index, (direction, image) in enumerate(ipf_items):
             _add_captioned_picture(
                 overview,
                 f"IPF-{direction}",
-                ipf_maps.get(direction),
-                0.45 + index * 4.05,
+                image,
+                0.45 + index * map_width,
                 3.35,
-                3.75,
+                map_width - 0.25,
                 3.35,
             )
         if ipf_legend:
             _add_captioned_picture(overview, "IPF color key", ipf_legend, 12.10, 5.22, 0.95, 1.20)
+
+        _add_microstructure_page(deck, sample, position, images, position in overridden)
 
         texture = deck.add_slide("", kind="generic")
         _set_scan_title(deck, texture, sample, position, position in overridden)
@@ -639,29 +861,35 @@ def _add_scan_point_pages(
 
 
 def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows: Sequence[int]):
-    """Replace the fixed 3x3 template grid with one unscaled, dynamic matrix.
-
-    The template's data-cell size is intentionally retained.  Matrices larger
-    than 3x3 therefore extend beyond the slide instead of being split across
-    several slides, so all positions remain together for comparison.
-    """
-    layout = deck.manifest["ipf"]
+    """Create one centred responsive matrix; images and labels share its scale."""
     grid_shape = deck.shape(slide, "EBSD_IPF_GRID")
     prototype_table = grid_shape.table
-    data_columns = [column for index, column in enumerate(prototype_table.columns) if index > 0]
-    data_rows = [row for index, row in enumerate(prototype_table.rows) if index > 0]
-    header_column_width = prototype_table.columns[0].width
-    data_column_width = round(
-        sum(column.width for column in data_columns)
-        / max(1, len(data_columns))
+    slide_width = deck.prs.slide_width
+    slide_height = deck.prs.slide_height
+    outer_left = Inches(0.34)
+    outer_right = Inches(0.34)
+    top = Inches(0.92)
+    bottom = Inches(0.22)
+    count_scale = min(1.0, 3.0 / max(1, len(columns)), 3.0 / max(1, len(rows)))
+    # LibreOffice normalises ultra-short PowerPoint table rows to roughly
+    # 0.34 in. Account for that height up front so images never cover the
+    # column labels after export.
+    header_column_width = Inches(max(0.20, 0.44 * count_scale))
+    header_row_height = Inches(0.34)
+    available_width = slide_width - outer_left - outer_right
+    available_height = slide_height - top - bottom
+    data_column_width = min(
+        Inches(4.0),
+        (available_width - header_column_width) // max(1, len(columns)),
     )
-    header_row_height = prototype_table.rows[0].height
-    data_row_height = round(
-        sum(row.height for row in data_rows)
-        / max(1, len(data_rows))
+    data_row_height = min(
+        Inches(2.05),
+        (available_height - header_row_height) // max(1, len(rows)),
     )
-    left = Inches(layout["grid_left_in"])
-    top = Inches(layout["grid_top_in"])
+    table_width = header_column_width + len(columns) * data_column_width
+    table_height = header_row_height + len(rows) * data_row_height
+    left = (slide_width - table_width) // 2
+    top = top + max(0, (available_height - table_height) // 2)
     deck.remove_shape(slide, "EBSD_IPF_GRID")
 
     table = slide.shapes.add_table(
@@ -669,10 +897,11 @@ def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows:
         len(columns) + 1,
         left,
         top,
-        header_column_width + len(columns) * data_column_width,
-        header_row_height + len(rows) * data_row_height,
+        table_width,
+        table_height,
     ).table
     deck.apply_table_template(table, "ipf", "EBSD_IPF_GRID")
+    _style_table_grid(table)
     table.columns[0].width = header_column_width
     for column_index, column in enumerate(table.columns):
         if column_index > 0:
@@ -682,16 +911,22 @@ def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows:
         if row_index > 0:
             row.height = data_row_height
 
-    _set_cell(table.cell(0, 0), "", size=18)
+    visual_scale = min(
+        1.0,
+        data_column_width / Inches(4.0),
+        data_row_height / Inches(2.05),
+    )
+    header_font = max(4, round(18 * visual_scale))
+    _set_cell(table.cell(0, 0), "", size=header_font)
     for column_index, column in enumerate(columns, start=1):
-        _set_cell(table.cell(0, column_index), column, size=18)
+        _set_cell(table.cell(0, column_index), column, header=True, size=header_font)
     for row_index, row in enumerate(rows, start=1):
-        _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
+        _set_cell(table.cell(row_index, 0), str(row), header=True, size=header_font)
         for column_index in range(1, len(columns) + 1):
-            _set_cell(table.cell(row_index, column_index), "", size=18)
+            _set_cell(table.cell(row_index, column_index), "", size=header_font)
 
-    horizontal_padding = Inches(0.07)
-    vertical_padding = Inches(0.02)
+    horizontal_padding = Inches(0.06 * visual_scale)
+    vertical_padding = Inches(0.04 * visual_scale)
     return (
         left + header_column_width,
         top + header_row_height,
@@ -699,6 +934,7 @@ def _prepare_ipf_matrix(deck: TemplateDeck, slide, columns: Sequence[str], rows:
         data_row_height,
         horizontal_padding,
         vertical_padding,
+        visual_scale,
     )
 
 
@@ -708,10 +944,11 @@ def _add_ipf_pages(deck: TemplateDeck, selected_sample: str, version_label: str,
         if not columns or not rows:
             continue
         slide = deck.add_slide(
-            f"{selected_sample}-Orientation maps with IPF {direction.upper()}",
+            f"{selected_sample} · Orientation maps · IPF {direction.upper()}",
+            f"{len(columns)} × {len(rows)} responsive matrix",
             kind="ipf",
         )
-        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y, _ = _prepare_ipf_matrix(
             deck, slide, columns, rows
         )
         for row_index, row in enumerate(rows):
@@ -730,7 +967,7 @@ def _add_ipf_pages(deck: TemplateDeck, selected_sample: str, version_label: str,
 
 
 def _histogram_edges(all_values: Sequence[float], settings: Dict[str, Any]) -> List[float]:
-    maximum = 200.0
+    maximum = max(10.0, math.ceil(max(all_values, default=10.0) / 10.0) * 10.0)
     minimum = 0.0 if settings.get("start_mode") == "zero" else (math.floor(min(all_values) * 10) / 10 if all_values else 7.1)
     span = max(maximum - minimum, 0.1)
     if settings.get("width_mode") == "absolute":
@@ -738,66 +975,9 @@ def _histogram_edges(all_values: Sequence[float], settings: Dict[str, Any]) -> L
     else:
         width = max(span * float(settings.get("width_ratio", 10.0)) / 100.0, 0.1)
     count = max(1, min(80, math.ceil(span / width)))
-    return [minimum + (maximum - minimum) * index / count for index in range(count + 1)]
-
-
-def _hist(values: Sequence[float], edges: Sequence[float], *, ratio: bool, area: bool) -> List[float]:
-    result = [0.0] * (len(edges) - 1)
-    total = 0.0
-    for value in values:
-        if not math.isfinite(value):
-            continue
-        index = min(len(result) - 1, max(0, int((value - edges[0]) / max(edges[-1] - edges[0], 1e-9) * len(result))))
-        weight = math.pi * (value / 2.0) ** 2 if area else 1.0
-        result[index] += weight
-        total += weight
-    if (ratio or area) and total > 0:
-        result = [value / total * 100 for value in result]
-    return result
-
-
-def _grain_chart(sample: Sequence[float], golden: Sequence[float], mode: str, edges: Sequence[float]) -> io.BytesIO:
-    figure = Figure(figsize=(3.75, 2.5), dpi=220)
-    canvas = FigureCanvasAgg(figure)
-    axis = figure.add_subplot(111)
-    if mode == "cdf":
-        for values, color, linestyle, label in ((golden, BLUE, "-", "Golden"), (sample, RED, "--", "Sample")):
-            ordered = sorted(values)
-            if ordered:
-                axis.plot(ordered, [(index + 1) / len(ordered) * 100 for index in range(len(ordered))], color=color, linewidth=1.8, linestyle=linestyle, label=label)
-        axis.set_ylim(0, 100)
-        axis.set_ylabel("Cumulative %")
-    else:
-        ratio = mode == "ratio"
-        area = mode == "area"
-        sample_series = _hist(sample, edges, ratio=ratio, area=area)
-        golden_series = _hist(golden, edges, ratio=ratio, area=area)
-        width = edges[1] - edges[0]
-        axis.bar(edges[:-1], golden_series, width=width, align="edge", color=BLUE, alpha=0.22, edgecolor=BLUE, label="Golden")
-        axis.bar(edges[:-1], sample_series, width=width, align="edge", color=RED, alpha=0.2, edgecolor=RED, linestyle="--", label="Sample")
-        if ratio:
-            # Requirement: histogram ratio y-axis always tops out at 100%.
-            axis.set_ylim(0, 100)
-            axis.set_ylabel("Ratio %")
-        elif area:
-            axis.set_ylim(0, 100)
-            axis.set_ylabel("Area %")
-        else:
-            axis.set_ylabel("Count")
-    axis.set_xlim(0, 200)
-    axis.set_xlabel("Grain (μm)")
-    axis.grid(axis="y", color="#eeeeee", linewidth=0.7)
-    axis.spines["top"].set_visible(False)
-    axis.spines["right"].set_visible(False)
-    axis.tick_params(labelsize=7)
-    axis.legend(loc="upper right", fontsize=5.5, frameon=False)
-    axis.xaxis.label.set_size(8)
-    axis.yaxis.label.set_size(8)
-    figure.tight_layout(pad=0.35)
-    output = io.BytesIO()
-    canvas.print_png(output)
-    output.seek(0)
-    return output
+    edges = [minimum + index * width for index in range(count + 1)]
+    edges[-1] = maximum
+    return edges
 
 
 def _add_grain_chart_pages(
@@ -811,46 +991,73 @@ def _add_grain_chart_pages(
     positions = _positions(selected, golden)
     all_values = [value for snapshot in (selected, golden) for item in snapshot.values() for value in _finite(item.get("grains"))]
     edges = _histogram_edges(all_values, settings)
-    modes = (
-        ("cdf", "Grain cumulative curve"),
-        ("count", "Grain histogram (Count)"),
-        ("ratio", "Grain histogram (Ratio, Y max 100%)"),
-        ("area", "Area-weighted grain histogram"),
-    )
+    chart_mode = str(settings.get("chart_mode", "hist"))
+    y_mode = str(settings.get("y_mode", "ratio"))
+    if chart_mode == "areaHist":
+        title = "Area-weighted grain histogram"
+    elif chart_mode == "cdf":
+        title = "Grain cumulative curve"
+    else:
+        chart_mode = "hist"
+        title = f"Grain histogram ({'Ratio' if y_mode == 'ratio' else 'Count'})"
     matrix_columns, matrix_rows = _matrix_positions(positions)
     position_set = set(positions)
     if not matrix_columns or not matrix_rows:
         return
-    for mode, title in modes:
-        slide = deck.add_slide(title, kind="ipf")
-        notes = []
-        if mode != "cdf":
-            notes.append(_histogram_width_note(edges))
-        if golden:
-            notes.append(_golden_data_note(golden_sample, golden_label))
-        _add_report_note(slide, " | ".join(filter(None, notes)))
-        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
-            deck, slide, matrix_columns, matrix_rows
+    subtitle = "Sample red dashed / Golden blue solid" if golden else "Sample red dashed"
+    subtitle += f" · {len(matrix_columns)} × {len(matrix_rows)} responsive matrix"
+    slide = deck.add_slide(title, subtitle, kind="ipf")
+    notes = []
+    if chart_mode != "cdf":
+        notes.append(_histogram_width_note(edges))
+    if golden:
+        notes.append(_golden_data_note(golden_sample, golden_label))
+    _add_report_note(slide, " | ".join(filter(None, notes)))
+    image_left, image_top, cell_width, cell_height, pad_x, pad_y, visual_scale = _prepare_ipf_matrix(
+        deck, slide, matrix_columns, matrix_rows
+    )
+    usable_width = max(1, cell_width - 2 * pad_x)
+    usable_height = max(1, cell_height - 2 * pad_y)
+    canvas_aspect_ratio = usable_width / usable_height
+    chart_font_scale = min(2.2, max(1.0, 0.68 / max(visual_scale, 0.01)))
+    placements: List[Tuple[int, int]] = []
+    chart_requests: List[Dict[str, Any]] = []
+    for row_index, row in enumerate(matrix_rows):
+        for column_index, column in enumerate(matrix_columns):
+            position = f"{column}-{row}"
+            if position not in position_set:
+                continue
+            placements.append((column_index, row_index))
+            chart_requests.append(
+                {
+                    "sample": _finite(selected.get(position, {}).get("grains")),
+                    "golden": _finite(golden.get(position, {}).get("grains")),
+                    "mode": chart_mode,
+                    "histYMode": y_mode,
+                    "fixedXMin": edges[0],
+                    "fixedXMax": edges[-1],
+                    "binWidth": edges[1] - edges[0],
+                    "showXAxis": True,
+                    "showYAxis": True,
+                    "xAxisLabel": "Grain (µm)",
+                    "maxXTicks": 6,
+                    "canvasAspectRatio": canvas_aspect_ratio,
+                    "fontScale": chart_font_scale,
+                }
+            )
+    charts = _frontend_charts(
+        chart_requests,
+        shared_y_max=chart_mode != "cdf",
+    )
+    for (column_index, row_index), png in zip(placements, charts):
+        _add_picture_contain(
+            slide,
+            png,
+            image_left + column_index * cell_width + pad_x,
+            image_top + row_index * cell_height + pad_y,
+            cell_width - 2 * pad_x,
+            cell_height - 2 * pad_y,
         )
-        for row_index, row in enumerate(matrix_rows):
-            for column_index, column in enumerate(matrix_columns):
-                position = f"{column}-{row}"
-                if position not in position_set:
-                    continue
-                png = _grain_chart(
-                    _finite(selected.get(position, {}).get("grains")),
-                    _finite(golden.get(position, {}).get("grains")),
-                    mode,
-                    edges,
-                )
-                _add_picture_contain(
-                    slide,
-                    png,
-                    image_left + column_index * cell_width + pad_x,
-                    image_top + row_index * cell_height + pad_y,
-                    cell_width - 2 * pad_x,
-                    cell_height - 2 * pad_y,
-                )
 
 
 def _add_complete_table(
@@ -865,51 +1072,66 @@ def _add_complete_table(
     overridden_set = set(overridden_positions)
     labels = _orientation_labels(snapshot)
     columns = 10
-    column_width = deck.manifest["orientation_table"]["column_width_in"]
-    row_height = deck.manifest["orientation_table"]["row_height_in"]
-    left = Inches(deck.manifest["orientation_table"]["left_in"])
-    top = Inches(deck.manifest["orientation_table"]["top_20_in"])
-    table = slide.shapes.add_table(
-        len(positions) + 2,
-        columns,
-        left,
-        top,
-        Inches(column_width * columns),
-        Inches(row_height * (len(positions) + 2)),
-    ).table
-    deck.apply_table_template(table, "orientation_pixels", "EBSD_TABLE_20")
-    for column in table.columns:
-        column.width = Inches(column_width)
-    for row in table.rows:
-        row.height = Inches(row_height)
-    for start, end, text in ((1, 3, "Grain Size"), (4, 6, "20°"), (7, 9, "15°")):
-        table.cell(0, start).merge(table.cell(0, end))
-        _set_cell(table.cell(0, start), text, header=True, size=18)
-    _set_cell(table.cell(0, 0), "EBSD", header=True, size=18)
-    headers = ["Position", "Average", "Max", "Quantity", *labels, *labels]
-    for column_index, header in enumerate(headers):
-        _set_cell(table.cell(1, column_index), header, header=True, size=12)
-    for row_index, position in enumerate(positions, start=2):
-        item = snapshot.get(position, {})
-        grains = _finite(item.get("grains"))
-        ratio20 = _orientation_values(item, "20%")
-        ratio15 = _orientation_values(item, "15%")
-        values = [
-            position,
-            f"{statistics.mean(grains):.2f}" if grains else "—",
-            f"{max(grains):.2f}" if grains else "—",
-            str(len(grains)),
-            *(f"{value:.1f}%" for value in ratio20),
-            *(f"{value:.1f}%" for value in ratio15),
-        ]
-        for column_index, value in enumerate(values):
-            _set_cell(
-                table.cell(row_index, column_index),
-                value,
-                header=column_index == 0,
-                size=14,
-                color=OVERRIDDEN_TEXT if column_index > 0 and position in overridden_set else None,
-            )
+    panel_count = 2 if len(positions) > 40 else 1
+    per_panel = max(1, math.ceil(len(positions) / panel_count))
+    chunks = [positions[index : index + per_panel] for index in range(0, len(positions), per_panel)] or [[]]
+    total_width = Inches(12.72)
+    panel_gap = Inches(0.14)
+    panel_width = (total_width - panel_gap * (len(chunks) - 1)) // len(chunks)
+    available_height = Inches(6.05)
+    left_origin = (deck.prs.slide_width - total_width) // 2
+    for panel_index, panel_positions in enumerate(chunks):
+        column_width = panel_width // columns
+        row_height = min(Inches(0.50), available_height // max(1, len(panel_positions) + 2))
+        table_height = row_height * (len(panel_positions) + 2)
+        left = left_origin + panel_index * (panel_width + panel_gap)
+        top = Inches(0.88) + max(0, (available_height - table_height) // 2)
+        visual_scale = min(1.0, column_width / Inches(1.24), row_height / Inches(0.46))
+        header_font = max(5, round(17 * visual_scale))
+        body_font = max(4, round(14 * visual_scale))
+        table = slide.shapes.add_table(
+            len(panel_positions) + 2,
+            columns,
+            left,
+            top,
+            panel_width,
+            table_height,
+        ).table
+        deck.apply_table_template(table, "orientation_pixels", "EBSD_TABLE_20")
+        _style_table_grid(table)
+        for column in table.columns:
+            column.width = column_width
+        for row in table.rows:
+            row.height = row_height
+        for start, end, text in ((1, 3, "Grain Size"), (4, 6, "20°"), (7, 9, "15°")):
+            table.cell(0, start).merge(table.cell(0, end))
+            _set_cell(table.cell(0, start), text, header=True, size=header_font)
+        _set_cell(table.cell(0, 0), "EBSD", header=True, size=header_font)
+        headers = ["Pos.", "Avg µm", "Max µm", "Qty", *labels, *labels]
+        for column_index, header in enumerate(headers):
+            _set_cell(table.cell(1, column_index), header, header=True, size=body_font)
+        for row_index, position in enumerate(panel_positions, start=2):
+            item = snapshot.get(position, {})
+            grains = _finite(item.get("grains"))
+            ratio20 = _orientation_values(item, "20%")
+            ratio15 = _orientation_values(item, "15%")
+            values = [
+                position,
+                f"{statistics.mean(grains):.2f}" if grains else "—",
+                f"{max(grains):.2f}" if grains else "—",
+                str(len(grains)),
+                *(f"{value:.1f}%" for value in ratio20),
+                *(f"{value:.1f}%" for value in ratio15),
+            ]
+            for column_index, value in enumerate(values):
+                _set_cell(
+                    table.cell(row_index, column_index),
+                    value,
+                    header=column_index == 0,
+                    size=body_font,
+                    color=OVERRIDDEN_TEXT if column_index > 0 and position in overridden_set else None,
+                )
+        _scale_table_margins(table, visual_scale)
 
 
 def _add_orientation_tables(
@@ -926,46 +1148,73 @@ def _add_orientation_tables(
     slide = deck.add_slide(title, kind=kind)
     deck.remove_shape(slide, "EBSD_TABLE_20")
     deck.remove_shape(slide, "EBSD_TABLE_15")
+    deck.remove_shape(slide, "EBSD_SUBTITLE_20")
+    deck.remove_shape(slide, "EBSD_SUBTITLE_15")
     columns, rows = _matrix_positions(snapshot)
     if not columns or not rows:
         return
-    spec = deck.manifest["orientation_table"]
-    row_height = float(spec["row_height_in"])
     table_rows = len(rows) + 2
-    top20 = float(spec["top_20_in"])
-    top15 = top20 + table_rows * row_height + float(spec["section_gap_in"])
-    subtitle20 = deck.shape(slide, "EBSD_SUBTITLE_20")
-    subtitle15 = deck.shape(slide, "EBSD_SUBTITLE_15")
-    _replace_shape_text(subtitle20, "Prefer orientation ratio (Misorientation angle 20°)")
-    _replace_shape_text(subtitle15, "Prefer orientation ratio (Misorientation angle 15°)")
-    subtitle15.top = Inches(top15 - 0.477)
+    column_count = 1 + len(columns) * 3
+    available_width = Inches(12.55)
+    column_width = available_width // column_count
+    section_height = Inches(2.72)
+    row_height = section_height // table_rows
+    table_height = row_height * table_rows
+    left = (deck.prs.slide_width - available_width) // 2
+    top20 = Inches(1.02)
+    top15 = Inches(4.12)
+    visual_scale = min(1.0, column_width / Inches(0.992), row_height / Inches(0.406))
+    font_size = max(3, round(18 * visual_scale))
+    subtitle_font = max(8, round(16 * visual_scale))
+    _add_text(
+        slide,
+        "Prefer orientation ratio (Misorientation angle 20°)",
+        left,
+        Inches(0.68),
+        available_width,
+        Inches(0.28),
+        size=subtitle_font,
+        bold=True,
+        align=PP_ALIGN.CENTER,
+    )
+    _add_text(
+        slide,
+        "Prefer orientation ratio (Misorientation angle 15°)",
+        left,
+        Inches(3.78),
+        available_width,
+        Inches(0.28),
+        size=subtitle_font,
+        bold=True,
+        align=PP_ALIGN.CENTER,
+    )
 
     for deviation, top in (("20%", top20), ("15%", top15)):
-        column_count = 1 + len(columns) * 3
         table = slide.shapes.add_table(
             table_rows,
             column_count,
-            Inches(spec["left_in"]),
-            Inches(top),
-            Inches(float(spec["column_width_in"]) * column_count),
-            Inches(row_height * table_rows),
+            left,
+            top,
+            available_width,
+            table_height,
         ).table
         deck.apply_table_template(table, kind, "EBSD_TABLE_20" if deviation == "20%" else "EBSD_TABLE_15")
+        _style_table_grid(table)
         for column in table.columns:
-            column.width = Inches(spec["column_width_in"])
+            column.width = column_width
         for row in table.rows:
-            row.height = Inches(row_height)
-        _set_cell(table.cell(0, 0), "EBSD", header=True, size=18)
+            row.height = row_height
+        _set_cell(table.cell(0, 0), "EBSD", header=True, size=font_size)
         for axis_index, label in enumerate(labels):
             start = 1 + axis_index * len(columns)
             end = start + len(columns) - 1
             if end > start:
                 table.cell(0, start).merge(table.cell(0, end))
-            _set_cell(table.cell(0, start), label.strip("[]"), header=True, size=18)
+            _set_cell(table.cell(0, start), label.strip("[]"), header=True, size=font_size)
             for column_index, column in enumerate(columns):
-                _set_cell(table.cell(1, start + column_index), column, header=True, size=18)
+                _set_cell(table.cell(1, start + column_index), column, header=True, size=font_size)
         for row_index, row in enumerate(rows, start=2):
-            _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
+            _set_cell(table.cell(row_index, 0), str(row), header=True, size=font_size)
             for axis_index in range(3):
                 for column_index, column in enumerate(columns):
                     position = f"{column}-{row}"
@@ -973,9 +1222,10 @@ def _add_orientation_tables(
                     _set_cell(
                         table.cell(row_index, 1 + axis_index * len(columns) + column_index),
                         f"{values[axis_index]:.1f}%" if position in snapshot else "",
-                        size=18,
+                        size=font_size,
                         color=OVERRIDDEN_TEXT if position in overridden_set else None,
                     )
+        _scale_table_margins(table, visual_scale)
 
 
 def _add_statistics(
@@ -986,52 +1236,62 @@ def _add_statistics(
 ) -> None:
     overridden_set = set(overridden_positions)
     metric_specs = (
-        ("Average", "EBSD_STATS_AVERAGE", lambda values: f"{statistics.mean(values):.2f}" if values else "—"),
-        ("Max", "EBSD_STATS_MAX", lambda values: f"{max(values):.2f}" if values else "—"),
+        ("Average (µm)", "EBSD_STATS_AVERAGE", lambda values: f"{statistics.mean(values):.2f}" if values else "—"),
+        ("Max (µm)", "EBSD_STATS_MAX", lambda values: f"{max(values):.2f}" if values else "—"),
         ("Quantity", "EBSD_STATS_QUANTITY", lambda values: str(len(values))),
     )
     for threshold in sorted(statistics_by_min_size):
         snapshot = statistics_by_min_size[threshold]
         columns, rows = _matrix_positions(snapshot)
-        for metric_name, style_shape, formatter in metric_specs:
-            slide = deck.add_slide(f"{sample}-  Grain Size (min grain size = {threshold} )", kind="statistics")
-            for name in ("EBSD_STATS_AVERAGE", "EBSD_STATS_MAX", "EBSD_STATS_QUANTITY"):
-                deck.remove_shape(slide, name)
-            if not columns or not rows:
-                continue
-            spec = deck.manifest["statistics_table"]
-            row_count = len(rows) + 2
-            column_count = len(columns) + 1
+        slide = deck.add_slide(f"Grain Size Summary · {sample}", kind="statistics")
+        for name in ("EBSD_STATS_AVERAGE", "EBSD_STATS_MAX", "EBSD_STATS_QUANTITY"):
+            deck.remove_shape(slide, name)
+        if not columns or not rows:
+            continue
+        row_count = len(rows) + 2
+        column_count = len(columns) + 1
+        available_width = Inches(11.80)
+        column_width = available_width // column_count
+        section_height = Inches(1.88)
+        row_height = section_height // row_count
+        table_height = row_height * row_count
+        left = (deck.prs.slide_width - available_width) // 2
+        visual_scale = min(1.0, column_width / Inches(1.111), row_height / Inches(0.406))
+        font_size = max(3, round(18 * visual_scale))
+        for metric_index, (metric_name, style_shape, formatter) in enumerate(metric_specs):
+            top = Inches(0.86) + metric_index * Inches(2.08)
             table = slide.shapes.add_table(
                 row_count,
                 column_count,
-                Inches(spec["left_in"]),
-                Inches(spec["top_in"]),
-                Inches(float(spec["column_width_in"]) * column_count),
-                Inches(float(spec["row_height_in"]) * row_count),
+                left,
+                top,
+                available_width,
+                table_height,
             ).table
             deck.apply_table_template(table, "statistics", style_shape)
+            _style_table_grid(table)
             for column in table.columns:
-                column.width = Inches(spec["column_width_in"])
+                column.width = column_width
             for row in table.rows:
-                row.height = Inches(spec["row_height_in"])
+                row.height = row_height
             if column_count > 1:
                 table.cell(0, 0).merge(table.cell(0, column_count - 1))
-            _set_cell(table.cell(0, 0), f"Grain Size {metric_name}", header=True, size=18)
-            _set_cell(table.cell(1, 0), "" if metric_name == "Quantity" else "(um)", header=True, size=18)
+            _set_cell(table.cell(0, 0), f"Grain Size {metric_name}", header=True, size=font_size)
+            _set_cell(table.cell(1, 0), "Position", header=True, size=font_size)
             for column_index, column in enumerate(columns, start=1):
-                _set_cell(table.cell(1, column_index), column, header=True, size=18)
+                _set_cell(table.cell(1, column_index), column, header=True, size=font_size)
             for row_index, row in enumerate(rows, start=2):
-                _set_cell(table.cell(row_index, 0), str(row), header=True, size=18)
+                _set_cell(table.cell(row_index, 0), str(row), header=True, size=font_size)
                 for column_index, column in enumerate(columns, start=1):
                     position = f"{column}-{row}"
                     grains = _finite(snapshot.get(position, {}).get("grains"))
                     _set_cell(
                         table.cell(row_index, column_index),
                         formatter(grains) if position in snapshot else "",
-                        size=18,
+                        size=font_size,
                         color=OVERRIDDEN_TEXT if position in overridden_set else None,
                     )
+            _scale_table_margins(table, visual_scale)
 
 
 def _triangle_chart(
@@ -1040,28 +1300,36 @@ def _triangle_chart(
     golden_item: Optional[Dict[str, Any]],
     deviation: str,
     labels: List[str],
+    chart_max: float,
+    *,
+    show_value_labels: bool = True,
+    show_axis_labels: bool = True,
+    density_scale: float = 1.0,
 ) -> io.BytesIO:
     """Render one scan position using the same triangle system as TriangleChart.vue."""
     figure = Figure(figsize=(3.75, 2.5), dpi=220)
     canvas = FigureCanvasAgg(figure)
     axis = figure.add_subplot(111)
+    density_scale = max(0.1, min(1.0, float(density_scale)))
+    # Dense one-slide N x M matrices shrink the chart bitmap substantially.
+    # Boost text and strokes from the actual cell scale so there is no special
+    # case or upper bound tied to any example matrix size.
+    density_boost = min(1.85, max(1.0, 0.60 / density_scale))
+    stroke_boost = min(1.4, density_boost)
     vertices = [(0.0, 1.0), (math.sqrt(3) / 2, -0.5), (-math.sqrt(3) / 2, -0.5)]
 
     def points(values: Sequence[float]) -> List[Tuple[float, float]]:
         return [
-            (vertices[index][0] * float(value) / 50.0, vertices[index][1] * float(value) / 50.0)
+            (vertices[index][0] * float(value) / chart_max, vertices[index][1] * float(value) / chart_max)
             for index, value in enumerate(values[:3])
         ]
 
-    for level in (10, 25, 50):
+    for level in (chart_max / 5, chart_max * 2 / 5, chart_max * 3 / 5, chart_max * 4 / 5, chart_max):
         polygon = points([level, level, level])
         polygon.append(polygon[0])
-        axis.plot([point[0] for point in polygon], [point[1] for point in polygon], color="#d1d5db", linewidth=0.8)
-        label_point = points([level, 0, 0])[0]
-        axis.text(label_point[0] + 0.03, label_point[1], f"{level}%", fontsize=5.5, color="#9ca3af", va="center")
-    for vertex, label in zip(vertices, labels):
-        axis.plot([0, vertex[0]], [0, vertex[1]], color="#9ca3af", linewidth=0.8)
-        axis.text(vertex[0] * 1.18, vertex[1] * 1.18, label, fontsize=8, fontweight="bold", color="#374151", ha="center", va="center")
+        axis.plot([point[0] for point in polygon], [point[1] for point in polygon], color="#d1d5db", linewidth=0.8 * stroke_boost)
+    for vertex in vertices:
+        axis.plot([0, vertex[0]], [0, vertex[1]], color="#9ca3af", linewidth=0.8 * stroke_boost)
 
     series = (
         ("Sample", selected_item, ORIENTATION_SAMPLE, False),
@@ -1077,22 +1345,179 @@ def _triangle_chart(
             [point[0] for point in closed],
             [point[1] for point in closed],
             color=color,
-            linewidth=1.35,
+            linewidth=1.35 * stroke_boost,
             linestyle="--" if dashed else "-",
             label=source,
         )
         axis.fill([point[0] for point in closed], [point[1] for point in closed], color=color, alpha=0.06)
-        axis.scatter([point[0] for point in polygon], [point[1] for point in polygon], color=color, s=8)
+        axis.scatter(
+            [point[0] for point in polygon],
+            [point[1] for point in polygon],
+            color=color,
+            s=13 * stroke_boost * stroke_boost,
+        )
 
-    axis.set_title(position, fontsize=9, fontweight="bold", pad=2)
+    # Treat every label as a measured collision box.  Axis labels and the
+    # outer-scale label reserve space first; values then walk a radial search
+    # and take the closest free position.  This works for any N x M matrix
+    # because it depends on the actual rendered font size, not a fixed zone.
+    x_limits = (-1.34, 1.34)
+    y_limits = (-1.06, 1.44)
+    label_requests: List[Dict[str, Any]] = []
+    value_requests: List[Dict[str, Any]] = []
+    visible_series = [entry for entry in series if entry[1] is not None]
+
+    for axis_index, (label, vertex) in enumerate(zip(labels, vertices)):
+        length = math.hypot(*vertex) or 1.0
+        outward = (vertex[0] / length, vertex[1] / length)
+        tangent = (-outward[1], outward[0])
+        if show_axis_labels:
+            label_requests.append(
+                {
+                    "text": label,
+                    "color": "#374151",
+                    "fontsize": 12.0 * density_boost,
+                    "weight": "bold",
+                    "preferred": (
+                        vertex[0] + outward[0] * 0.25,
+                        vertex[1] + outward[1] * 0.25,
+                    ),
+                    "background": False,
+                    "outlined": False,
+                    "halo": False,
+                }
+            )
+        if not show_value_labels:
+            continue
+        for series_index, (_source, item, color, _dashed) in enumerate(visible_series):
+            values = _orientation_values(item, deviation)
+            endpoint = points(values)[axis_index]
+            centered_index = series_index - (len(visible_series) - 1) / 2.0
+            value_requests.append(
+                {
+                    "text": f"{values[axis_index]:.1f}%",
+                    "color": color,
+                    "fontsize": 8.5 * density_boost,
+                    "weight": "bold",
+                    "preferred": (
+                        endpoint[0] + outward[0] * 0.14 + tangent[0] * centered_index * 0.19,
+                        endpoint[1] + outward[1] * 0.14 + tangent[1] * centered_index * 0.19,
+                    ),
+                    "background": False,
+                    "outlined": False,
+                    "halo": True,
+                }
+            )
+
+    top, right = vertices[0], vertices[1]
+    scale_midpoint = ((top[0] + right[0]) / 2.0, (top[1] + right[1]) / 2.0)
+    scale_length = math.hypot(*scale_midpoint) or 1.0
+    label_requests.append(
+        {
+            "text": f"{chart_max:g}%",
+            "color": "#6b7280",
+            "fontsize": 8.5 * density_boost,
+            "weight": "bold",
+            "preferred": (
+                scale_midpoint[0] + scale_midpoint[0] / scale_length * 0.16,
+                scale_midpoint[1] + scale_midpoint[1] / scale_length * 0.16,
+            ),
+            "background": False,
+            "outlined": False,
+            "halo": True,
+        }
+    )
+
+    candidate_offsets = [(0.0, 0.0)]
+    search_radius = 0.035
+    while search_radius <= 0.84:
+        candidate_count = max(8, math.ceil(2.0 * math.pi * search_radius / 0.065))
+        candidate_offsets.extend(
+            (
+                search_radius * math.cos(2.0 * math.pi * index / candidate_count),
+                search_radius * math.sin(2.0 * math.pi * index / candidate_count),
+            )
+            for index in range(candidate_count)
+        )
+        search_radius += 0.035
+
+    endpoint_obstacles = [
+        {"x": point[0], "y": point[1], "width": 0.14, "height": 0.14}
+        for _source, item, _color, _dashed in visible_series
+        for point in points(_orientation_values(item, deviation))
+    ]
+    placed_labels: List[Dict[str, Any]] = []
+    for request in [*label_requests, *value_requests]:
+        padding = 0.07 if request["background"] else 0.035 if request["halo"] else 0.0
+        width = max(
+            request["fontsize"] * 0.016,
+            len(request["text"]) * request["fontsize"] * 0.012,
+        ) + padding
+        height = request["fontsize"] * 0.021 + padding
+        best = None
+        best_score = math.inf
+        for offset_x, offset_y in candidate_offsets:
+            raw_x = request["preferred"][0] + offset_x
+            raw_y = request["preferred"][1] + offset_y
+            x = min(x_limits[1] - width / 2.0, max(x_limits[0] + width / 2.0, raw_x))
+            y = min(y_limits[1] - height / 2.0, max(y_limits[0] + height / 2.0, raw_y))
+            overlap = 0.0
+            for placed in [*endpoint_obstacles, *placed_labels]:
+                overlap_width = max(
+                    0.0,
+                    min(x + width / 2.0, placed["x"] + placed["width"] / 2.0)
+                    - max(x - width / 2.0, placed["x"] - placed["width"] / 2.0)
+                    + 0.050,
+                )
+                overlap_height = max(
+                    0.0,
+                    min(y + height / 2.0, placed["y"] + placed["height"] / 2.0)
+                    - max(y - height / 2.0, placed["y"] - placed["height"] / 2.0)
+                    + 0.050,
+                )
+                overlap += overlap_width * overlap_height
+            displacement = (x - request["preferred"][0]) ** 2 + (y - request["preferred"][1]) ** 2
+            score = overlap * 10000.0 + displacement
+            if score < best_score:
+                best_score = score
+                best = {**request, "x": x, "y": y, "width": width, "height": height}
+            if overlap == 0.0:
+                break
+        if best is not None:
+            placed_labels.append(best)
+
+    for placed in placed_labels:
+        text = axis.text(
+            placed["x"],
+            placed["y"],
+            placed["text"],
+            fontsize=placed["fontsize"],
+            fontweight=placed["weight"],
+            color=placed["color"],
+            ha="center",
+            va="center",
+            bbox=(
+                {"boxstyle": "round,pad=0.20", "facecolor": "white", "edgecolor": "#d1d5db", "linewidth": 0.5, "alpha": 0.96}
+                if placed["outlined"]
+                else {"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "linewidth": 0.0, "alpha": 0.90}
+                if placed["background"]
+                else None
+            ),
+            zorder=10,
+        )
+        if placed["halo"]:
+            text.set_path_effects([patheffects.withStroke(linewidth=1.5, foreground="white")])
+
+    # Once any N x M cell becomes dense enough, the page's column and row
+    # headers already identify every position.  Dropping the duplicate A-1 /
+    # B-1 title gives the labels more usable height without losing information.
+    if density_scale >= 0.45:
+        axis.set_title(position, fontsize=12 * density_boost, fontweight="bold", pad=2)
     axis.set_aspect("equal", adjustable="box")
-    axis.set_xlim(-1.42, 1.42)
-    axis.set_ylim(-1.18, 1.34)
+    axis.set_xlim(*x_limits)
+    axis.set_ylim(*y_limits)
     axis.axis("off")
-    handles, legend_labels = axis.get_legend_handles_labels()
-    if handles:
-        axis.legend(handles, legend_labels, loc="upper center", bbox_to_anchor=(0.5, -0.01), ncol=2, fontsize=5.5, frameon=False)
-    figure.tight_layout(pad=0.18)
+    figure.tight_layout(pad=0.30)
     output = io.BytesIO()
     canvas.print_png(output)
     output.seek(0)
@@ -1105,6 +1530,8 @@ def _add_triangle_pages(
     golden: Snapshot,
     golden_sample: str,
     golden_version_label: str,
+    *,
+    show_value_labels: bool = True,
 ) -> None:
     positions = _positions(selected, golden)
     labels = _orientation_labels(selected)
@@ -1113,16 +1540,40 @@ def _add_triangle_pages(
         return
     position_set = set(positions)
     for deviation in ("20%", "15%"):
+        all_values = [
+            value
+            for snapshot in (selected, golden)
+            for position in positions
+            for value in _orientation_values(snapshot.get(position), deviation)
+        ]
+        chart_max = _triangle_percent_max(all_values)
         slide = deck.add_slide(
             f"晶粒取向比例 - Misorientation {deviation}",
-            "Sample 藍色實線 / Golden 橘色虛線" if golden else "Sample 藍色實線",
+            (
+                f"Sample 藍色實線 / Golden 橘色虛線 / Scale 0–{chart_max:g}%"
+                if golden
+                else f"Sample 藍色實線 / Scale 0–{chart_max:g}%"
+            ),
             kind="ipf",
         )
-        if golden:
-            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
-        image_left, image_top, cell_width, cell_height, pad_x, pad_y = _prepare_ipf_matrix(
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y, visual_scale = _prepare_ipf_matrix(
             deck, slide, columns, rows
         )
+        show_axis_labels, effective_value_labels = _triangle_annotation_mode(
+            visual_scale,
+            show_value_labels,
+        )
+        if show_value_labels and not effective_value_labels:
+            subtitle_shape = next(
+                (shape for shape in slide.shapes if shape.name == "EBSD_SUBTITLE"),
+                None,
+            )
+            if subtitle_shape is not None:
+                paragraph = subtitle_shape.text_frame.paragraphs[0]
+                note_run = paragraph.add_run()
+                note_run.text = " / Values: data tables"
+                note_run.font.size = Pt(10)
+                note_run.font.color.rgb = MUTED
         for row_index, row in enumerate(rows):
             for column_index, column in enumerate(columns):
                 position = f"{column}-{row}"
@@ -1134,6 +1585,10 @@ def _add_triangle_pages(
                     golden.get(position),
                     deviation,
                     labels,
+                    chart_max,
+                    show_value_labels=effective_value_labels,
+                    show_axis_labels=show_axis_labels,
+                    density_scale=visual_scale,
                 )
                 _add_picture_contain(
                     slide,
@@ -1143,25 +1598,69 @@ def _add_triangle_pages(
                     cell_width - 2 * pad_x,
                     cell_height - 2 * pad_y,
                 )
+        subtitle_shape = next((shape for shape in slide.shapes if shape.name == "EBSD_SUBTITLE"), None)
+        if subtitle_shape is not None:
+            slide.shapes._spTree.remove(subtitle_shape._element)
+            slide.shapes._spTree.append(subtitle_shape._element)
+        if golden:
+            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
 
 
-def _line_chart(columns: Sequence[str], selected_values: Sequence[float], golden_values: Optional[Sequence[float]], axis_label: str) -> io.BytesIO:
-    figure = Figure(figsize=(4.0, 2.0), dpi=220)
+def _line_chart(
+    columns: Sequence[str],
+    selected_values: Sequence[float],
+    golden_values: Optional[Sequence[float]],
+    axis_label: str,
+    y_max: float,
+    *,
+    show_value_labels: bool = True,
+    aspect_ratio: float = 2.0,
+    show_x_axis: bool = True,
+    show_y_axis: bool = True,
+) -> io.BytesIO:
+    figure_width = 4.0
+    figure = Figure(figsize=(figure_width, max(0.72, figure_width / max(1.0, aspect_ratio))), dpi=220)
     canvas = FigureCanvasAgg(figure)
     axis = figure.add_subplot(111)
     x = list(range(len(columns)))
-    axis.plot(x, selected_values, color=ORIENTATION_SAMPLE, marker="o", markersize=3.5, linewidth=1.7, label="Sample")
+    density_scale = min(1.0, 5.0 / max(1, len(columns)))
+    label_size = max(6.5, 9.0 * density_scale)
+    marker_size = max(2.5, 4.5 * density_scale)
+    value_stride = _label_stride(len(columns), 10)
+    tick_stride = _label_stride(len(columns), 12)
+    value_indices = set(_sampled_label_indices(len(columns), value_stride))
+    tick_indices = _sampled_label_indices(len(columns), tick_stride)
+    axis.plot(x, selected_values, color=ORIENTATION_SAMPLE, marker="o", markersize=marker_size, linewidth=2.0, label="Sample")
     if golden_values is not None:
-        axis.plot(x, golden_values, color=ORIENTATION_GOLDEN, marker="o", markersize=3.5, linewidth=1.7, linestyle="--", label="Golden")
-    axis.set_xticks(x, columns, rotation=0)
-    axis.set_ylim(0, 100)
-    axis.set_ylabel("Ratio %", fontsize=6)
-    axis.set_title(axis_label, fontsize=8, pad=3)
+        axis.plot(x, golden_values, color=ORIENTATION_GOLDEN, marker="o", markersize=marker_size, linewidth=2.0, linestyle="--", label="Golden")
+    if show_value_labels:
+        for index, value in enumerate(selected_values):
+            if index not in value_indices:
+                continue
+            axis.annotate(f"{value:.1f}%", (index, value), xytext=(0, 6 + (index % 2) * 6), textcoords="offset points", ha="center", fontsize=label_size, color=ORIENTATION_SAMPLE, fontweight="bold")
+        if golden_values is not None:
+            for index, value in enumerate(golden_values):
+                if index not in value_indices:
+                    continue
+                axis.annotate(f"{value:.1f}%", (index, value), xytext=(0, -10 - (index % 2) * 6), textcoords="offset points", ha="center", fontsize=label_size, color=ORIENTATION_GOLDEN, fontweight="bold")
+    axis.set_xticks(
+        tick_indices,
+        [columns[index] if show_x_axis else "" for index in tick_indices],
+        rotation=0,
+    )
+    axis.set_ylim(0, y_max)
+    axis.set_yticks([y_max * index / 5 for index in range(6)])
+    axis.set_ylabel("Ratio %" if show_y_axis else "", fontsize=11)
+    if not show_y_axis:
+        axis.tick_params(axis="y", labelleft=False)
+        axis.spines["left"].set_visible(False)
+    if axis_label:
+        axis.set_title(axis_label, fontsize=12, pad=4)
     axis.grid(axis="y", color="#eeeeee")
-    axis.tick_params(labelsize=5.5)
+    axis.tick_params(labelsize=10)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
-    figure.tight_layout(pad=0.3)
+    figure.tight_layout(pad=0.55)
     output = io.BytesIO()
     canvas.print_png(output)
     output.seek(0)
@@ -1174,20 +1673,42 @@ def _add_orientation_lines(
     golden: Snapshot,
     golden_sample: str,
     golden_version_label: str,
+    *,
+    y_max: Optional[float] = None,
+    show_value_labels: bool = True,
 ) -> None:
     positions = _positions(selected, golden)
     labels = _orientation_labels(selected)
     columns, rows = _matrix_positions(positions)
     for deviation in ("20%", "15%"):
+        all_values = [
+            value
+            for snapshot in (selected, golden)
+            for position in positions
+            for value in _orientation_values(snapshot.get(position), deviation)
+        ]
+        chart_y_max = float(y_max) if y_max is not None else _nice_percent_max(all_values)
+        value_stride = _label_stride(len(columns), 10)
+        density_note = (
+            f" / Dense matrix: value labels every {value_stride} points"
+            if show_value_labels and value_stride > 1
+            else ""
+        )
         slide = deck.add_slide(
             f"晶粒取向折線圖 - Misorientation {deviation}",
-            "Sample 藍色實線 / Golden 橘色虛線" if golden else "Sample 藍色實線",
+            (
+                "Sample 藍色實線 / Golden 橘色虛線"
+                if golden
+                else "Sample 藍色實線"
+            ) + density_note,
+            kind="ipf",
         )
-        if golden:
-            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
-        left, top, width, height = deck.content
-        cell_width = width // 3
-        cell_height = height // max(1, len(rows))
+        image_left, image_top, cell_width, cell_height, pad_x, pad_y, _ = _prepare_ipf_matrix(
+            deck,
+            slide,
+            labels,
+            rows,
+        )
         for row_index, row in enumerate(rows):
             for axis_index, label in enumerate(labels):
                 selected_values = [
@@ -1202,15 +1723,31 @@ def _add_orientation_lines(
                     if golden
                     else None
                 )
-                png = _line_chart(columns, selected_values, golden_values, f"Row {row} · {label}")
+                png = _line_chart(
+                    columns,
+                    selected_values,
+                    golden_values,
+                    "",
+                    chart_y_max,
+                    show_value_labels=show_value_labels,
+                    aspect_ratio=cell_width / max(1, cell_height),
+                    show_x_axis=row_index == len(rows) - 1,
+                    show_y_axis=axis_index == 0,
+                )
                 _add_picture_contain(
                     slide,
                     png,
-                    left + axis_index * cell_width,
-                    top + row_index * cell_height,
-                    cell_width,
-                    cell_height,
+                    image_left + axis_index * cell_width + pad_x,
+                    image_top + row_index * cell_height + pad_y,
+                    cell_width - 2 * pad_x,
+                    cell_height - 2 * pad_y,
                 )
+        subtitle_shape = next((shape for shape in slide.shapes if shape.name == "EBSD_SUBTITLE"), None)
+        if subtitle_shape is not None:
+            slide.shapes._spTree.remove(subtitle_shape._element)
+            slide.shapes._spTree.append(subtitle_shape._element)
+        if golden:
+            _add_report_note(slide, _golden_data_note(golden_sample, golden_version_label))
 
 
 def _analysis_color(value: float, thresholds: Sequence[float]) -> RGBColor:
@@ -1259,6 +1796,9 @@ def build_pptx_report(
     selected_version_label: str,
     golden_version_label: str,
     report_data: ReportData,
+    ipf_display_sample: Optional[str] = None,
+    grid_display_sample: Optional[str] = None,
+    grid_display_version_label: Optional[str] = None,
     ipf_images_by_direction: Optional[Dict[str, Dict[str, bytes]]] = None,
     ipf_images: Optional[Dict[str, bytes]] = None,
     ipf_legend: Optional[bytes] = None,
@@ -1269,6 +1809,9 @@ def build_pptx_report(
     color_thresholds: Optional[List[float]] = None,
     overridden_positions: Optional[List[str]] = None,
     histogram_settings: Optional[Dict[str, Any]] = None,
+    orientation_line_y_max: Optional[float] = None,
+    show_triangle_labels: bool = True,
+    show_orientation_line_labels: bool = True,
 ) -> bytes:
     deck = TemplateDeck()
     selected = report_data.get(selected_sample, {})
@@ -1286,13 +1829,36 @@ def build_pptx_report(
         ipf_legend,
         histogram_settings or {},
     )
-    _add_ipf_pages(deck, selected_sample, selected_version_label, directions, ipf_legend)
+    _add_ipf_pages(deck, ipf_display_sample or selected_sample, selected_version_label, directions, ipf_legend)
     _add_grain_chart_pages(deck, selected, golden, golden_sample, golden_version_label, histogram_settings or {})
-    _add_complete_table(deck, selected_sample, selected_version_label, selected, overwritten)
+    grid_sample = grid_display_sample or selected_sample
+    grid_snapshot = report_data.get(grid_sample, selected)
+    _add_complete_table(
+        deck,
+        grid_sample,
+        grid_display_version_label or selected_version_label,
+        grid_snapshot,
+        overwritten if grid_sample == selected_sample else (),
+    )
     _add_orientation_tables(deck, selected, grains=False, overridden_positions=overwritten)
     _add_statistics(deck, statistics_by_min_grain_size or {10: selected}, selected_sample, overwritten)
-    _add_triangle_pages(deck, selected, golden, golden_sample, golden_version_label)
-    _add_orientation_lines(deck, selected, golden, golden_sample, golden_version_label)
+    _add_triangle_pages(
+        deck,
+        selected,
+        golden,
+        golden_sample,
+        golden_version_label,
+        show_value_labels=show_triangle_labels,
+    )
+    _add_orientation_lines(
+        deck,
+        selected,
+        golden,
+        golden_sample,
+        golden_version_label,
+        y_max=orientation_line_y_max,
+        show_value_labels=show_orientation_line_labels,
+    )
     _add_feature_analysis(
         deck,
         analysis_data or {},

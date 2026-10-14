@@ -1,12 +1,20 @@
+# Node 24 is the active LTS V8 runtime used by the shared frontend chart renderer.
+FROM node:24-bookworm-slim AS node_runtime
+
 # Use a Python image with uv pre-installed
 FROM ghcr.io/astral-sh/uv:0.9.30-python3.9-bookworm-slim
+
+COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
+
+# Build this Dockerfile from the repository root so the backend can execute the
+# same JavaScript chart renderer as the Nuxt frontend.
 
 # Setup a non-root user
 RUN groupadd --system --gid 999 nonroot \
  && useradd --system --gid 999 --uid 999 --create-home nonroot
 
 # Install the project into `/app`
-WORKDIR /app
+WORKDIR /app/ML_backend
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
@@ -23,23 +31,30 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 # PyCifRW (pulled in by orix/diffpy-structure on Python 3.9) is built from
 # source, so install and remove the compiler toolchain in the same layer.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=ML_backend/uv.lock,target=uv.lock \
+    --mount=type=bind,source=ML_backend/pyproject.toml,target=pyproject.toml \
     apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libcairo2 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
     && uv sync --locked --no-install-project \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
-COPY . /app
-RUN chmod 0644 /app/assets/ebsd_report_template.pptx
+COPY ML_backend /app/ML_backend
+COPY frontend/package.json /app/frontend/package.json
+COPY frontend/utils/grainChartRenderer.js /app/frontend/utils/grainChartRenderer.js
+COPY frontend/tools/render_grain_charts.mjs /app/frontend/tools/render_grain_charts.mjs
+RUN chmod 0644 /app/ML_backend/assets/ebsd_report_template.pptx
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/ML_backend/.venv/bin:$PATH"
 
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []

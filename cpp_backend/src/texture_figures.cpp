@@ -763,9 +763,9 @@ void draw_colorbar(TextureFigure& figure, int x, int y, int width, int height, d
     line(figure, x - 1, y + height, x + width, y + height, {0,0,0});
     line(figure, x - 1, y - 1, x - 1, y + height, {0,0,0});
     line(figure, x + width, y - 1, x + width, y + height, {0,0,0});
-    text(figure, x + width + 5, y - 2, std::to_string(high).substr(0, 4), 1);
-    text(figure, x + width + 5, y + height - 6, std::to_string(low).substr(0, 4), 1);
-    text(figure, x + width + 5, y + height / 2 - 4, "MRD", 1);
+    text(figure, x + width + 5, y - 3, std::to_string(high).substr(0, 4), 2);
+    text(figure, x + width + 5, y + height - 13, std::to_string(low).substr(0, 4), 2);
+    text(figure, x + width + 5, y + height / 2 - 7, "MRD", 2);
 }
 
 TextureFigure blank_figure(std::array<TextureDensityMap, 3> maps, double low, double high)
@@ -813,8 +813,8 @@ TextureFigure render_pole_figure(const EbsdData& data)
         line(figure, left[index], center_y, left[index] + dimension, center_y, {60,60,60});
         line(figure, center_x, top, center_x, top + dimension, {60,60,60});
         text(figure, center_x - static_cast<int>(labels[index].size()) * 6, 38, labels[index], 2);
-        text(figure, left[index] + dimension - 7, center_y - 8, "X0", 1);
-        text(figure, center_x - 13, top - 13, "Z0", 1);
+        text(figure, left[index] + dimension - 24, center_y - 14, "X0", 2);
+        text(figure, center_x - 12, top - 18, "Z0", 2);
     }
     draw_colorbar(figure, 1120, 18, 17, 391, low, high);
     return figure;
@@ -833,9 +833,9 @@ TextureFigure render_inverse_pole_figure(const EbsdData& data)
     for(size_t index = 0; index < 3; ++index) {
         paint_density(figure, figure.densities[index], left[index], top, width, height, low, high, true, 32);
         text(figure, left[index] + width / 2 - 10, 17, labels[index], 2);
-        text(figure, left[index] - 3, top - 18, data.hcp ? "0001" : "001", 1);
-        text(figure, left[index] - 3, top + height + 1, data.hcp ? "10-10" : "101", 1);
-        text(figure, left[index] + width - 5, top + static_cast<int>(height * 0.832) - 4, data.hcp ? "11-20" : "111", 1);
+        text(figure, left[index] - 3, top - 18, data.hcp ? "0001" : "001", 2);
+        text(figure, left[index] - 3, top + height + 2, data.hcp ? "10-10" : "101", 2);
+        text(figure, left[index] + width - (data.hcp ? 58 : 34), top + static_cast<int>(height * 0.832) - 8, data.hcp ? "11-20" : "111", 2);
     }
     draw_colorbar(figure, 1120, 30, 17, 375, low, high, 32);
     return figure;

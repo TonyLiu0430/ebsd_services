@@ -2,6 +2,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -492,8 +493,26 @@ int main() {
         res.set_content(buffer, "image/png");
     });
 
-    std::cout << "Server is running" << std::endl;
-    svr.listen("0.0.0.0", 8080);
+    const char* configured_host = std::getenv("EBSD_BIND_HOST");
+    const std::string host = configured_host && *configured_host ? configured_host : "0.0.0.0";
+    int port = 8080;
+    if (const char* configured_port = std::getenv("EBSD_PORT")) {
+        try {
+            const std::string value(configured_port);
+            size_t consumed = 0;
+            port = std::stoi(value, &consumed);
+            if (consumed != value.size() || port < 1 || port > 65535)
+                throw std::invalid_argument("port out of range");
+        } catch (const std::exception&) {
+            std::cerr << "EBSD_PORT must be an integer from 1 to 65535" << std::endl;
+            return 1;
+        }
+    }
+    std::cout << "Listening on " << host << ':' << port << std::endl;
+    if (!svr.listen(host, port)) {
+        std::cerr << "Unable to bind backend listener" << std::endl;
+        return 1;
+    }
 
 
 }

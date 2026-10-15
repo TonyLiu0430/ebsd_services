@@ -1,0 +1,26 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-x64",
+      "cacheVariables": { "EBSD_BUILD_WINUI": "ON", "BUILD_TESTING": "ON" }
+    },
+    {
+      "name": "core-tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/core-tests",
+      "cacheVariables": { "EBSD_BUILD_WINUI": "OFF", "BUILD_TESTING": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-release", "configurePreset": "windows-x64", "configuration": "Release" },
+    { "name": "core-tests", "configurePreset": "core-tests" }
+  ],
+  "testPresets": [
+    { "name": "windows-release", "configurePreset": "windows-x64", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "core-tests", "configurePreset": "core-tests", "output": { "outputOnFailure": true } }
+  ]
+}

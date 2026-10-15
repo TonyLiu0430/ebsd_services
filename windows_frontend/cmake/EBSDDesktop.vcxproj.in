@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{ADB017FA-8ED8-418F-8899-6836E5192A39}</ProjectGuid>
+    <ProjectName>EBSDDesktop</ProjectName>
+    <RootNamespace>EBSDDesktop</RootNamespace>
+    <TargetName>EBSDDesktop</TargetName>
+    <DefaultLanguage>zh-TW</DefaultLanguage>
+    <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.19041.0</WindowsTargetPlatformMinVersion>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <AppContainerApplication>false</AppContainerApplication>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>
+    <AppxPackage>false</AppxPackage>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <CppWinRTOptimized>true</CppWinRTOptimized>
+    <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
+    <MinimalCoreWin>true</MinimalCoreWin>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
+    <NuGetTargetPlatformIdentifier>Windows</NuGetTargetPlatformIdentifier>
+    <NuGetTargetPlatformVersion>$(WindowsTargetPlatformVersion)</NuGetTargetPlatformVersion>
+    <RestorePackagesPath>@EBSD_NATIVE_BINARY@/nuget</RestorePackagesPath>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <DesktopCompatible>true</DesktopCompatible>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>@EBSD_NATIVE_BINARY@/app/$(Configuration)/</OutDir>
+    <IntDir>@EBSD_NATIVE_BINARY@/obj/winui/$(Configuration)/</IntDir>
+    <AppxPriInitialPath />
+    <ProjectPriFileName>resources.pri</ProjectPriFileName>
+    <GenerateProjectPriFile>true</GenerateProjectPriFile>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level4</WarningLevel>
+      <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>DISABLE_XAML_GENERATED_MAIN;NOMINMAX;WIN32_LEAN_AND_MEAN;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>@EBSD_NATIVE_SOURCE@/app;@EBSD_NATIVE_SOURCE@/src;@EBSD_NATIVE_HTTP_INCLUDE@;@EBSD_NATIVE_JSON_INCLUDE@;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link><SubSystem>Windows</SubSystem><AdditionalDependencies>windowsapp.lib;ws2_32.lib;crypt32.lib;bcrypt.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="@EBSD_WINDOWS_APP_SDK_VERSION@" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="@EBSD_CPPWINRT_VERSION@" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="@EBSD_NATIVE_SOURCE@/app/App.xaml"><Link>App.xaml</Link></ApplicationDefinition>
+    <Page Include="@EBSD_NATIVE_SOURCE@/app/ShellView.xaml"><Link>ShellView.xaml</Link></Page>
+    <Midl Include="@EBSD_NATIVE_SOURCE@/app/Project.idl" />
+    <Manifest Include="@EBSD_NATIVE_SOURCE@/app/app.manifest" />
+    <ClInclude Include="@EBSD_NATIVE_SOURCE@/app/pch.h" />
+    <ClInclude Include="@EBSD_NATIVE_SOURCE@/app/App.xaml.h"><DependentUpon>App.xaml</DependentUpon></ClInclude>
+    <ClInclude Include="@EBSD_NATIVE_SOURCE@/app/ShellView.xaml.h"><DependentUpon>ShellView.xaml</DependentUpon></ClInclude>
+    <ClCompile Include="@EBSD_NATIVE_SOURCE@/app/App.xaml.cpp"><DependentUpon>App.xaml</DependentUpon></ClCompile>
+    <ClCompile Include="@EBSD_NATIVE_SOURCE@/app/Win32Host.cpp" />
+    <ClCompile Include="@EBSD_NATIVE_SOURCE@/app/ShellView.xaml.cpp"><DependentUpon>ShellView.xaml</DependentUpon></ClCompile>
+    <ClCompile Include="@EBSD_NATIVE_SOURCE@/src/LocalServer.cpp" />
+    <ClCompile Include="@EBSD_NATIVE_SOURCE@/src/DesktopRuntime.cpp" />
+    <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="CopyDesktopConfiguration" AfterTargets="Build">
+    <Copy SourceFiles="@EBSD_NATIVE_SOURCE@/desktop.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,10 @@
+{
+  "web_root": "web",
+  "python_executable": "runtime/python/python.exe",
+  "node_executable": "runtime/node/node.exe",
+  "cpp_executable": "runtime/cpp/ebsd_cpp_backend.exe",
+  "ml_root": "backend/ML_backend",
+  "native_dll_directory": "runtime/native",
+  "webview_runtime": "",
+  "max_upload_mib": 1024
+}

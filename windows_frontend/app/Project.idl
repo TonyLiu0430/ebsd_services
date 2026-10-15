@@ -1,0 +1,8 @@
+namespace EBSDDesktop
+{
+    [default_interface]
+    runtimeclass ShellView : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        ShellView();
+    }
+}

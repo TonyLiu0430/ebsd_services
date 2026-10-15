@@ -34,3 +34,4 @@ ML_backend/ppt_render/
 # Generated user manual artifacts
 docs/EBSD_USER_MANUAL.pdf
 docs/images/user-manual/
+docs/**

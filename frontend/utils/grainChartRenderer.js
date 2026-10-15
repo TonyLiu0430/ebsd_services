@@ -300,8 +300,13 @@ export function renderGrainChartSvg(input = {}) {
       lines.push(`<text ${attrs({ x: -5, y: y + 3.5 * fontScale, 'text-anchor': 'end', 'font-size': 9 * fontScale, fill: '#4b5563' })}>${escapeXml(formatYTick(value, model))}</text>`)
     }
     const yLabel = props.mode === 'cdf' ? 'Cumulative %' : props.mode === 'areaHist' ? 'Area %' : props.histYMode === 'ratio' ? 'Ratio %' : 'Counts'
-    const labelX = -plotPadLeft + 6
-    lines.push(`<text ${attrs({ x: labelX, y: H / 2, 'text-anchor': 'middle', 'font-size': 9.5 * fontScale, 'font-weight': 600, fill: '#374151', transform: `rotate(-90,${labelX},${H / 2})` })}>${escapeXml(yLabel)}</text>`)
+    const yLabelFontSize = 9.5 * fontScale
+    // Keep half the rotated glyph height plus a small safety margin inside
+    // the SVG viewport. A fixed 6 px inset clipped the leading edge of
+    // "Ratio %" once dense PPT layouts increased fontScale.
+    const yLabelInset = yLabelFontSize / 2 + 2
+    const labelX = -plotPadLeft + yLabelInset
+    lines.push(`<text ${attrs({ x: labelX, y: H / 2, 'text-anchor': 'middle', 'font-size': yLabelFontSize, 'font-weight': 600, fill: '#374151', transform: `rotate(-90,${labelX},${H / 2})` })}>${escapeXml(yLabel)}</text>`)
   }
 
   if (props.showXAxis) {

@@ -35,6 +35,10 @@ jobs:
             context: ./cpp_backend
             dockerfile: ./cpp_backend/Dockerfile
             image: ebsd-services-cpp-backend
+          - service: avahi
+            context: ./avahi
+            dockerfile: ./avahi/Dockerfile
+            image: ebsd-services-avahi
 
     steps:
       - name: Check out repository

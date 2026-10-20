@@ -63,5 +63,15 @@ services:
       - caddy
     profiles: ["tunnel"]
 
+  avahi:
+    build:
+      context: ./avahi
+    network_mode: host
+    environment:
+      MDNS_HOSTNAME: ${MDNS_HOSTNAME:-ebsd}
+      MDNS_INTERFACE: ${MDNS_INTERFACE:-}
+    profiles: ["mdns"]
+    restart: unless-stopped
+
 volumes:
   pgdata:

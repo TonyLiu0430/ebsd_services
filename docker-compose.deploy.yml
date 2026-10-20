@@ -61,5 +61,15 @@ services:
       - caddy
     profiles: ["tunnel"]
 
+  avahi:
+    image: ghcr.io/tonyliu0430/ebsd-services-avahi:${IMAGE_TAG:-main}
+    pull_policy: always
+    network_mode: host
+    environment:
+      MDNS_HOSTNAME: ${MDNS_HOSTNAME:-ebsd}
+      MDNS_INTERFACE: ${MDNS_INTERFACE:-}
+    profiles: ["mdns"]
+    restart: unless-stopped
+
 volumes:
   pgdata:

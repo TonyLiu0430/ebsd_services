@@ -110,10 +110,11 @@
 
 ### 準備主機
 
-- 安裝並啟動 Docker Desktop（Windows）或 Docker Engine（Linux），確認 Docker 設為開機後啟動。
+- Linux：安裝並啟動 Docker Engine，確認 Docker 設為開機後啟動。
+- Windows：本文件的 `.local` 部署方式以 Windows 11 22H2 以上版本、WSL2 Ubuntu，以及安裝在 Ubuntu 內的 Docker Engine 為準。
 - 安裝 Python 3。Python 只用來產生第一次啟動所需的設定檔，不需另外安裝任何 Python 套件。
 - 建議先規劃至少 4 核心 CPU、16 GB 記憶體及 40 GB 可用空間。這是部署規劃建議，不是經過壓力測試的最低規格；大量掃描檔與報表需要更多空間。
-- 主機需保持開機並停用自動休眠。其他電腦要透過區域網路連線時，主機位址應固定，且防火牆需允許該網路存取 TCP 80。
+- 主機需保持開機並停用自動休眠。若其他電腦以 IP 連線，建議固定主機位址；防火牆需允許該網路存取 TCP 80。
 - 將完整專案放在主機本機磁碟的固定資料夾，不要放在暫存資料夾或可能鎖檔的同步磁碟。
 - 第一次建置需要網路下載容器與套件，可能耗時較久。
 
@@ -121,13 +122,13 @@
 
 所有指令都必須在包含 `docker-compose.yml` 的專案資料夾執行。
 
-Windows 可開啟「Windows Terminal」，輸入 `cd`、一個空格，再將專案資料夾從檔案總管拖入視窗。例如：
+Linux 可開啟終端機後使用 `cd` 進入專案資料夾。Windows 使用 WSL2 時，請在 Windows Terminal 開啟 Ubuntu 分頁，並將專案放在 Ubuntu 的檔案系統中，例如：
 
 ```text
-cd "C:\Projects\ebsd_services"
+cd /home/使用者名稱/ebsd_services
 ```
 
-按 Enter 後再執行下列指令。路徑中有空格時必須保留雙引號。
+進入資料夾後再執行下列指令。路徑中有空格時必須加上引號。
 
 ### 產生環境設定
 
@@ -161,6 +162,57 @@ docker compose ps
 ```
 
 第一次建置請耐心等待。`docker compose ps` 應顯示服務正在執行，資料庫狀態應為 healthy。先在主機瀏覽器開啟 `http://localhost`；再由同一區域網路的另一台電腦開啟 `http://主機的區域網路IP` 測試登入、上傳一組小型資料及輸出 PPT。
+
+### 選用：使用 `ebsd.local`
+
+mDNS 可讓同一區域網路中的裝置使用 `http://ebsd.local`，避免記憶主機 IP。此功能預設關閉，只支援 Linux Docker Engine；Windows 主機需使用 WSL2 Ubuntu 內的 Docker Engine。
+
+第一次啟用時執行：
+
+```bash
+docker compose --profile mdns up -d --build
+```
+
+之後啟動使用：
+
+```bash
+docker compose --profile mdns up -d
+```
+
+若同時使用 Cloudflare tunnel，可合併兩個選用功能：
+
+```bash
+docker compose --profile mdns --profile tunnel up -d
+```
+
+預設名稱由 `.env` 中的 `MDNS_HOSTNAME=ebsd` 設定。名稱只能使用英文字母、數字與連字號，不要加上 `.local`。Avahi 會自動選擇預設路由所使用的網路介面，並排除 loopback、Docker、veth 及常見 VPN 介面。若自動判斷不適合，可先執行 `ip address` 查看實際的有線或 Wi-Fi 介面名稱，再於 `.env` 指定，例如：
+
+```dotenv
+MDNS_INTERFACE=eth0
+```
+
+`MDNS_INTERFACE` 保持空白時，切換 Wi-Fi／有線網路後可重新偵測介面：
+
+```bash
+docker compose --profile mdns restart avahi
+```
+
+修改 `.env` 中的 `MDNS_HOSTNAME` 或 `MDNS_INTERFACE` 後，需重建 Avahi 容器以載入新設定：
+
+```bash
+docker compose --profile mdns up -d avahi
+```
+
+Windows 11 22H2 以上版本需在 Windows 使用者目錄的 `.wslconfig` 啟用 mirrored networking：
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+儲存後在 Windows Terminal 執行 `wsl --shutdown`，再重新開啟 Ubuntu。Windows 防火牆與 Hyper-V 防火牆仍需手動允許區域網路傳入 TCP 80 與 UDP 5353。WSL、Ubuntu 及其中的 Docker Engine 也必須在主機開機後啟動；僅設定容器 `restart` 無法保證 WSL 自動啟動。
+
+mDNS 只適用於同一個區域網路廣播範圍，且使用端作業系統必須支援 `.local` 名稱解析。它不能跨越一般路由器或網路分區，也不會提供固定 IP。`.local` 是區域網路名稱，不是公開網域，無法用來申請公開的 Let's Encrypt 憑證。
 
 ### 日常啟停
 
@@ -210,3 +262,5 @@ Go 後端移轉至 Python 後，既有使用者第一次需重新登入；原帳
 | 更新後仍看到舊服務 | 在專案資料夾執行 `docker compose up -d --build --remove-orphans`。 |
 
 較進階的部署設定請直接查看實際設定檔：[docker-compose.yml](docker-compose.yml)、[docker-compose.deploy.yml](docker-compose.deploy.yml)、[Caddyfile](Caddyfile) 與 [GitHub Actions](.github/workflows/build-arm64-images.yml)。修改正式主機設定前，應先在測試環境驗證。
+
+mDNS 與網路設定可參考 [Docker host network 說明](https://docs.docker.com/engine/network/drivers/host/)、[Microsoft WSL mirrored networking 說明](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking) 與 [Avahi 設定說明](https://github.com/avahi/avahi/blob/master/man/avahi-daemon.conf.5.xml.in)。

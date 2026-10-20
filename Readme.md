@@ -253,11 +253,21 @@ docker compose up -d
 
 上述操作可能造成資料遺失或資料庫無法登入。備份與還原需要熟悉 PostgreSQL 與 Docker，應事先規劃、演練並記錄；不要只複製 PPT，因為 PPT 不含完整使用者、原始檔與分析資料。至少應保護原始量測檔、資料庫備份、目前使用的 `.env`，並定期驗證備份可以還原。
 
-系統更新時，保留同一專案資料夾、原 `.env` 與原 `pgdata` volume，再依版本說明更新程式並執行：
+這套更新方式適用於從 Git 原始碼建置的本機環境，不適用於 `docker-compose.deploy.yml` 的映像部署。更新時請保留同一專案資料夾、原 `.env` 與原 `pgdata` volume，並在專案資料夾執行：
 
 ```bash
-docker compose up -d --build --remove-orphans
+python3 scripts/update.py
 ```
+
+Windows／WSL 部署請在 Ubuntu 終端執行 `python3 scripts/update.py`，因為 Git 與 Docker Engine 位於 WSL 中，Windows 主機的 Python 不一定能存取它們。腳本會執行 `git pull --ff-only`；偵測到新提交後才重新建置並更新 Compose 服務，沒有更新時不會重啟服務。當 mDNS 或 Cloudflare tunnel 正在執行時，腳本會自動保留相應的選用 profile，不需要另外重新啟動。
+
+若上次建置失敗，需要在沒有新提交時明確重試，可執行：
+
+```bash
+python3 scripts/update.py --force
+```
+
+腳本不會修改 `.env`、刪除 volume 或清理 Docker 資料。任何指令失敗時會立即停止並回傳錯誤，不會繼續執行後續步驟。
 
 Go 後端移轉至 Python 後，既有使用者第一次需重新登入；原帳號、密碼與 EBSD 資料會保留。不要為了更新而重建資料庫的持久資料區。
 

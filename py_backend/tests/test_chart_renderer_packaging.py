@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPOSITORY_ROOT / "py_backend" / "Dockerfile"
 
 

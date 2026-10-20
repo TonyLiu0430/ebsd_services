@@ -1,6 +1,6 @@
 import unittest
 
-from main import compute_analysis
+from app.analysis.service import compute_analysis
 
 
 class AnalysisTests(unittest.TestCase):

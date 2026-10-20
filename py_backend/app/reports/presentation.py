@@ -24,10 +24,11 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
 
-ASSET_DIR = Path(__file__).resolve().parent / "assets"
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+ASSET_DIR = PROJECT_DIR / "assets"
 MANIFEST_PATH = ASSET_DIR / "ebsd_report_template.json"
 FRONTEND_CHART_RENDERER = (
-    Path(__file__).resolve().parent.parent / "frontend" / "tools" / "render_grain_charts.mjs"
+    PROJECT_DIR.parent / "frontend" / "tools" / "render_grain_charts.mjs"
 )
 FONT_FACE = "Arial"
 INK = RGBColor(0, 0, 0)

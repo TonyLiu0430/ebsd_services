@@ -9,12 +9,12 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
 
-from python_ebsd_figures import (
+from app.analysis.figures import (
     RawRgbMap,
     _grain_size_rgb,
     _raw_rgb_map,
 )
-from template_ppt_report import (
+from app.reports.presentation import (
     _deviation_legend,
     _excel_column,
     _frontend_charts,
@@ -175,12 +175,12 @@ class ScanPointPageTests(unittest.TestCase):
             }
 
         with patch(
-            "template_ppt_report._frontend_charts",
+            "app.reports.presentation._frontend_charts",
             side_effect=lambda charts, **_: [_test_png()] * len(charts),
         ), patch(
-            "template_ppt_report._triangle_chart", return_value=io.BytesIO(_test_png())
+            "app.reports.presentation._triangle_chart", return_value=io.BytesIO(_test_png())
         ), patch(
-            "template_ppt_report._line_chart", return_value=io.BytesIO(_test_png())
+            "app.reports.presentation._line_chart", return_value=io.BytesIO(_test_png())
         ):
             hidden = build_pptx_report(
                 selected_sample="Cu-U",
@@ -481,11 +481,11 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
             ipf_images = {position: image for position in snapshot}
             placeholder = io.BytesIO(image)
             with patch(
-                "template_ppt_report._frontend_charts",
+                "app.reports.presentation._frontend_charts",
                 side_effect=lambda charts, **_: [image] * len(charts),
             ), patch(
-                "template_ppt_report._triangle_chart", return_value=placeholder
-            ), patch("template_ppt_report._line_chart", return_value=placeholder):
+                "app.reports.presentation._triangle_chart", return_value=placeholder
+            ), patch("app.reports.presentation._line_chart", return_value=placeholder):
                 report = build_pptx_report(
                     selected_sample="Sample",
                     golden_sample="",
@@ -536,11 +536,11 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         snapshot = self._snapshot(3, 3)
         placeholder = io.BytesIO(image)
         with patch(
-            "template_ppt_report._frontend_charts",
+            "app.reports.presentation._frontend_charts",
             side_effect=lambda charts, **_: [image] * len(charts),
         ), patch(
-            "template_ppt_report._triangle_chart", return_value=placeholder
-        ), patch("template_ppt_report._line_chart", return_value=placeholder):
+            "app.reports.presentation._triangle_chart", return_value=placeholder
+        ), patch("app.reports.presentation._line_chart", return_value=placeholder):
             report = build_pptx_report(
                 selected_sample="Sample",
                 golden_sample="",
@@ -567,11 +567,11 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         snapshot = self._snapshot(1, 1)
         placeholder = io.BytesIO(image)
         with patch(
-            "template_ppt_report._frontend_charts",
+            "app.reports.presentation._frontend_charts",
             side_effect=lambda charts, **_: [image] * len(charts),
         ), patch(
-            "template_ppt_report._triangle_chart", return_value=placeholder
-        ), patch("template_ppt_report._line_chart", return_value=placeholder):
+            "app.reports.presentation._triangle_chart", return_value=placeholder
+        ), patch("app.reports.presentation._line_chart", return_value=placeholder):
             report = build_pptx_report(
                 selected_sample="Sample",
                 golden_sample="",
@@ -610,9 +610,9 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
             captured.extend(charts)
             return [image] * len(charts)
 
-        with patch("template_ppt_report._frontend_charts", side_effect=render), patch(
-            "template_ppt_report._triangle_chart", return_value=io.BytesIO(image)
-        ), patch("template_ppt_report._line_chart", return_value=io.BytesIO(image)):
+        with patch("app.reports.presentation._frontend_charts", side_effect=render), patch(
+            "app.reports.presentation._triangle_chart", return_value=io.BytesIO(image)
+        ), patch("app.reports.presentation._line_chart", return_value=io.BytesIO(image)):
             build_pptx_report(
                 selected_sample="Sample",
                 golden_sample="",

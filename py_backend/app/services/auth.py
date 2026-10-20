@@ -8,28 +8,17 @@ from typing import Any, Dict, Optional
 
 import bcrypt
 import jwt
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import Column, String, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.types import Uuid
-
-from ebsd_store import Base, SessionLocal
+from app.db.store import SessionLocal, User
 
 
 SESSION_COOKIE = "ginSession"
 SESSION_LIFETIME = timedelta(hours=48)
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 PASSWORD_RE = re.compile(r"^\S+$")
-
-
-class User(Base):
-    """Mapping for the existing Ent users table; no data migration is needed."""
-
-    __tablename__ = "users"
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username = Column(String, nullable=False, unique=True)
-    password = Column(String, nullable=False)
 
 
 def _secret() -> str:
@@ -116,14 +105,10 @@ async def _credentials(request: Request):
     return (body.get("username"), body.get("password")), None
 
 
-router = APIRouter(prefix="/user")
-
-
 async def _run_blocking(function, *args):
     return await asyncio.get_running_loop().run_in_executor(None, partial(function, *args))
 
 
-@router.get("/check")
 def check(request: Request):
     try:
         user = current_user(request)
@@ -135,14 +120,12 @@ def check(request: Request):
     return {"user": user}
 
 
-@router.post("/logout")
 def logout():
     response = JSONResponse({"msg": "ok"})
     _clear_session_cookie(response)
     return response
 
 
-@router.post("/register")
 async def register(request: Request):
     credentials, error = await _credentials(request)
     if error:
@@ -182,7 +165,6 @@ def _create_user(username: str, password_hash: str):
     return response
 
 
-@router.post("/login")
 async def login(request: Request):
     credentials, error = await _credentials(request)
     if error:

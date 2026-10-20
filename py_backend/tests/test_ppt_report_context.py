@@ -2,7 +2,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import call, patch
 
-from main import ReportPptRequest, build_ppt_report_context, report_ipf_vectors
+from app.schemas import ReportPptRequest
+from app.services.ebsd import report_ipf_vectors
+from app.services.reports import build_ppt_report_context
 
 
 class PptReportContextTests(unittest.TestCase):
@@ -20,14 +22,14 @@ class PptReportContextTests(unittest.TestCase):
         self.assertAlmostEqual(custom[next(reversed(custom))][1], 2 ** -0.5)
         self.assertEqual(custom[next(reversed(custom))][2], 0.0)
 
-    @patch("main.cpp_pair_ipf_legend", return_value=b"legend")
-    @patch("main.cpp_inverse_pole_figure", return_value=b"inverse-pole")
-    @patch("main.cpp_pole_figure", return_value=b"pole")
-    @patch("main.cpp_band_contrast_map", return_value=b"band-contrast")
-    @patch("main.generate_python_scan_figures", return_value={})
-    @patch("main.cpp_ipf_map", return_value=b"ipf")
-    @patch("main.cpp_features")
-    @patch("main.collect_report_data")
+    @patch("app.services.reports.cpp_pair_ipf_legend", return_value=b"legend")
+    @patch("app.services.reports.cpp_inverse_pole_figure", return_value=b"inverse-pole")
+    @patch("app.services.reports.cpp_pole_figure", return_value=b"pole")
+    @patch("app.services.reports.cpp_band_contrast_map", return_value=b"band-contrast")
+    @patch("app.services.reports.generate_python_scan_figures", return_value={})
+    @patch("app.services.reports.cpp_ipf_map", return_value=b"ipf")
+    @patch("app.services.reports.cpp_features")
+    @patch("app.services.reports.collect_report_data")
     def test_frontend_report_settings_are_forwarded_to_the_ppt_context(
         self,
         collect_report_data,

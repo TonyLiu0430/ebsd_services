@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from template_ppt_report import build_pptx_report  # noqa: E402
+from app.reports.presentation import build_pptx_report  # noqa: E402
 
 
 def excel_column(value: int) -> str:

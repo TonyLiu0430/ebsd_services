@@ -13,9 +13,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-import auth
-import main
-from ebsd_store import Base, UserEbsdTarget
+import app.services.auth as auth
+import app.services.ebsd as ebsd_service
+from app.db.store import Base, UserEbsdTarget
 
 GO_BCRYPT_FIXTURE = "$2a$10$/JSgMcK3vySYB6c8dUkIM.LnXAFJ0FbFR1aiBZp9hDsr5H7ftL61K"
 
@@ -128,12 +128,12 @@ class AuthMigrationTest(unittest.IsolatedAsyncioTestCase):
             ])
             db.commit()
         with self.sessions() as db:
-            result = main.list_ebsd_targets(
+            result = ebsd_service.list_ebsd_targets(
                 request(token=auth.make_session_token(str(first_id))), db
             )
         self.assertEqual([item["name"] for item in result], ["first-target"])
         with self.sessions() as db, self.assertRaises(HTTPException) as error:
-            main.list_ebsd_targets(request(), db)
+            ebsd_service.list_ebsd_targets(request(), db)
         self.assertEqual(error.exception.status_code, 401)
 
 

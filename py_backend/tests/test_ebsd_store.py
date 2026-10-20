@@ -1,9 +1,10 @@
+import json
 import unittest
 
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
-from ebsd_store import (
+from app.db.store import (
     Base,
     EbsdFile,
     EbsdPair,
@@ -93,6 +94,14 @@ class EbsdStoreIdentityTests(unittest.TestCase):
                 version_key="v1",
                 version_label="target-a-1",
                 version_num=1,
+                material={
+                    "material_key": "Cu-FCC",
+                    "display_name": "Cu (FCC)",
+                    "element": "Cu",
+                    "phase": "FCC",
+                    "confidence": "high",
+                    "matched_by": ["lattice"],
+                },
             )
             second, _ = create_user_pair(
                 db,
@@ -123,6 +132,7 @@ class EbsdStoreIdentityTests(unittest.TestCase):
             self.assertEqual({first.pair_id, second.pair_id, third.pair_id}, {pair.id})
             self.assertEqual(len({first.id, second.id, third.id}), 3)
             self.assertEqual(first.target_id, target_a.id)
+            self.assertEqual(json.loads(first.material_metadata)["material_key"], "Cu-FCC")
             self.assertEqual(second.target_id, target_b.id)
             self.assertEqual(db.query(EbsdFile).count(), 2)
             self.assertEqual(db.query(EbsdPair).count(), 1)

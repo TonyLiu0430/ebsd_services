@@ -1,10 +1,11 @@
 import hashlib
+import json
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, Optional, Tuple
 
-from fastapi import HTTPException, Request, UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import (
     Column,
     DateTime,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     create_engine,
     func,
     inspect as sqlalchemy_inspect,
@@ -41,6 +43,15 @@ if not DATABASE_URL:
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+
+class User(Base):
+    """Mapping for the existing Ent users table; no data migration is needed."""
+
+    __tablename__ = "users"
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String, nullable=False, unique=True)
+    password = Column(String, nullable=False)
 
 
 class EbsdFile(Base):

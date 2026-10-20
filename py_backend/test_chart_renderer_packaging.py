@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
-DOCKERFILE = REPOSITORY_ROOT / "ML_backend" / "Dockerfile"
+DOCKERFILE = REPOSITORY_ROOT / "py_backend" / "Dockerfile"
 
 
 class ChartRendererPackagingTests(unittest.TestCase):

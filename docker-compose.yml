@@ -1,19 +1,19 @@
 services:
-  ml_backend:
+  py_backend:
     build:
       context: .
-      dockerfile: ML_backend/Dockerfile
+      dockerfile: py_backend/Dockerfile
       network: host # uv 下載 Python wheels 時避免 Docker build DNS 抖動
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      GO_BACKEND_URL: "http://go_backend:8080"
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     depends_on:
       postgres:
         condition: service_healthy
-      go_backend:
-        condition: service_started
+    restart: unless-stopped
 
   cpp_backend:
     build:
@@ -27,20 +27,6 @@ services:
     ports:
       - "3000:3000"
 
-  go_backend:
-    build: 
-      context: ./go_backend
-      network: host # DO NOT EDIT
-    ports:
-      - "8051:8080"
-    environment:
-      DATABASE_CONNECTION_STRING: "dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} host=postgres port=5432 sslmode=disable"
-      JWT_SECRET: ${JWT_SECRET}
-      AUTH_SECRET: ${AUTH_SECRET}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
   caddy:
     image: caddy:2-alpine
     ports:
@@ -51,7 +37,7 @@ services:
     depends_on:
       - frontend
       - cpp_backend
-      - ml_backend
+      - py_backend
 
   postgres:
     image: postgres:15-trixie

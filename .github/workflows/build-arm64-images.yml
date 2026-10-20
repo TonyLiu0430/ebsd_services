@@ -27,14 +27,10 @@ jobs:
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             image: ebsd-services-frontend
-          - service: go_backend
-            context: ./go_backend
-            dockerfile: ./go_backend/Dockerfile
-            image: ebsd-services-go-backend
-          - service: ml_backend
+          - service: py_backend
             context: .
-            dockerfile: ./ML_backend/Dockerfile
-            image: ebsd-services-ml-backend
+            dockerfile: ./py_backend/Dockerfile
+            image: ebsd-services-py-backend
           - service: cpp_backend
             context: ./cpp_backend
             dockerfile: ./cpp_backend/Dockerfile

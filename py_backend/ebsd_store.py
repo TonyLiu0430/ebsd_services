@@ -1,9 +1,6 @@
 import hashlib
-import json
 import os
 import uuid
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, Optional, Tuple
 
@@ -28,7 +25,6 @@ from sqlalchemy.orm import Session, declarative_base, deferred, relationship, se
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-GO_BACKEND_URL = os.getenv("GO_BACKEND_URL", "http://go_backend:8080").rstrip("/")
 
 if not DATABASE_URL:
     libpq_dsn = os.getenv("DATABASE_CONNECTION_STRING", "")
@@ -300,40 +296,6 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
-
-def _json_request(url: str, cookie_header: str) -> Dict[str, Any]:
-    req = urllib.request.Request(url, headers={"Cookie": cookie_header})
-    with urllib.request.urlopen(req, timeout=5) as res:
-        return json.loads(res.read().decode("utf-8"))
-
-
-def current_user_from_go_session(request: Request) -> Dict[str, str]:
-    cookie_header = request.headers.get("cookie", "")
-    if not cookie_header:
-        raise HTTPException(status_code=401, detail="not logged in")
-
-    urls = [f"{GO_BACKEND_URL}/user/check"]
-    if GO_BACKEND_URL != "http://127.0.0.1:8051":
-        urls.append("http://127.0.0.1:8051/user/check")
-
-    last_error: Optional[Exception] = None
-    for url in urls:
-        try:
-            data = _json_request(url, cookie_header)
-            user = data.get("user", {})
-            user_id = str(user.get("id", ""))
-            username = str(user.get("username", ""))
-            if user_id:
-                return {"id": user_id, "username": username}
-        except urllib.error.HTTPError as exc:
-            if exc.code == 401:
-                raise HTTPException(status_code=401, detail="not logged in")
-            last_error = exc
-        except Exception as exc:
-            last_error = exc
-
-    raise HTTPException(status_code=503, detail=f"auth service unavailable: {last_error}")
 
 
 async def read_upload(upload: UploadFile, expected_extension: str) -> Tuple[bytes, str]:

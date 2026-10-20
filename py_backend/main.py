@@ -33,7 +33,6 @@ from ebsd_store import (
     EbsdPair,
     UserEbsdTarget,
     UserEbsdPair,
-    current_user_from_go_session,
     get_db,
     get_or_create_ebsd_file,
     get_or_create_pair,
@@ -43,11 +42,13 @@ from ebsd_store import (
     upsert_user_target,
     create_user_pair,
 )
+from auth import current_user, router as auth_router, validate_auth_config
 from template_ppt_report import build_pptx_report
 from python_ebsd_figures import RawRgbMap, generate_python_scan_figures
 from sqlalchemy import func, select
 
 app = FastAPI()
+app.include_router(auth_router)
 
 CPP_BACKEND_URL = os.getenv("CPP_BACKEND_URL", "http://cpp_backend:8080").rstrip("/")
 CPP_BACKEND_TIMEOUT_SECONDS = int(os.getenv("CPP_BACKEND_TIMEOUT_SECONDS", "180"))
@@ -199,6 +200,7 @@ def cleanup_orphan_pair_and_files(db: Session, pair: EbsdPair) -> Dict[str, int]
 
 @app.on_event("startup")
 def startup():
+    validate_auth_config()
     init_db()
     clear_ppt_job_storage()
     start_ppt_job_cleanup()
@@ -353,7 +355,7 @@ def ebsd_features():
 
 @app.get('/ebsd/targets')
 def list_ebsd_targets(request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     target_rows = db.execute(
         select(UserEbsdTarget)
         .where(UserEbsdTarget.user_id == user["id"])
@@ -482,7 +484,7 @@ def serialize_user_pair_metadata(row: UserEbsdPair) -> Dict[str, Any]:
 
 @app.get('/ebsd/library/summary')
 def get_ebsd_library_summary(request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     target_rows = db.execute(
         select(UserEbsdTarget)
         .where(UserEbsdTarget.user_id == user["id"])
@@ -581,7 +583,7 @@ async def create_ebsd_target(
     name: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     target, created = upsert_user_target(db, user["id"], name)
     db.commit()
     return {
@@ -608,7 +610,7 @@ async def save_ebsd_pair(
     version_num: Optional[int] = Form(None),
     db: Session = Depends(get_db),
 ):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     if ebsd is not None:
         filename = ebsd.filename or ""
         extension = os.path.splitext(filename)[1].lower()
@@ -682,7 +684,7 @@ def list_ebsd_pairs(request: Request, db: Session = Depends(get_db)):
 
 @app.get('/ebsd/pairs/metadata')
 def list_ebsd_pair_metadata(request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     rows = db.execute(
         _user_pair_metadata_query(user["id"])
         .order_by(UserEbsdPair.created_at.desc())
@@ -698,7 +700,7 @@ def get_ebsd_pair_file(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     row = db.execute(
         select(UserEbsdPair).where(
             UserEbsdPair.id == user_pair_id,
@@ -729,7 +731,7 @@ def get_ebsd_pair_file(
 
 @app.delete('/ebsd/pairs/{user_pair_id}')
 def delete_ebsd_pair(user_pair_id: str, request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     row = db.execute(
         select(UserEbsdPair).where(
             UserEbsdPair.id == user_pair_id,
@@ -749,7 +751,7 @@ def delete_ebsd_pair(user_pair_id: str, request: Request, db: Session = Depends(
 
 @app.delete('/ebsd/targets/{target_name}')
 def delete_ebsd_target(target_name: str, request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     clean_target, _, _, _ = resolve_retest_version(target_name)
 
     pair_rows = db.execute(
@@ -1114,7 +1116,7 @@ def get_ebsd_pair_ipf_map(
     include_scale_bar: bool = True,
     db: Session = Depends(get_db),
 ):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     row = db.execute(
         select(UserEbsdPair).where(
             UserEbsdPair.id == user_pair_id,
@@ -1140,13 +1142,13 @@ def get_ebsd_pair_ipf_map(
 
 @app.get('/ebsd/ipf_legend')
 def get_ebsd_ipf_legend(request: Request):
-    current_user_from_go_session(request)
+    current_user(request)
     return Response(content=cpp_ipf_legend(), media_type="image/png")
 
 
 @app.get('/ebsd/pairs/{user_pair_id}/ipf_legend')
 def get_ebsd_pair_ipf_legend(user_pair_id: str, request: Request, db: Session = Depends(get_db)):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     row = db.execute(
         select(UserEbsdPair).where(
             UserEbsdPair.id == user_pair_id,
@@ -1195,7 +1197,7 @@ def collect_report_data(
     if golden_sample and selected_sample == golden_sample:
         raise HTTPException(status_code=400, detail="sample and golden must be different")
 
-    user = user or current_user_from_go_session(request)
+    user = user or current_user(request)
     rows = db.execute(
         select(UserEbsdPair)
         .where(UserEbsdPair.user_id == user["id"])
@@ -1545,7 +1547,7 @@ def get_owned_ppt_job(job_id: str, user_id: str) -> PptJob:
 
 @app.post('/reports/pptx', status_code=202)
 def create_ppt_report_job(req: ReportPptRequest, request: Request):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     cleanup_ppt_jobs()
     now = datetime.now().timestamp()
     with PPT_JOBS_LOCK:
@@ -1559,14 +1561,14 @@ def create_ppt_report_job(req: ReportPptRequest, request: Request):
 
 @app.get('/reports/pptx/{job_id}')
 def get_ppt_report_job(job_id: str, request: Request):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     cleanup_ppt_jobs()
     return ppt_job_payload(get_owned_ppt_job(job_id, user["id"]))
 
 
 @app.get('/reports/pptx/{job_id}/download')
 def download_ppt_report_job(job_id: str, request: Request):
-    user = current_user_from_go_session(request)
+    user = current_user(request)
     cleanup_ppt_jobs()
     job = get_owned_ppt_job(job_id, user["id"])
     with PPT_JOBS_LOCK:

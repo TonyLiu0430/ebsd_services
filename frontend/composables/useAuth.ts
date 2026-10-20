@@ -14,7 +14,7 @@ export function useAuth() {
   async function refreshUser(force = false) {
     if (checked.value && !force) return user.value
     try {
-      const res = await $fetch<CheckResponse>('/goapi/user/check', {
+      const res = await $fetch<CheckResponse>('/api/user/check', {
         credentials: 'include'
       })
       user.value = res.user
@@ -28,7 +28,7 @@ export function useAuth() {
 
   async function logout() {
     try {
-      await $fetch('/goapi/user/logout', {
+      await $fetch('/api/user/logout', {
         method: 'POST',
         credentials: 'include'
       })

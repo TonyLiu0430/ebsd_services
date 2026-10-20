@@ -1,151 +1,212 @@
-# Run
+# EBSD 分析與自動化報表系統
 
-```bash
-docker compose up --build
+本系統用於集中保存 EBSD 掃描資料、查看各位置的分析結果，並輸出 PowerPoint 報表。系統可在一台主機上執行，其他電腦透過瀏覽器連線使用。
+
+使用者不需要安裝 Docker、Python 或其他開發工具，只需使用 Chrome、Edge 等現代瀏覽器開啟已部署的系統網址。
+
+## 快速開始
+
+1. 開啟已部署的系統網址。
+2. 在「登入」頁輸入使用者名稱與密碼，再按「登入」。第一次使用可按「註冊」，依欄位提示建立帳號。
+3. 進入「檔案庫」，先在「新增靶材名稱」輸入名稱並按「新增」。
+4. 在「新增位置掃描檔」選擇靶材、版本、位置及 EBSD 格式。
+5. 選取檔案，確認顯示「已就緒」，再按「保存到靶材」。
+6. 進入上方選單的「自動化報表」，選擇分析樣本；需要比較時再選 Golden 樣本。
+7. 按「產生報表」，確認內容後按「輸出 PPT」。
+
+## 可匯入的 EBSD 檔案
+
+系統支援三種格式：
+
+- Oxford CPR + CRC：每個位置需要一個 `.cpr` 和一個 `.crc`。兩個檔案應放在同一資料夾，主檔名必須相同，例如 `A-1.cpr` 與 `A-1.crc`。
+- TSL ANG：每個位置使用一個 `.ang` 檔案。
+- HKL CTF：每個位置使用一個 `.ctf` 檔案。
+
+位置使用類似 Excel 的座標，例如 `A-1`、`B-2`、`AA-12`。單筆上傳時可在「手動位置」輸入；批次匯入時，系統會從檔名判讀位置。
+
+請保留量測儀器輸出的原始檔。系統檔案庫方便分析與資料管理，但不應作為原始實驗資料的唯一備份。
+
+## 上傳單一位置
+
+在「檔案庫」的「新增位置掃描檔」依序操作：
+
+1. 在「選擇靶材」選擇資料歸屬。
+2. 在「版本」選擇既有版本；若為重測資料，可選「新增版本」並填寫版本編號。
+3. 在「手動位置」輸入位置，例如 `A-1`。
+4. 在「EBSD 格式」選擇正確格式。
+5. CPR + CRC 格式需分別按「選擇 .crc」及「選擇 .cpr」；ANG 或 CTF 只需選一個檔案。
+6. 顯示「CPR + CRC 已就緒」、「ANG 已就緒」或「CTF 已就緒」後，按「保存到靶材」。
+
+若選錯檔案，可按「清除」重新選擇。材料分類由系統從檔案內容判定；請在保存後確認畫面顯示的材料是否符合實際樣本。
+
+## 批次匯入資料夾
+
+資料量較多時，可使用「資料夾批次匯入」：
+
+1. 按「點擊或拖曳 EBSD 資料夾」，選取包含掃描檔的資料夾。
+2. 等待系統解析，確認畫面上的靶材數、版本數及掃描組數。
+3. 按「匯入資料夾」。
+
+系統會在所選資料夾及其子資料夾中尋找 `.crc`、`.cpr`、`.ang`、`.ctf`。CPR 與 CRC 依相同路徑及主檔名配對。資料夾名稱結尾若為 `-1`、`-2`、`-3`，會判定為同一靶材的不同版本；沒有數字時視為第 1 版。
+
+匯入前請先整理命名。若解析數量與預期不符，按「清除資料夾」，檢查檔名與資料夾結構後再試，不要在數量不明時直接匯入。
+
+## 查看與管理檔案庫
+
+「目前帳號檔案」只顯示目前登入帳號保存的資料。可使用「靶材篩選」縮小範圍，並查看：
+
+- 每個靶材的位置數、版本數與最後更新時間。
+- 位置矩陣中哪些位置有資料或缺少資料。
+- 「完整位置」及各版本的資料範圍。
+- 展開「檔案明細」後的原始檔名、大小、格式與材料分類。
+
+「移除」會刪除該位置的掃描資料；「刪除靶材」會刪除目前帳號下該靶材的所有掃描資料。執行前請確認名稱、版本與位置，並先確認原始檔另有備份。
+
+## 產生分析報表
+
+進入上方選單的「自動化報表」：
+
+1. 在「分析樣本」選擇要檢視的靶材。
+2. Golden 樣本為選填。不比較基準樣本時，保留「不使用 Golden」，系統會顯示單筆樣本資料。
+3. 需要比較時，選擇與分析樣本相同金屬、但不是同一筆靶材的 Golden 樣本。
+4. 確認畫面顯示的可用或可比對位置數，再按「產生報表」。
+
+也可在「檔案庫概覽」用左鍵選分析樣本、用右鍵指定 Golden。若兩者金屬不同，系統會阻止比較。
+
+報表包含 Grain 粒徑分布、IPF 取向圖、完整位置數據、晶粒取向比例及折線圖。選擇 Golden 後，才會出現兩筆樣本的比較與「特徵分析」。位置標示「缺 Golden」或「未上傳」時，代表該處資料不完整，判讀時應排除或註明。
+
+## 調整與輸出 PPT
+
+產生報表後可依需要調整：
+
+- 左下「Report 版本」：切換分析樣本的版本。
+- 「Grain size 設定」：修改 `Min-grain size (px)` 後按「套用」。
+- Grain 圖表的「設定」：調整直方圖起點與間距。
+- IPF 區塊的「設定」：調整參考方向等選項。
+- 選擇 Golden 後，可勾選分析項目並按「套用分析」。
+
+設定變更後，請等畫面更新完成，再按「輸出 PPT」。瀏覽器會下載 `.pptx` 檔案。PPT 是當次分析結果，不等於原始 EBSD 檔或完整資料庫備份；重要報告與原始檔都應另行保存。
+
+## 常見問題
+
+| 狀況 | 可先嘗試的處理方式 |
+| --- | --- |
+| 網址打不開 | 確認使用裝置與服務主機之間的網路可連線，並檢查主機是否開機、是否休眠、網址是否變更。 |
+| 登入後又回到登入頁 | 重新登入一次。系統更新後，舊登入狀態可能失效，但帳號資料不會因此刪除。 |
+| 無法新增帳號 | 依畫面提示檢查使用者名稱及密碼；使用者名稱只能用英文、數字或底線，密碼不可含空白。 |
+| 「保存到靶材」無法按 | 檢查靶材、版本、位置、格式與必要檔案是否都已選擇。 |
+| CPR + CRC 無法配對 | 確認兩檔位於同一資料夾、主檔名相同，且副檔名分別為 `.cpr`、`.crc`。 |
+| 批次匯入數量不符 | 按「清除資料夾」，檢查重複檔名、缺少配對、位置檔名及版本資料夾名稱。 |
+| 報表無法比較 Golden | 確認分析樣本與 Golden 是相同金屬、不同靶材，且至少有可用位置。 |
+| PPT 長時間未完成 | 不要連續重複點擊；稍候後重新整理、重新產生報表再試。仍失敗時，檢查服務狀態與紀錄。 |
+
+回報問題時，請提供發生時間、使用頁面、操作步驟、畫面錯誤文字、靶材名稱與位置。可附不含密碼及原始機密資料的畫面截圖。請勿傳送 `.env`、登入金鑰或資料庫密碼。
+
+---
+
+## 首次安裝
+
+以下步驟只需在執行服務的主機操作。其他使用者的電腦不需要安裝 Docker。
+
+### 準備主機
+
+- 安裝並啟動 Docker Desktop（Windows）或 Docker Engine（Linux），確認 Docker 設為開機後啟動。
+- 安裝 Python 3。Python 只用來產生第一次啟動所需的設定檔，不需另外安裝任何 Python 套件。
+- 建議先規劃至少 4 核心 CPU、16 GB 記憶體及 40 GB 可用空間。這是部署規劃建議，不是經過壓力測試的最低規格；大量掃描檔與報表需要更多空間。
+- 主機需保持開機並停用自動休眠。其他電腦要透過區域網路連線時，主機位址應固定，且防火牆需允許該網路存取 TCP 80。
+- 將完整專案放在主機本機磁碟的固定資料夾，不要放在暫存資料夾或可能鎖檔的同步磁碟。
+- 第一次建置需要網路下載容器與套件，可能耗時較久。
+
+### 開啟專案資料夾
+
+所有指令都必須在包含 `docker-compose.yml` 的專案資料夾執行。
+
+Windows 可開啟「Windows Terminal」，輸入 `cd`、一個空格，再將專案資料夾從檔案總管拖入視窗。例如：
+
+```text
+cd "C:\Projects\ebsd_services"
 ```
 
-# run with cloudflared tunnel
+按 Enter 後再執行下列指令。路徑中有空格時必須保留雙引號。
+
+### 產生環境設定
+
+先執行：
 
 ```bash
-docker compose --profile tunnel up --build
+python scripts/init_env.py
 ```
 
-# delete volumes
-
-> `down -v` permanently deletes the PostgreSQL volume. Back up the database
-> first and do not use it for a normal restart.
+若 Windows 顯示找不到 `python`，請改用：
 
 ```bash
-docker compose down -v
+py scripts/init_env.py
 ```
 
-# Shared PC / LAN deployment
-
-Use a dedicated always-on PC as the Docker host. Other computers on the same
-LAN access the service through the host PC's IP address, for example
-`http://192.168.1.50`.
-
-## Prerequisites checklist
-
-- [ ] The host is a supported 64-bit Windows or Linux machine with hardware
-      virtualization enabled in BIOS/UEFI.
-- [ ] Docker Desktop (Windows) or Docker Engine (Linux) is installed, running,
-      and configured to start when the host boots.
-- [ ] Docker Compose v2 is available. Confirm with `docker compose version`;
-      the older standalone `docker-compose` command is not required.
-- [ ] The logged-in operator can run `docker version` and
-      `docker compose version` without errors.
-- [ ] Allocate at least 4 CPU cores, 16 GB RAM, and 40 GB free disk space for
-      the first native build, images, uploaded EBSD files, and PostgreSQL data.
-- [ ] The host has a stable LAN address. Reserve its IP in DHCP or configure a
-      static IP so client bookmarks do not change after a reboot.
-- [ ] TCP port 80 is unused and allowed through the host firewall for the local
-      subnet. The application entry point is Caddy on port 80.
-- [ ] Ports 3000, 8000, 8051, and 8080 are not already occupied on the host;
-      the development compose file publishes these service ports as well.
-- [ ] The host and client PCs are on the same reachable LAN/VLAN, and client
-      isolation on the Wi-Fi access point is disabled if wireless clients are
-      used.
-- [ ] The repository is stored on a local disk with enough space, not in a
-      temporary folder or a cloud-sync folder that may lock database files.
-
-## Configure secrets
-
-Copy `.env.example` to `.env` and fill every required value:
-
-```dotenv
-POSTGRES_DB=ebsd
-POSTGRES_USER=ebsd
-POSTGRES_PASSWORD=<long-random-password>
-JWT_SECRET=<long-random-secret>
-AUTH_SECRET=<different-long-random-secret>
-CLOUDFLARE_TUNNEL=
-```
-
-Do not reuse the example values or commit `.env`. `CLOUDFLARE_TUNNEL` may stay
-empty for LAN-only operation. Keep a protected copy of these values; changing
-database credentials later does not automatically update an existing database
-volume.
-
-## First start and verification
-
-From the repository directory on the host:
+若 macOS 或 Linux 顯示找不到 `python`，請改用：
 
 ```bash
-docker compose config
-docker compose up -d --build
+python3 scripts/init_env.py
+```
+
+腳本只使用 Python 內建功能，不需執行 `pip install`。它會產生 `.env`，其中包含隨機資料庫密碼與登入簽章金鑰。若 `.env` 已存在，腳本會保留原檔，不會覆寫，也不會在畫面顯示敏感資訊。
+
+請保護 `.env`，不要以電子郵件、通訊軟體或版本控制分享，也不要在服務已建立後自行更改其中的 `POSTGRES_PASSWORD` 或 `JWT_SECRET`。區域網路 HTTP 使用 `COOKIE_SECURE=false`；只有所有使用者都經 HTTPS 連線時才設為 `true`。`CLOUDFLARE_TUNNEL` 沒有使用遠端通道時保持空白。
+
+### 第一次啟動
+
+```bash
+docker compose up -d --build --remove-orphans
 docker compose ps
-docker compose logs --tail=100 caddy frontend go_backend ml_backend cpp_backend postgres
 ```
 
-All containers should be running and PostgreSQL should report healthy. Find the
-host's LAN IP with `ipconfig` on Windows or `hostname -I` on Linux, then verify:
+第一次建置請耐心等待。`docker compose ps` 應顯示服務正在執行，資料庫狀態應為 healthy。先在主機瀏覽器開啟 `http://localhost`；再由同一區域網路的另一台電腦開啟 `http://主機的區域網路IP` 測試登入、上傳一組小型資料及輸出 PPT。
 
-1. Open `http://localhost` on the host PC.
-2. Open `http://<host-LAN-IP>` from a second PC on the same network.
-3. Sign in, upload a small test EBSD pair, refresh the page, and generate one
-   report to confirm storage and all backends are reachable.
-4. Reboot the host once and confirm Docker starts. Because not every service in
-   this compose file has a restart policy, configure a Windows scheduled task
-   or a Linux systemd unit to run `docker compose up -d` from this repository at
-   boot if the stack does not return automatically.
+### 日常啟停
 
-If localhost works but another PC cannot connect, first check the host IP,
-Windows/Linux firewall rule for TCP 80, network/VLAN isolation, and whether
-another service is already bound to port 80. Do not expose database or backend
-ports to the public Internet.
+正常停止與啟動使用：
 
-## Operations checklist
+```bash
+docker compose stop
+docker compose start
+```
 
-- Use `docker compose stop` and `docker compose start` for routine stops and
-  starts. Do not use `docker compose down -v` unless database deletion is
-  intentional.
-- Review capacity periodically with `docker system df` and ensure the disk does
-  not fill with images, build cache, uploads, or database data.
-- Back up PostgreSQL and the `.env` file before upgrades. Test that the backup
-  can be restored on another machine.
-- Apply OS and Docker security updates during a maintenance window, then rerun
-  the LAN test above.
-- Restrict physical access to the shared host, use named application accounts,
-  disable automatic sleep while the service is expected to be available, and
-  never leave a Docker administrator session unlocked.
-- Use the optional Cloudflare tunnel only when remote access is required. LAN
-  deployment does not require a tunnel, and public access needs a separate
-  security review.
+若主機重開後服務沒有自動恢復，在專案資料夾執行：
 
-# ARM64 images and Coolify deployment
+```bash
+docker compose up -d
+```
 
-Pushing to `main` runs `.github/workflows/build-arm64-images.yml` on native
-ARM64 GitHub-hosted runners. It publishes these images to GHCR with both
-`main` and `sha-<commit>` tags:
+日常啟動不需要 `--build`。請定期確認主機磁碟空間、Docker 狀態及網路連線。
 
-- `ghcr.io/tonyliu0430/ebsd-services-frontend`
-- `ghcr.io/tonyliu0430/ebsd-services-go-backend`
-- `ghcr.io/tonyliu0430/ebsd-services-ml-backend`
-- `ghcr.io/tonyliu0430/ebsd-services-cpp-backend`
+## 資料保存、備份與更新
 
-To make Coolify pull the prebuilt images instead of building them, use:
+資料庫保存在 Docker 的 `pgdata` volume（Docker 管理的持久資料區）。正常重啟不會刪除它。
 
-- Docker Compose location: `/docker-compose.deploy.yml`
-- Custom build command: leave empty
-- Custom start command: `docker compose --profile tunnel up -d`
+絕對不要把以下操作當成一般重啟方式：
 
-`docker-compose.deploy.yml` uses the `main` image tag by default. Set
-`IMAGE_TAG=sha-<full-commit-sha>` in Coolify to deploy or roll back to an exact
-revision.
+- `docker compose down -v`
+- Docker Desktop 的「清除資料」、「Delete volumes」或「Factory reset」
+- 刪除 `.env` 後重新產生，再直接連接原有資料庫
 
-GHCR packages are private when first created. Either make the four packages
-public in GitHub or configure Coolify with GHCR credentials that can read them.
+上述操作可能造成資料遺失或資料庫無法登入。備份與還原需要熟悉 PostgreSQL 與 Docker，應事先規劃、演練並記錄；不要只複製 PPT，因為 PPT 不含完整使用者、原始檔與分析資料。至少應保護原始量測檔、資料庫備份、目前使用的 `.env`，並定期驗證備份可以還原。
 
-For automatic deployment after all four images finish successfully:
+系統更新時，保留同一專案資料夾、原 `.env` 與原 `pgdata` volume，再依版本說明更新程式並執行：
 
-1. Disable the existing GitHub Auto Deploy option in Coolify. Otherwise it can
-   deploy before the new images have finished publishing.
-2. Enable API access in Coolify and create an API token with `deploy`
-   permission.
-3. Copy the application's Deploy Webhook URL.
-4. Add `COOLIFY_TOKEN` and `COOLIFY_WEBHOOK` as GitHub Actions repository
-   secrets.
+```bash
+docker compose up -d --build --remove-orphans
+```
 
-If those two secrets are absent, CI only publishes the images and skips the
-Coolify deployment without failing the workflow.
+Go 後端移轉至 Python 後，既有使用者第一次需重新登入；原帳號、密碼與 EBSD 資料會保留。不要為了更新而重建資料庫的持久資料區。
+
+## 啟動與連線問題
+
+| 狀況 | 檢查方式 |
+| --- | --- |
+| Docker 指令無法執行 | 確認 Docker Desktop／Engine 已啟動，再執行 `docker version`。 |
+| `docker compose ps` 有服務未啟動 | 執行 `docker compose logs --tail=100` 並保存錯誤文字；分享紀錄前遮蔽敏感資訊。 |
+| 主機可開、其他電腦不可開 | 檢查主機的區域網路 IP、防火牆 TCP 80、網路分區、Wi-Fi 用戶隔離及主機休眠。 |
+| 磁碟空間不足 | 暫停大量匯入，檢查主機與 Docker 使用的空間；不要直接清除 volume。 |
+| 更新後仍看到舊服務 | 在專案資料夾執行 `docker compose up -d --build --remove-orphans`。 |
+
+較進階的部署設定請直接查看實際設定檔：[docker-compose.yml](docker-compose.yml)、[docker-compose.deploy.yml](docker-compose.deploy.yml)、[Caddyfile](Caddyfile) 與 [GitHub Actions](.github/workflows/build-arm64-images.yml)。修改正式主機設定前，應先在測試環境驗證。

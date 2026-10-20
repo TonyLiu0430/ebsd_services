@@ -14,7 +14,7 @@ RUN groupadd --system --gid 999 nonroot \
  && useradd --system --gid 999 --uid 999 --create-home nonroot
 
 # Install the project into `/app`
-WORKDIR /app/ML_backend
+WORKDIR /app/py_backend
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
@@ -31,8 +31,8 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 # PyCifRW (pulled in by orix/diffpy-structure on Python 3.9) is built from
 # source, so install and remove the compiler toolchain in the same layer.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=ML_backend/uv.lock,target=uv.lock \
-    --mount=type=bind,source=ML_backend/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=py_backend/uv.lock,target=uv.lock \
+    --mount=type=bind,source=py_backend/pyproject.toml,target=pyproject.toml \
     apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -45,17 +45,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
-COPY ML_backend /app/ML_backend
+COPY py_backend /app/py_backend
 COPY frontend/package.json /app/frontend/package.json
 COPY frontend/utils/chartScale.js /app/frontend/utils/chartScale.js
 COPY frontend/utils/grainChartRenderer.js /app/frontend/utils/grainChartRenderer.js
 COPY frontend/tools/render_grain_charts.mjs /app/frontend/tools/render_grain_charts.mjs
-RUN chmod 0644 /app/ML_backend/assets/ebsd_report_template.pptx
+RUN chmod 0644 /app/py_backend/assets/ebsd_report_template.pptx
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/ML_backend/.venv/bin:$PATH"
+ENV PATH="/app/py_backend/.venv/bin:$PATH"
 
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []

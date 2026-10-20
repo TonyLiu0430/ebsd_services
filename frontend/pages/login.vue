@@ -30,7 +30,7 @@
           style="width: 240px"
           class="mt-4"
           type="password"
-          maxlength="100"
+          maxlength="72"
           :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
           placeholder="密碼"
           show-password
@@ -97,7 +97,7 @@ async function submit() {
   }
 
   try {
-    const path = mode.value === 'login' ? '/goapi/user/login' : '/goapi/user/register'
+    const path = mode.value === 'login' ? '/api/user/login' : '/api/user/register'
     const res = await $fetch<CheckResponse>(path, {
       method: 'POST',
       credentials: 'include',
@@ -134,7 +134,7 @@ const passwordError = computed(() => {
   if (!password.value) return '請輸入密碼'
   if (/\s/.test(password.value)) return '密碼不能包含空白'
   if (password.value.length < 4) return '密碼至少需要 4 個字元'
-  if (password.value.length > 100) return '密碼不能超過 100 個字元'
+  if (new TextEncoder().encode(password.value).length > 72) return '密碼不能超過 72 位元組'
   return ''
 })
 

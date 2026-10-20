@@ -11,8 +11,7 @@ export default defineNuxtConfig({
   },
   nitro: {
     routeRules: {
-      '/api/**': { proxy: 'http://127.0.0.1:8000/**' },
-      '/goapi/**': { proxy: 'http://127.0.0.1:8051/**' }
+      '/api/**': { proxy: 'http://127.0.0.1:8000/**' }
     }
   }
 })

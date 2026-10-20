@@ -5,13 +5,10 @@
     }
 
 	handle_path /api/* {
-		reverse_proxy ml_backend:8000
+		reverse_proxy py_backend:8000
 	}
 	handle_path /cppapi/* {
 		reverse_proxy cpp_backend:8080
-	}
-	handle_path /goapi/* {
-		reverse_proxy go_backend:8080
 	}
 	handle {
 		reverse_proxy frontend:3000

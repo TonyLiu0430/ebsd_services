@@ -1,5 +1,5 @@
 [project]
-name = "ml-backend"
+name = "py-backend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -22,4 +22,9 @@ dependencies = [
     "setuptools>=68,<80.9",
     "sqlalchemy>=2.0.45",
     "uvicorn>=0.39.0",
+    "bcrypt>=4.2,<5",
+    "pyjwt>=2.10,<3",
 ]
+
+[dependency-groups]
+dev = []

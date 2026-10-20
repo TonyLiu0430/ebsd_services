@@ -214,6 +214,16 @@ networkingMode=mirrored
 
 mDNS 只適用於同一個區域網路廣播範圍，且使用端作業系統必須支援 `.local` 名稱解析。它不能跨越一般路由器或網路分區，也不會提供固定 IP。`.local` 是區域網路名稱，不是公開網域，無法用來申請公開的 Let's Encrypt 憑證。
 
+在執行 WSL 與 Docker 的同一台 Windows 主機上，請直接開啟 `http://localhost`；請從另一台位於相同區域網路的裝置測試 `http://ebsd.local`。同一台主機在 mirrored networking 下的 mDNS 名稱解析及區域網路 IP 回送行為可能與其他裝置不同，因此本機無法開啟 `.local`，不能單獨證明其他裝置一定失敗或成功。
+
+若部署主機本身也需要使用 `http://ebsd.local`，可用系統管理員權限編輯 Windows 的 `C:\Windows\System32\drivers\etc\hosts`，加入僅供該主機使用的對應：
+
+```text
+127.0.0.1 ebsd.local
+```
+
+此設定只適用於部署主機，不要在其他用戶端把 `ebsd.local` 指向 `127.0.0.1`。它不需要更改 WSL 網路模式、路由器、公開 DNS 或固定區域網路 IP。
+
 ### 日常啟停
 
 正常停止與啟動使用：
@@ -260,6 +270,16 @@ Go 後端移轉至 Python 後，既有使用者第一次需重新登入；原帳
 | 主機可開、其他電腦不可開 | 檢查主機的區域網路 IP、防火牆 TCP 80、網路分區、Wi-Fi 用戶隔離及主機休眠。 |
 | 磁碟空間不足 | 暫停大量匯入，檢查主機與 Docker 使用的空間；不要直接清除 volume。 |
 | 更新後仍看到舊服務 | 在專案資料夾執行 `docker compose up -d --build --remove-orphans`。 |
+| Avahi 建置顯示 `temporary error` 或 `no such package` | 先確認前面是否有 APKINDEX 下載失敗；這通常是建置時的網路問題，不代表套件不存在。依下方指令只重試 Avahi。 |
+
+Avahi 網路恢復後可單獨重新建置並啟動：
+
+```bash
+docker compose --profile mdns build avahi
+docker compose --profile mdns up -d avahi
+```
+
+若 APKINDEX 仍無法下載，請檢查 WSL 對外的 DNS、HTTPS 連線及代理伺服器設定。
 
 較進階的部署設定請直接查看實際設定檔：[docker-compose.yml](docker-compose.yml)、[docker-compose.deploy.yml](docker-compose.deploy.yml)、[Caddyfile](Caddyfile) 與 [GitHub Actions](.github/workflows/build-arm64-images.yml)。修改正式主機設定前，應先在測試環境驗證。
 

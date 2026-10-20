@@ -68,6 +68,7 @@ services:
   avahi:
     build:
       context: ./avahi
+      network: host # apk 下載套件時使用主機網路
     network_mode: host
     environment:
       MDNS_HOSTNAME: ${MDNS_HOSTNAME:-ebsd}

@@ -6,7 +6,7 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "preview": "nuxt preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test ../shared/charts/tests/*.test.mjs tests/*.test.mjs"
   },
   "dependencies": {
     "nuxt": "^3.14.0",

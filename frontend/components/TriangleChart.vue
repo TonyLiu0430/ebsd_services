@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { roundUpToNearestTen } from '~/utils/chartScale'
+import { roundUpToNearestTen } from '@ebsd/charts'
 
 /**
  * IPF-style triangle radar chart (SVG).

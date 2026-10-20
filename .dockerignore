@@ -8,6 +8,16 @@
 **/.nuxt/
 **/.output/
 **/__pycache__/
+**/dist/
+**/coverage/
+**/.cache/
+**/.idea/
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 cpp_backend/build/
 cpp_backend/vcpkg_installed/
 *.log

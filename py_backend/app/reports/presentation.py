@@ -27,8 +27,8 @@ from pptx.util import Inches, Pt
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 ASSET_DIR = PROJECT_DIR / "assets"
 MANIFEST_PATH = ASSET_DIR / "ebsd_report_template.json"
-FRONTEND_CHART_RENDERER = (
-    PROJECT_DIR.parent / "frontend" / "tools" / "render_grain_charts.mjs"
+SHARED_CHART_RENDERER = (
+    PROJECT_DIR.parent / "shared" / "charts" / "bin" / "render-grain-charts.mjs"
 )
 FONT_FACE = "Arial"
 INK = RGBColor(0, 0, 0)
@@ -636,7 +636,7 @@ def _add_ratio_table(slide, item: Dict[str, Any], deviation: str, left: float, t
         value_cell.fill.fore_color.rgb = RGBColor(235, 247, 251)
 
 
-def _frontend_charts(
+def _shared_charts(
     charts: Sequence[Dict[str, Any]],
     *,
     shared_x_max: bool = False,
@@ -644,8 +644,8 @@ def _frontend_charts(
     result_metadata: Optional[Dict[str, Any]] = None,
 ) -> List[bytes]:
     """Render PPT charts with the exact JavaScript renderer used by Vue."""
-    if not FRONTEND_CHART_RENDERER.is_file():
-        raise RuntimeError(f"Frontend chart renderer not found: {FRONTEND_CHART_RENDERER}")
+    if not SHARED_CHART_RENDERER.is_file():
+        raise RuntimeError(f"Shared chart renderer not found: {SHARED_CHART_RENDERER}")
     request = json.dumps(
         {
             "charts": list(charts),
@@ -656,7 +656,7 @@ def _frontend_charts(
     )
     try:
         process = subprocess.run(
-            ["node", str(FRONTEND_CHART_RENDERER)],
+            ["node", str(SHARED_CHART_RENDERER)],
             input=request,
             text=True,
             capture_output=True,
@@ -665,21 +665,21 @@ def _frontend_charts(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)
-        raise RuntimeError(f"V8 frontend chart rendering failed: {detail}") from exc
+        raise RuntimeError(f"V8 shared chart rendering failed: {detail}") from exc
     response = json.loads(process.stdout)
     if result_metadata is not None:
         result_metadata.update(response)
     rendered = response.get("charts", [])
     if len(rendered) != len(charts):
-        raise RuntimeError("V8 frontend chart renderer returned an unexpected chart count")
+        raise RuntimeError("V8 shared chart renderer returned an unexpected chart count")
     return [
         cairosvg.svg2png(bytestring=item["svg"].encode("utf-8"), output_width=1000)
         for item in rendered
     ]
 
 
-def _frontend_distribution_charts(charts: Sequence[Dict[str, Any]]) -> List[bytes]:
-    return _frontend_charts(charts, shared_x_max=True, shared_y_max=True)
+def _shared_distribution_charts(charts: Sequence[Dict[str, Any]]) -> List[bytes]:
+    return _shared_charts(charts, shared_x_max=True, shared_y_max=True)
 
 
 def _add_microstructure_page(deck: TemplateDeck, sample: str, position: str, images: Dict[str, Any], reanalysis: bool) -> None:
@@ -687,7 +687,7 @@ def _add_microstructure_page(deck: TemplateDeck, sample: str, position: str, ima
         return
     slide = deck.add_slide("", kind="generic")
     _set_scan_title(deck, slide, sample, position, reanalysis)
-    kam_chart, gos_chart = _frontend_distribution_charts(
+    kam_chart, gos_chart = _shared_distribution_charts(
         [
             {
                 "sample": images.get("kam_values", []),
@@ -761,7 +761,7 @@ def _add_scan_point_pages(
         _add_captioned_picture(overview, "Grain size (D)", images.get("grain_map"), 4.10, 0.65, 3.55, 2.45)
         grains = _finite(item.get("grains"))
         histogram_edges = _histogram_edges(grains, histogram_settings)
-        histogram = _frontend_charts(
+        histogram = _shared_charts(
             [
                 {
                     "sample": grains,
@@ -1060,7 +1060,7 @@ def _add_grain_chart_pages(
                     "fontScale": chart_font_scale,
                 }
             )
-    charts = _frontend_charts(
+    charts = _shared_charts(
         chart_requests,
         shared_y_max=chart_mode != "cdf",
     )

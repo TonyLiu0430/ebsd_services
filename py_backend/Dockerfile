@@ -1,4 +1,4 @@
-# Node 24 is the active LTS V8 runtime used by the shared frontend chart renderer.
+# Node 24 is the active LTS V8 runtime used by the shared chart renderer.
 FROM node:24-bookworm-slim AS node_runtime
 
 # Use a Python image with uv pre-installed
@@ -7,7 +7,7 @@ FROM ghcr.io/astral-sh/uv:0.9.30-python3.9-bookworm-slim
 COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
 
 # Build this Dockerfile from the repository root so the backend can execute the
-# same JavaScript chart renderer as the Nuxt frontend.
+# same framework-independent JavaScript chart renderer as the Nuxt frontend.
 
 # Setup a non-root user
 RUN groupadd --system --gid 999 nonroot \
@@ -46,10 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
 COPY py_backend /app/py_backend
-COPY frontend/package.json /app/frontend/package.json
-COPY frontend/utils/chartScale.js /app/frontend/utils/chartScale.js
-COPY frontend/utils/grainChartRenderer.js /app/frontend/utils/grainChartRenderer.js
-COPY frontend/tools/render_grain_charts.mjs /app/frontend/tools/render_grain_charts.mjs
+COPY shared/charts /app/shared/charts
 RUN chmod 0644 /app/py_backend/assets/ebsd_report_template.pptx
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked

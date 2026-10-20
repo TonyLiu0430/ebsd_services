@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - service: frontend
-            context: ./frontend
+            context: .
             dockerfile: ./frontend/Dockerfile
             image: ebsd-services-frontend
           - service: py_backend

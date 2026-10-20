@@ -17,8 +17,8 @@ from app.analysis.figures import (
 from app.reports.presentation import (
     _deviation_legend,
     _excel_column,
-    _frontend_charts,
-    _frontend_distribution_charts,
+    _shared_charts,
+    _shared_distribution_charts,
     _histogram_edges,
     _label_stride,
     _nice_percent_max,
@@ -56,8 +56,8 @@ def _scan_images() -> dict:
 
 
 class ScanPointPageTests(unittest.TestCase):
-    def test_distributions_are_rendered_by_shared_frontend_v8_code(self) -> None:
-        charts = _frontend_distribution_charts(
+    def test_distributions_are_rendered_by_shared_chart_code(self) -> None:
+        charts = _shared_distribution_charts(
             [
                 {
                     "sample": [0.35, 0.52, 0.71, 1.15, 1.42, 2.05],
@@ -175,7 +175,7 @@ class ScanPointPageTests(unittest.TestCase):
             }
 
         with patch(
-            "app.reports.presentation._frontend_charts",
+            "app.reports.presentation._shared_charts",
             side_effect=lambda charts, **_: [_test_png()] * len(charts),
         ), patch(
             "app.reports.presentation._triangle_chart", return_value=io.BytesIO(_test_png())
@@ -343,7 +343,7 @@ class ReportAnnotationTests(unittest.TestCase):
             "canvasAspectRatio": 2.0,
             "fontScale": 1.7,
         }
-        charts = _frontend_charts(
+        charts = _shared_charts(
             [
                 {**common, "showXAxis": True, "showYAxis": True},
                 {**common, "showXAxis": False, "showYAxis": False},
@@ -352,10 +352,10 @@ class ReportAnnotationTests(unittest.TestCase):
         sizes = [Image.open(io.BytesIO(chart)).size for chart in charts]
         self.assertEqual(sizes[0], sizes[1])
 
-    def test_frontend_v8_rounds_the_whole_page_peak_up_to_tens(self) -> None:
+    def test_shared_v8_rounds_the_whole_page_peak_up_to_tens(self) -> None:
         values = [5.0] * 43 + [15.0 + 10.0 * (index % 19) for index in range(57)]
         metadata = {}
-        _frontend_charts(
+        _shared_charts(
             [
                 {
                     "sample": values,
@@ -481,7 +481,7 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
             ipf_images = {position: image for position in snapshot}
             placeholder = io.BytesIO(image)
             with patch(
-                "app.reports.presentation._frontend_charts",
+                "app.reports.presentation._shared_charts",
                 side_effect=lambda charts, **_: [image] * len(charts),
             ), patch(
                 "app.reports.presentation._triangle_chart", return_value=placeholder
@@ -536,7 +536,7 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         snapshot = self._snapshot(3, 3)
         placeholder = io.BytesIO(image)
         with patch(
-            "app.reports.presentation._frontend_charts",
+            "app.reports.presentation._shared_charts",
             side_effect=lambda charts, **_: [image] * len(charts),
         ), patch(
             "app.reports.presentation._triangle_chart", return_value=placeholder
@@ -567,7 +567,7 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
         snapshot = self._snapshot(1, 1)
         placeholder = io.BytesIO(image)
         with patch(
-            "app.reports.presentation._frontend_charts",
+            "app.reports.presentation._shared_charts",
             side_effect=lambda charts, **_: [image] * len(charts),
         ), patch(
             "app.reports.presentation._triangle_chart", return_value=placeholder
@@ -610,7 +610,7 @@ class ResponsiveMatrixLayoutTests(unittest.TestCase):
             captured.extend(charts)
             return [image] * len(charts)
 
-        with patch("app.reports.presentation._frontend_charts", side_effect=render), patch(
+        with patch("app.reports.presentation._shared_charts", side_effect=render), patch(
             "app.reports.presentation._triangle_chart", return_value=io.BytesIO(image)
         ), patch("app.reports.presentation._line_chart", return_value=io.BytesIO(image)):
             build_pptx_report(

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { roundUpToNearestTen } from '../utils/chartScale.js'
+import { roundUpToNearestTen } from '../src/chartScale.js'
 
 test('rounds the page maximum to tens without adding headroom', () => {
   assert.equal(roundUpToNearestTen(0), 10)

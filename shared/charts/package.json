@@ -1,0 +1,9 @@
+{
+  "name": "@ebsd/charts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./batch": "./src/batchRenderer.js"
+  }
+}

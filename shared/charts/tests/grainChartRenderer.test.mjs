@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { renderGrainChartSvg } from '../utils/grainChartRenderer.js'
+import { renderGrainChartSvg } from '../src/grainChartRenderer.js'
 
 test('keeps the scaled Ratio label inside the left SVG edge', () => {
   const svg = renderGrainChartSvg({

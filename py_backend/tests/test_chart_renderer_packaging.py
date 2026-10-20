@@ -1,5 +1,4 @@
 import json
-import re
 import shutil
 import subprocess
 import tempfile
@@ -14,25 +13,15 @@ DOCKERFILE = REPOSITORY_ROOT / "py_backend" / "Dockerfile"
 class ChartRendererPackagingTests(unittest.TestCase):
     def test_dockerfile_chart_bundle_runs_without_repository_files(self) -> None:
         dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-        copied_frontend_files = re.findall(
-            r"^COPY (frontend/\S+) (/app/frontend/\S+)$",
-            dockerfile,
-            flags=re.MULTILINE,
-        )
-        self.assertIn(
-            ("frontend/utils/chartScale.js", "/app/frontend/utils/chartScale.js"),
-            copied_frontend_files,
-        )
+        self.assertIn("COPY shared/charts /app/shared/charts", dockerfile)
+        self.assertNotIn("COPY frontend/", dockerfile)
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             app_root = Path(temporary_directory) / "app"
-            for source, destination in copied_frontend_files:
-                target = app_root / destination.removeprefix("/app/")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(REPOSITORY_ROOT / source, target)
+            shutil.copytree(REPOSITORY_ROOT / "shared" / "charts", app_root / "shared" / "charts")
 
             process = subprocess.run(
-                ["node", str(app_root / "frontend/tools/render_grain_charts.mjs")],
+                ["node", str(app_root / "shared/charts/bin/render-grain-charts.mjs")],
                 input=json.dumps(
                     {
                         "charts": [

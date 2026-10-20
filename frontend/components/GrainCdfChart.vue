@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { renderGrainChartSvg } from '~/utils/grainChartRenderer.js'
+import { renderGrainChartSvg } from '@ebsd/charts'
 
 const props = withDefaults(defineProps<{
   sample: number[]

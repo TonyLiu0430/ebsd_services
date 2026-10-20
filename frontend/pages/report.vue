@@ -920,7 +920,7 @@
 
 <script setup lang="ts">
 import type { PositionMatrix } from '~/utils/positions'
-import { roundUpToNearestTen } from '~/utils/chartScale'
+import { roundUpToNearestTen } from '@ebsd/charts'
 import { buildPositionMatrix, comparePositions, parsePosition, positionKey } from '~/utils/positions'
 
 definePageMeta({

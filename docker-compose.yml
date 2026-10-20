@@ -23,7 +23,9 @@ services:
       - "8080:8080"
 
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "3000:3000"
 

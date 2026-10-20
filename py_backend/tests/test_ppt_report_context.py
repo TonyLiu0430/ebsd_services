@@ -30,7 +30,7 @@ class PptReportContextTests(unittest.TestCase):
     @patch("app.services.reports.cpp_ipf_map", return_value=b"ipf")
     @patch("app.services.reports.cpp_features")
     @patch("app.services.reports.collect_report_data")
-    def test_frontend_report_settings_are_forwarded_to_the_ppt_context(
+    def test_shared_report_settings_are_forwarded_to_the_ppt_context(
         self,
         collect_report_data,
         cpp_features,

@@ -18,9 +18,12 @@ assets/                  # 報告範本
 tests/                   # 單元與整合測試
 tools/                   # 範本與視覺比對維護工具
 typings/                 # 第三方套件型別補充
+../shared/charts/        # 前端與 PowerPoint 共用的粒徑分布圖表
 ```
 
 API 路由只處理 HTTP 輸入與輸出；資料庫、外部 C++ 服務、報告工作和分析程式分別放在對應模組，避免功能互相循環引用。
+
+粒徑 CDF、直方圖及座標尺度由 `shared/charts` 單一實作提供給 Vue 與 PowerPoint 報表。前端與 Python 後端映像應使用相同 Git 版本；三角圖和其他折線圖仍依各自版面需求維護。
 
 ## 本機啟動
 
